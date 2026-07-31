@@ -1,0 +1,174 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  CornerUpLeft,
+  Copy,
+  StickyNote,
+  Trash2,
+} from "lucide-react";
+import { useConversationStore } from "@/store/conversationStore";
+import { useUIStore } from "@/store/uiStore";
+import { cn } from "@/lib/utils";
+import type { Message } from "@/types";
+
+interface MessageContextMenuProps {
+  message: Message;
+  conversationId: string;
+  x: number;
+  y: number;
+  onClose: () => void;
+}
+
+interface MenuItemProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick?: () => void;
+  destructive?: boolean;
+}
+
+function MenuItem({ icon: Icon, label, onClick, destructive }: MenuItemProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors",
+        destructive
+          ? "text-red-400 hover:bg-red-500/10"
+          : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+      )}
+    >
+      <Icon className="w-4 h-4 shrink-0 text-[var(--color-text-secondary)]" />
+      <span className="flex-1 truncate">{label}</span>
+    </button>
+  );
+}
+
+export function MessageContextMenu({
+  message,
+  conversationId,
+  x,
+  y,
+  onClose,
+}: MessageContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x, y });
+
+  const deleteMessage = useConversationStore((s) => s.deleteMessage);
+  const setReplyToMessage = useUIStore((s) => s.setReplyToMessage);
+  const setNoteAboutMessage = useUIStore((s) => s.setNoteAboutMessage);
+  const showToast = useUIStore((s) => s.showToast);
+  const replyToMessage = useUIStore((s) => s.replyToMessage);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+
+    const rect = menu.getBoundingClientRect();
+    const padding = 8;
+    let nextX = x;
+    let nextY = y;
+
+    if (nextX + rect.width > window.innerWidth - padding) {
+      nextX = window.innerWidth - rect.width - padding;
+    }
+    if (nextY + rect.height > window.innerHeight - padding) {
+      nextY = window.innerHeight - rect.height - padding;
+    }
+
+    setPosition({
+      x: Math.max(padding, nextX),
+      y: Math.max(padding, nextY),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+
+    function handlePointerDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [onClose]);
+
+  const runAction = (action: () => void) => {
+    action();
+    onClose();
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Mensaje copiado");
+    } catch {
+      showToast("No se pudo copiar al portapapeles");
+    }
+  };
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[100] min-w-[240px] rounded-lg border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] py-1 shadow-xl animate-fade-in"
+      style={{ left: position.x, top: position.y }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <MenuItem
+        icon={CornerUpLeft}
+        label="Responder a este mensaje"
+        onClick={() =>
+          runAction(() => {
+            setNoteAboutMessage(null);
+            setReplyToMessage(message);
+          })
+        }
+      />
+      <MenuItem
+        icon={Copy}
+        label="Copiar"
+        onClick={() =>
+          runAction(() => {
+            void copyToClipboard(message.content);
+          })
+        }
+      />
+      <MenuItem
+        icon={StickyNote}
+        label="Añadir nota privada"
+        onClick={() =>
+          runAction(() => {
+            setReplyToMessage(null);
+            setNoteAboutMessage(message);
+          })
+        }
+      />
+
+      <div className="my-1 h-px bg-[var(--color-border-primary)]" />
+
+      <MenuItem
+        icon={Trash2}
+        label="Eliminar"
+        destructive
+        onClick={() =>
+          runAction(() => {
+            deleteMessage(conversationId, message.id);
+            if (replyToMessage?.id === message.id) {
+              setReplyToMessage(null);
+            }
+            showToast("Mensaje eliminado");
+          })
+        }
+      />
+    </div>,
+    document.body
+  );
+}

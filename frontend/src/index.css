@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  --sidebar-bg: #2e2e2e;
+  --sidebar-item: #878a92;
+  --sidebar-item-active: #ffffff;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-separator: #404040;
+
+  --color-bg-primary: #f6f6f9;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #f0f0f3;
+  --color-bg-hover: #eaeaef;
+  --color-border-primary: #eaeaf1;
+  --color-border-secondary: #dfe0e5;
+  --color-text-primary: #495057;
+  --color-text-secondary: #797c8c;
+  --color-text-muted: #adb5bd;
+  --color-brand: #4eac6d;
+  --color-brand-light: #3e8a57;
+  --color-brand-bg: rgba(78, 172, 109, 0.12);
+  --color-success: #06d6a0;
+  --color-warning: #ffd166;
+  --color-danger: #ef476f;
+  --color-bubble-in: #e9ecef;
+  --color-bubble-out: #4eac6d;
+  --color-note-bg: #fff8e1;
+  --color-note-border: #ffd54f;
+  --color-note-text: #795548;
+  --color-note-time: #a1887f;
+}
+
+.dark {
+  --color-bg-primary: #2e2e2e;
+  --color-bg-secondary: #262626;
+  --color-bg-tertiary: #383838;
+  --color-bg-hover: #333333;
+  --color-border-primary: #3d3d3d;
+  --color-border-secondary: #4a4a4a;
+  --color-text-primary: #e9ecef;
+  --color-text-secondary: #9599a6;
+  --color-text-muted: #676b74;
+  --color-brand: #4eac6d;
+  --color-brand-light: #5cbf85;
+  --color-brand-bg: rgba(78, 172, 109, 0.14);
+  --color-success: #06d6a0;
+  --color-warning: #ffd166;
+  --color-danger: #ef476f;
+  --color-bubble-in: #383838;
+  --color-bubble-out: #4eac6d;
+  --color-note-bg: #3a3518;
+  --color-note-border: #a68a2e;
+  --color-note-text: #ffd54f;
+  --color-note-time: #a68a2e;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-primary) transparent;
+}
+
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 200ms ease-out;
+}
+
+.animate-bounce-dot {
+  animation: bounce-dot 1.4s ease-in-out infinite;
+}
