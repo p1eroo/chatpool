@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
+import { useUIStore } from "@/store/uiStore";
 import { MessageBubble } from "./MessageBubble";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { formatDate } from "@/lib/utils";
@@ -27,10 +28,38 @@ export function MessageList() {
     x: number;
     y: number;
   } | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const jumpToMessageId = useUIStore((s) => s.jumpToMessageId);
+  const clearJumpToMessage = useUIStore((s) => s.clearJumpToMessage);
+  const showToast = useUIStore((s) => s.showToast);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, activeConversation?.id]);
+
+  useEffect(() => {
+    if (!jumpToMessageId || !scrollRef.current) return;
+
+    const target = scrollRef.current.querySelector(
+      `[data-message-id="${jumpToMessageId}"]`
+    );
+
+    clearJumpToMessage();
+
+    if (!target) {
+      showToast("No se encontró el mensaje citado en esta conversación");
+      return;
+    }
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(jumpToMessageId);
+
+    const timer = window.setTimeout(() => {
+      setHighlightedMessageId((current) => (current === jumpToMessageId ? null : current));
+    }, 1400);
+
+    return () => window.clearTimeout(timer);
+  }, [jumpToMessageId, clearJumpToMessage, showToast, messages]);
 
   useEffect(() => {
     setContextMenu(null);
@@ -73,6 +102,19 @@ export function MessageList() {
     ? messages.find((m) => m.id === contextMenu.messageId)
     : null;
 
+  const openMessageMenu = (
+    messageId: string,
+    anchor: HTMLElement,
+    clientPoint?: { x: number; y: number }
+  ) => {
+    const rect = anchor.getBoundingClientRect();
+    setContextMenu({
+      messageId,
+      x: clientPoint?.x ?? rect.left,
+      y: clientPoint?.y ?? rect.bottom + 4,
+    });
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <ChatHeader conversation={activeConversation} />
@@ -96,8 +138,10 @@ export function MessageList() {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
+                  isHighlighted={highlightedMessageId === msg.id}
                   attachedToMessage={attachedToMessage}
                   hasAttachedNotesAbove={hasAttachedNotesAbove}
+                  isMenuOpen={contextMenu?.messageId === msg.id}
                   isLastInGroup={
                     msg.isPrivate ||
                     i === group.messages.length - 1 ||
@@ -105,13 +149,16 @@ export function MessageList() {
                     group.messages[i + 1]?.isPrivate !== msg.isPrivate ||
                     !!group.messages[i + 1]?.attachedToMessageId
                   }
-                  onContextMenu={(e) =>
-                    setContextMenu({
-                      messageId: msg.id,
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openMessageMenu(msg.id, e.currentTarget as HTMLElement, {
                       x: e.clientX,
                       y: e.clientY,
-                    })
-                  }
+                    });
+                  }}
+                  onMenuOpen={(e) => {
+                    openMessageMenu(msg.id, e.currentTarget);
+                  }}
                 />
               );
             })}

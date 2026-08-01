@@ -1,4 +1,10 @@
 import { clsx, type ClassValue } from "clsx";
+import {
+  APP_LOCALE,
+  APP_TIMEZONE,
+  dateTimeFormatOptions,
+  getDateKeyInAppTimezone,
+} from "@/lib/locale";
 
 export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
@@ -15,11 +21,16 @@ export function formatTime(date: Date): string {
   if (mins < 60) return `${mins}min`;
   if (hours < 24) return `${hours}h`;
   if (days < 7) return `${days}d`;
-  return date.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  return date.toLocaleDateString(APP_LOCALE, {
+    ...dateTimeFormatOptions,
+    day: "numeric",
+    month: "short",
+  });
 }
 
 export function formatMessageTime(date: Date): string {
-  return date.toLocaleTimeString("es-ES", {
+  return date.toLocaleTimeString(APP_LOCALE, {
+    ...dateTimeFormatOptions,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -27,13 +38,15 @@ export function formatMessageTime(date: Date): string {
 }
 
 export function formatDate(date: Date): string {
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const todayKey = getDateKeyInAppTimezone(new Date());
+  const yesterday = new Date(Date.now() - 86400000);
+  const yesterdayKey = getDateKeyInAppTimezone(yesterday);
+  const dateKey = getDateKeyInAppTimezone(date);
 
-  if (date.toDateString() === today.toDateString()) return "Hoy";
-  if (date.toDateString() === yesterday.toDateString()) return "Ayer";
-  return date.toLocaleDateString("es-ES", {
+  if (dateKey === todayKey) return "Hoy";
+  if (dateKey === yesterdayKey) return "Ayer";
+  return date.toLocaleDateString(APP_LOCALE, {
+    ...dateTimeFormatOptions,
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -60,4 +73,10 @@ export function cnColor(color: string): string {
     orange: "bg-orange-500",
   };
   return colors[color] || "bg-gray-500";
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

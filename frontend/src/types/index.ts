@@ -6,13 +6,43 @@ export type Priority = "urgent" | "high" | "medium" | "low" | "none";
 
 export type AgentStatus = "online" | "away" | "busy" | "offline";
 
-export interface Agent {
+export type AgentRole = "admin" | "agent";
+
+export interface Role {
   id: string;
   name: string;
-  email: string;
+  permissions: AgentPermissions;
+  isSystem?: boolean;
+}
+
+export interface AgentPermissions {
+  manageInboxes: boolean;
+  manageAgents: boolean;
+  manageIntegrations: boolean;
+  viewReports: boolean;
+  assignConversations: boolean;
+  resolveConversations: boolean;
+  deleteConversations: boolean;
+  sendMessages: boolean;
+  manageLabels: boolean;
+  manageCannedResponses: boolean;
+}
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  username: string;
+  phone?: string;
+  email?: string;
   avatar: string;
   status: AgentStatus;
-  role: "admin" | "agent";
+  roleId: string;
+  active?: boolean;
+}
+
+/** Agente completo; `password` solo en mock/local al crear o editar. */
+export interface Agent extends AgentProfile {
+  password?: string;
 }
 
 export interface Inbox {
@@ -23,8 +53,37 @@ export interface Inbox {
   icon: string;
 }
 
+export type InboxStatus = "active" | "pending" | "disabled";
+
+export type IntegrationProvider = "meta" | "email" | "website";
+
+export interface InboxSettings {
+  inboxId: string;
+  detail: string;
+  status: InboxStatus;
+  provider: IntegrationProvider;
+  providerResource: string;
+  webhookUrl?: string;
+  assignedAgentIds: string[];
+  description?: string;
+  whatsappProvider?: "meta-cloud";
+  phoneNumberId?: string;
+  businessAccountId?: string;
+  apiKey?: string;
+}
+
+export interface IntegrationAccount {
+  id: string;
+  name: string;
+  provider: IntegrationProvider;
+  description: string;
+  connected: boolean;
+  webhookUrl?: string;
+}
+
 export interface Contact {
   id: string;
+  inboxId: string;
   name: string;
   email: string;
   phone?: string;
@@ -50,7 +109,13 @@ export interface Message {
   isPrivate: boolean;
   attachedToMessageId?: string;
   replyTo?: MessageReply;
-  contentType: "text" | "image" | "file";
+  contentType: "text" | "image" | "file" | "audio";
+  audioUrl?: string;
+  audioDuration?: number;
+  fileName?: string;
+  fileSize?: number;
+  fileUrl?: string;
+  attachmentUrl?: string;
   createdAt: Date;
   status?: "sent" | "delivered" | "read" | "failed";
 }
@@ -59,6 +124,13 @@ export interface Label {
   id: string;
   name: string;
   color: string;
+  inboxId: string;
+}
+
+export interface CannedResponse {
+  id: string;
+  title: string;
+  content: string;
 }
 
 export interface Conversation {

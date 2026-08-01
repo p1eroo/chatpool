@@ -1,0 +1,72 @@
+import type { AgentStatus, IntegrationProvider } from "@/types";
+
+/** Perfil de agente tal como lo devuelve la API (sin contraseña). */
+export interface AgentProfileDto {
+  id: string;
+  name: string;
+  username: string;
+  phone?: string;
+  email?: string;
+  avatar: string;
+  status: AgentStatus;
+  roleId: string;
+  active?: boolean;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  agent: AgentProfileDto;
+}
+
+export interface ApiErrorBody {
+  message: string;
+  code?: string;
+  details?: Record<string, string[]>;
+}
+
+/** Credenciales Meta Cloud API para conectar un número WhatsApp. */
+export interface MetaInboxCredentialsDto {
+  phoneNumberId: string;
+  businessAccountId: string;
+  accessToken: string;
+  syncWhatsAppContacts?: boolean;
+}
+
+export interface VerifyMetaConnectionRequest extends MetaInboxCredentialsDto {
+  inboxId: string;
+}
+
+export interface VerifyMetaConnectionResponse {
+  ok: boolean;
+  phoneNumber?: string;
+  verifiedName?: string;
+  webhookSubscribed?: boolean;
+  contactSyncRequested?: boolean;
+  contactSyncError?: string;
+  error?: string;
+}
+
+export interface RegisterWebhookRequest {
+  inboxId: string;
+  provider: IntegrationProvider;
+}
+
+export interface RegisterWebhookResponse {
+  webhookUrl: string;
+  verifyToken: string;
+  subscribed: boolean;
+}
+
+export interface IntegrationAccountDto {
+  id: string;
+  name: string;
+  provider: IntegrationProvider;
+  description: string;
+  connected: boolean;
+  webhookUrl?: string;
+}

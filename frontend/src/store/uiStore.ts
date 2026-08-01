@@ -7,14 +7,23 @@ interface UIState {
   replyToMessage: Message | null;
   noteAboutMessage: Message | null;
   toast: string | null;
+  lightboxMessageId: string | null;
+  attachFileRequest: File | null;
+  jumpToMessageId: string | null;
   toggleContactSidebar: () => void;
   setContactSidebarOpen: (open: boolean) => void;
   toggleNoteMode: () => void;
   setNoteMode: (note: boolean) => void;
   setReplyToMessage: (message: Message | null) => void;
   setNoteAboutMessage: (message: Message | null) => void;
+  openLightbox: (messageId: string) => void;
+  closeLightbox: () => void;
+  requestAttachFile: (file: File) => void;
+  clearAttachFileRequest: () => void;
   showToast: (message: string) => void;
   clearToast: () => void;
+  jumpToMessage: (messageId: string) => void;
+  clearJumpToMessage: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -23,6 +32,9 @@ export const useUIStore = create<UIState>((set) => ({
   replyToMessage: null,
   noteAboutMessage: null,
   toast: null,
+  lightboxMessageId: null,
+  attachFileRequest: null,
+  jumpToMessageId: null,
 
   toggleContactSidebar: () =>
     set((state) => ({ contactSidebarOpen: !state.contactSidebarOpen })),
@@ -42,10 +54,20 @@ export const useUIStore = create<UIState>((set) => ({
     })),
   setReplyToMessage: (message) => set({ replyToMessage: message }),
   setNoteAboutMessage: (message) =>
-    set(message ? { noteAboutMessage: message, isNoteMode: true } : { noteAboutMessage: null }),
+    set(
+      message
+        ? { noteAboutMessage: message, isNoteMode: true }
+        : { noteAboutMessage: null, isNoteMode: false }
+    ),
+  openLightbox: (messageId) => set({ lightboxMessageId: messageId }),
+  closeLightbox: () => set({ lightboxMessageId: null }),
+  requestAttachFile: (file) => set({ attachFileRequest: file }),
+  clearAttachFileRequest: () => set({ attachFileRequest: null }),
   showToast: (message) => {
     set({ toast: message });
     setTimeout(() => set({ toast: null }), 2500);
   },
   clearToast: () => set({ toast: null }),
+  jumpToMessage: (messageId) => set({ jumpToMessageId: messageId }),
+  clearJumpToMessage: () => set({ jumpToMessageId: null }),
 }));

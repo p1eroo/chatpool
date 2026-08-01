@@ -1,0 +1,162 @@
+export type AgentStatus = "online" | "away" | "busy" | "offline";
+export type ChannelType =
+  | "website"
+  | "email"
+  | "whatsapp"
+  | "facebook"
+  | "instagram"
+  | "telegram"
+  | "sms"
+  | "api";
+export type ConversationStatus = "open" | "resolved";
+export type Priority = "urgent" | "high" | "medium" | "low" | "none";
+export type InboxStatus = "active" | "pending" | "disabled";
+export type IntegrationProvider = "meta" | "email" | "website";
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  username: string;
+  phone?: string;
+  email?: string;
+  avatar: string;
+  status: AgentStatus;
+  roleId: string;
+  active?: boolean;
+}
+
+export interface Contact {
+  id: string;
+  inboxId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  avatar?: string;
+  lastSeen?: Date | string;
+  isBlocked?: boolean;
+}
+
+export interface MessageReply {
+  id: string;
+  content: string;
+  senderName?: string;
+  senderType: "agent" | "contact" | "system" | "bot";
+}
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  content: string;
+  senderType: "agent" | "contact" | "system" | "bot";
+  senderId?: string;
+  senderName?: string;
+  isPrivate: boolean;
+  attachedToMessageId?: string;
+  replyTo?: MessageReply;
+  contentType: "text" | "image" | "file" | "audio";
+  fileName?: string;
+  fileSize?: number;
+  fileUrl?: string;
+  attachmentUrl?: string;
+  mimeType?: string;
+  createdAt: string;
+  status?: "sent" | "delivered" | "read" | "failed";
+}
+
+export interface Label {
+  id: string;
+  name: string;
+  color: string;
+  inboxId: string;
+}
+
+export interface Conversation {
+  id: string;
+  inboxId: string;
+  contact: Contact;
+  assignee?: AgentProfile;
+  lastMessage: Message | null;
+  unreadCount: number;
+  status: ConversationStatus;
+  priority: Priority;
+  labels: Label[];
+  createdAt: string;
+  updatedAt: string;
+  isTyping: boolean;
+  channelType: ChannelType;
+}
+
+export interface Inbox {
+  id: string;
+  name: string;
+  channelType: ChannelType;
+  unreadCount: number;
+  icon: string;
+}
+
+export interface InboxSettings {
+  inboxId: string;
+  detail: string;
+  status: InboxStatus;
+  provider: IntegrationProvider;
+  providerResource: string;
+  webhookUrl?: string;
+  assignedAgentIds: string[];
+  description?: string;
+  whatsappProvider?: "meta-cloud";
+  phoneNumberId?: string;
+  businessAccountId?: string;
+}
+
+export interface CreateAgentBody {
+  name: string;
+  username: string;
+  password: string;
+  roleId: string;
+  phone?: string;
+}
+
+export interface UpdateAgentBody {
+  name?: string;
+  username?: string;
+  password?: string;
+  roleId?: string;
+  phone?: string;
+  active?: boolean;
+  status?: AgentStatus;
+}
+
+export interface CreateInboxBody {
+  name: string;
+  channelType: ChannelType;
+  detail: string;
+  providerResource: string;
+  description?: string;
+  assignedAgentIds?: string[];
+  phoneNumberId?: string;
+  businessAccountId?: string;
+  accessToken?: string;
+}
+
+export interface SendMessageBody {
+  content: string;
+  isPrivate?: boolean;
+  contentType?: Message["contentType"];
+  fileName?: string;
+  fileSize?: number;
+  fileKey?: string;
+  mimeType?: string;
+  replyToMessageId?: string;
+}
+
+export interface SendTemplateBody {
+  templateId: string;
+  templateName: string;
+  content: string;
+}
+
+export interface UpdateConversationBody {
+  status?: ConversationStatus;
+  assigneeId?: string | null;
+  unreadCount?: number;
+}

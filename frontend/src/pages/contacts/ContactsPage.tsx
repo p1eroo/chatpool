@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useConversationStore } from "@/store/conversationStore";
 import { useInboxStore } from "@/store/inboxStore";
-import { allContacts } from "@/data/mock";
+import { whatsappTemplates } from "@/data/mock";
+import { useContacts } from "@/hooks/useContacts";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn, formatTime } from "@/lib/utils";
+import { APP_LOCALE, APP_PHONE_PREFIX } from "@/lib/locale";
 import {
   Search,
   MessageCircle,
@@ -22,22 +24,8 @@ import {
 } from "lucide-react";
 import type { Contact, Conversation, Inbox } from "@/types";
 
-const messageTemplates = [
-  {
-    id: "hello_world",
-    name: "hello_world",
-    preview:
-      "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta.",
-  },
-  {
-    id: "order_update",
-    name: "order_update",
-    preview: "Hola {{1}}, tu pedido #{{2}} ha sido actualizado. Estado actual: {{3}}.",
-  },
-];
-
 function groupByLetter(contacts: Contact[]) {
-  const sorted = [...contacts].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const sorted = [...contacts].sort((a, b) => a.name.localeCompare(b.name, APP_LOCALE));
   const groups: { letter: string; contacts: Contact[] }[] = [];
   for (const c of sorted) {
     const letter = c.name.charAt(0).toUpperCase();
@@ -80,14 +68,6 @@ const channelColors: Record<string, string> = {
   website: "text-violet-400",
 };
 
-const inboxChannelLabels: Record<string, string> = {
-  whatsapp: "WhatsApp",
-  email: "Correo",
-  facebook: "Facebook",
-  instagram: "Instagram",
-  website: "Web",
-};
-
 const CONTACT_LIST_WIDTH = 340;
 
 type SidePanelTab = "history" | "compose";
@@ -95,7 +75,9 @@ type SidePanelTab = "history" | "compose";
 export function ContactsPage() {
   const navigate = useNavigate();
   const conversations = useConversationStore((s) => s.conversations);
-  const setActiveConversation = useConversationStore((s) => s.setActiveConversation);
+  const filterInboxId = useConversationStore((s) => s.filterInboxId);
+  const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
+  const openConversation = useConversationStore((s) => s.openConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
   const sendMessage = useConversationStore((s) => s.sendMessage);
   const inboxes = useInboxStore((s) => s.inboxes);
@@ -103,9 +85,29 @@ export function ContactsPage() {
   const [search, setSearch] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("history");
+  const [showInboxDropdown, setShowInboxDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const { data: allContacts = [], isLoading: contactsLoading } = useContacts();
+
+  const activeInbox = inboxes.find((i) => i.id === filterInboxId);
+  const inboxContacts = useMemo(() => {
+    if (!filterInboxId) return allContacts;
+    return allContacts.filter((contact) => contact.inboxId === filterInboxId);
+  }, [allContacts, filterInboxId]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowInboxDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const contactGroups = useMemo(() => {
-    let contacts = allContacts;
+    let contacts = inboxContacts;
     if (search) {
       const q = search.toLowerCase();
       contacts = contacts.filter(
@@ -115,14 +117,25 @@ export function ContactsPage() {
       );
     }
     return groupByLetter(contacts);
-  }, [search]);
+  }, [inboxContacts, search]);
 
-  const selectedContact = allContacts.find((c) => c.id === selectedContactId) || null;
+  const selectedContact =
+    inboxContacts.find((c) => c.id === selectedContactId) || null;
+
+  useEffect(() => {
+    if (selectedContactId && !inboxContacts.some((c) => c.id === selectedContactId)) {
+      setSelectedContactId(null);
+    }
+  }, [filterInboxId, inboxContacts, selectedContactId]);
 
   const contactConversations = useMemo(() => {
     if (!selectedContact) return [];
     return conversations
-      .filter((c) => c.contact.id === selectedContact.id)
+      .filter(
+        (c) =>
+          c.contact.id === selectedContact.id &&
+          c.inboxId === selectedContact.inboxId
+      )
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   }, [selectedContact, conversations]);
 
@@ -131,17 +144,20 @@ export function ContactsPage() {
   }, [selectedContactId]);
 
   const handleOpenChat = (conversationId: string) => {
-    setActiveConversation(conversationId);
+    openConversation(conversationId);
     navigate("/inbox");
   };
 
-  const handleSendMessage = (message: string, inbox: Inbox) => {
+  const handleSendMessage = (message: string) => {
     if (!selectedContact || !message.trim()) return;
+
+    const inbox = inboxes.find((i) => i.id === selectedContact.inboxId);
+    if (!inbox) return;
 
     const existing = contactConversations.find((c) => c.inboxId === inbox.id);
     if (existing) {
       sendMessage(existing.id, message.trim(), false);
-      setActiveConversation(existing.id);
+      openConversation(existing.id);
     } else {
       createConversation(
         selectedContact,
@@ -167,9 +183,52 @@ export function ContactsPage() {
         style={{ width: CONTACT_LIST_WIDTH }}
       >
         <div className="p-4 pb-3">
-          <h1 className="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
-            Contactos
-          </h1>
+          <div className="mb-3">
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setShowInboxDropdown(!showInboxDropdown)}
+                className="flex items-center gap-2 text-[var(--color-text-primary)] font-semibold text-[15px] hover:opacity-80 transition-opacity"
+              >
+                {activeInbox ? activeInbox.name : "Todas las bandejas"}
+                <svg className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              {showInboxDropdown && (
+                <div className="absolute top-full left-0 mt-1 w-56 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
+                  <button
+                    onClick={() => {
+                      setFilterInboxId(null);
+                      setShowInboxDropdown(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)] transition-colors",
+                      !filterInboxId ? "text-[var(--color-brand)]" : "text-[var(--color-text-primary)]"
+                    )}
+                  >
+                    Todas las bandejas
+                  </button>
+                  <div className="h-px bg-[var(--color-border-primary)] my-1" />
+                  {inboxes.map((inbox) => (
+                    <button
+                      key={inbox.id}
+                      onClick={() => {
+                        setFilterInboxId(inbox.id);
+                        setShowInboxDropdown(false);
+                      }}
+                      className={cn(
+                        "w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)] transition-colors flex items-center justify-between",
+                        filterInboxId === inbox.id ? "text-[var(--color-brand)]" : "text-[var(--color-text-primary)]"
+                      )}
+                    >
+                      <span>{inbox.name}</span>
+                      <span className="text-[10px] text-[var(--color-text-muted)] tabular-nums">
+                        {allContacts.filter((contact) => contact.inboxId === inbox.id).length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
             <input
@@ -183,7 +242,11 @@ export function ContactsPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {contactGroups.length === 0 ? (
+          {contactsLoading ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-6">
+              <p className="text-[var(--color-text-secondary)] text-sm">Cargando contactos...</p>
+            </div>
+          ) : contactGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-6">
               <Search className="w-12 h-12 text-[var(--color-text-muted)] mb-3 opacity-40" />
               <p className="text-[var(--color-text-secondary)] text-sm">Sin resultados</p>
@@ -235,7 +298,7 @@ export function ContactsPage() {
             onTabChange={setSidePanelTab}
             onOpenChat={handleOpenChat}
             onSendMessage={handleSendMessage}
-            inboxes={inboxes}
+            inbox={inboxes.find((i) => i.id === selectedContact.inboxId)}
           />
         </div>
       ) : (
@@ -330,7 +393,7 @@ function ContactDetail({ contact }: { contact: Contact }) {
             <div className="col-span-2 flex gap-2">
               <div className="flex items-center gap-1.5 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg px-2 shrink-0">
                 <span className="text-sm">🇵🇪</span>
-                <span className="text-xs text-[var(--color-text-secondary)]">+51</span>
+                <span className="text-xs text-[var(--color-text-secondary)]">{APP_PHONE_PREFIX}</span>
                 <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
               </div>
               <FormInput
@@ -392,41 +455,38 @@ function ContactDetail({ contact }: { contact: Contact }) {
 
 function SendMessageComposer({
   contact,
-  inboxes,
+  inbox,
   onClose,
   onSend,
 }: {
   contact: Contact;
-  inboxes: Inbox[];
+  inbox?: Inbox;
   onClose: () => void;
-  onSend: (message: string, inbox: Inbox) => void;
+  onSend: (message: string) => void;
 }) {
-  const defaultInbox = inboxes.find((i) => i.channelType === "whatsapp") || inboxes[0];
-  const [selectedInbox, setSelectedInbox] = useState<Inbox>(defaultInbox);
   const [message, setMessage] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [inboxOpen, setInboxOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
 
   const isTemplateLocked = selectedTemplateId !== null;
-  const selectedTemplate = messageTemplates.find((t) => t.id === selectedTemplateId);
+  const selectedTemplate = whatsappTemplates.find((t) => t.id === selectedTemplateId);
 
   useEffect(() => {
-    if (selectedInbox.channelType !== "whatsapp") {
+    if (inbox?.channelType !== "whatsapp") {
       setSelectedTemplateId(null);
     }
-  }, [selectedInbox.channelType]);
+  }, [inbox?.channelType]);
 
-  const filteredTemplates = messageTemplates.filter(
+  const filteredTemplates = whatsappTemplates.filter(
     (t) =>
       t.name.toLowerCase().includes(templateSearch.toLowerCase()) ||
       t.preview.toLowerCase().includes(templateSearch.toLowerCase())
   );
 
   const handleSend = () => {
-    if (!message.trim()) return;
-    onSend(message, selectedInbox);
+    if (!message.trim() || !inbox) return;
+    onSend(message);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -436,7 +496,7 @@ function SendMessageComposer({
     }
   };
 
-  const ChannelIcon = channelIcons[selectedInbox.channelType] || Globe;
+  const ChannelIcon = inbox ? channelIcons[inbox.channelType] || Globe : Globe;
 
   return (
     <div className="flex flex-col h-full flex-1 min-h-0 animate-fade-in">
@@ -451,51 +511,15 @@ function SendMessageComposer({
           </span>
         </div>
 
-        <div className="flex items-start gap-2 text-xs">
-          <span className="text-[var(--color-text-muted)] shrink-0 pt-1">Vía :</span>
-          <div className="flex-1 min-w-0 relative">
-            <button
-              onClick={() => setInboxOpen(!inboxOpen)}
-              className="inline-flex items-center gap-1.5 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--color-text-primary)] hover:border-[var(--color-brand)] transition-colors"
-            >
-              <ChannelIcon className={cn("w-3.5 h-3.5", channelColors[selectedInbox.channelType])} />
-              {selectedInbox.name}
-              <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
-            </button>
-            {inboxOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-[var(--color-bg-secondary)] border border-[var(--color-border-primary)] rounded-lg shadow-lg py-1">
-                <p className="px-3 py-1.5 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase">
-                  Mostrar bandejas de entrada
-                </p>
-                {inboxes.map((inbox) => {
-                  const Icon = channelIcons[inbox.channelType] || Globe;
-                  return (
-                    <button
-                      key={inbox.id}
-                      onClick={() => {
-                        setSelectedInbox(inbox);
-                        setInboxOpen(false);
-                        if (inbox.channelType !== "whatsapp") {
-                          setSelectedTemplateId(null);
-                        }
-                      }}
-                      className={cn(
-                        "w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--color-bg-hover)] transition-colors",
-                        selectedInbox.id === inbox.id && "bg-[var(--color-brand-bg)]"
-                      )}
-                    >
-                      <Icon className={cn("w-3.5 h-3.5", channelColors[inbox.channelType])} />
-                      <span className="text-[var(--color-text-primary)]">{inbox.name}</span>
-                      <span className="text-[var(--color-text-muted)] ml-auto">
-                        {inboxChannelLabels[inbox.channelType]}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+        {inbox && (
+          <div className="flex items-start gap-2 text-xs">
+            <span className="text-[var(--color-text-muted)] shrink-0 pt-1">Vía :</span>
+            <span className="inline-flex items-center gap-1.5 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--color-text-primary)]">
+              <ChannelIcon className={cn("w-3.5 h-3.5", channelColors[inbox.channelType])} />
+              {inbox.name}
+            </span>
           </div>
-        </div>
+        )}
       </div>
 
       {isTemplateLocked && selectedTemplate && (
@@ -525,7 +549,7 @@ function SendMessageComposer({
 
       <div className="px-4 py-3 border-t border-[var(--color-border-primary)] flex flex-col gap-2 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
-          {selectedInbox.channelType === "whatsapp" && (
+          {inbox?.channelType === "whatsapp" && (
             <div className="relative">
               <button
                 onClick={() => setTemplateOpen(!templateOpen)}
@@ -587,7 +611,7 @@ function SendMessageComposer({
           </button>
           <button
             onClick={handleSend}
-            disabled={!message.trim()}
+            disabled={!message.trim() || !inbox}
             className={cn(
               "h-8 px-3 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5",
               message.trim()
@@ -636,15 +660,15 @@ function ContactSidePanel({
   onTabChange,
   onOpenChat,
   onSendMessage,
-  inboxes,
+  inbox,
 }: {
   contact: Contact;
   conversations: Conversation[];
   activeTab: SidePanelTab;
   onTabChange: (tab: SidePanelTab) => void;
   onOpenChat: (id: string) => void;
-  onSendMessage: (message: string, inbox: Inbox) => void;
-  inboxes: Inbox[];
+  onSendMessage: (message: string) => void;
+  inbox?: Inbox;
 }) {
   return (
     <aside className="w-[clamp(280px,30vw,480px)] bg-[var(--color-bg-secondary)] border-l border-[var(--color-border-primary)] flex flex-col shrink-0 min-h-0 animate-slide-in-right">
@@ -679,7 +703,7 @@ function ContactSidePanel({
         <div className="flex-1 flex flex-col min-h-0">
           <SendMessageComposer
             contact={contact}
-            inboxes={inboxes}
+            inbox={inbox}
             onClose={() => onTabChange("history")}
             onSend={onSendMessage}
           />

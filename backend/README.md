@@ -1,0 +1,107 @@
+# Chatpool API
+
+Backend en **Node.js + TypeScript + Fastify + Prisma + PostgreSQL**, puerto **3001**.
+
+## Arquitectura
+
+```
+src/
+  config/           # Variables de entorno validadas (Zod)
+  domain/           # Errores de dominio
+  application/      # Casos de uso (auth, integraciones, webhooks)
+  infrastructure/   # Prisma, Meta API, seguridad
+  presentation/     # Rutas HTTP Fastify
+  shared/
+prisma/
+  schema.prisma     # Esquema de BD
+  seed.ts           # Datos iniciales
+```
+
+## 1. Crear la base de datos (tu servidor PostgreSQL)
+
+Conéctate al servidor como superusuario y ejecuta:
+
+```bash
+psql -U postgres -h TU_HOST -f scripts/setup-db.sql
+```
+
+O manualmente:
+
+```sql
+CREATE USER chatpool WITH PASSWORD 'tu_password_seguro';
+CREATE DATABASE chatpool OWNER chatpool ENCODING 'UTF8';
+GRANT ALL PRIVILEGES ON DATABASE chatpool TO chatpool;
+```
+
+Si PostgreSQL está en **otro host**, la `DATABASE_URL` será:
+
+```
+postgresql://chatpool:tu_password@192.168.x.x:5432/chatpool?schema=public
+```
+
+## 2. Configurar entorno
+
+```bash
+cd backend
+cp .env.example .env
+# Edita .env: DATABASE_URL, JWT_SECRET, CORS_ORIGIN
+npm install
+```
+
+## 3. Migraciones y seed
+
+```bash
+npm run db:generate
+npm run db:migrate    # crea tablas
+npm run db:seed       # roles, agentes demo, integraciones
+```
+
+**Superadmin:** `soporte` (contraseña definida en seed)
+
+## 4. Arrancar API
+
+```bash
+npm run dev
+# → http://localhost:3001
+# GET /health
+```
+
+## 5. Conectar el frontend
+
+En `frontend/.env`:
+
+```env
+VITE_API_URL=http://localhost:3001
+VITE_USE_MOCK=false
+VITE_WEBHOOK_BASE_URL=http://localhost:3001/webhooks
+```
+
+Para **Meta webhooks en local**, expón el puerto 3001 con ngrok/cloudflared y actualiza:
+
+```env
+WEBHOOK_BASE_URL=https://xxxx.ngrok-free.app/webhooks
+PUBLIC_BASE_URL=https://xxxx.ngrok-free.app
+```
+
+## Endpoints principales
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/auth/login` | Login JWT |
+| GET | `/auth/me` | Agente actual |
+| GET | `/integrations/accounts` | Cuentas de integración |
+| POST | `/integrations/meta/verify` | Validar número Meta + guardar credenciales |
+| POST | `/integrations/webhooks/register` | Registrar webhook por bandeja |
+| GET/POST | `/webhooks/meta` | Webhook global Meta |
+| GET/POST | `/webhooks/meta/:inboxId` | Webhook por bandeja |
+
+## Meta Cloud API
+
+1. Crea bandeja WhatsApp en el frontend
+2. En detalle de bandeja → **Verificar y conectar con Meta**
+3. En Meta Developer Console → Webhook URL: `{WEBHOOK_BASE_URL}/meta/{inboxId}`
+4. Verify token: el que guarda la bandeja (`webhook_verify_token` en BD) o `chatpool_meta_verify` en webhook global
+
+## Tablas creadas
+
+`roles`, `agents`, `inboxes`, `inbox_settings`, `inbox_agents`, `integration_accounts`, `contacts`, `conversations`, `messages`, `labels`, `conversation_labels`, `canned_responses`

@@ -1,26 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
-import { Avatar } from "@/components/ui/Avatar";
+import { Avatar, getAvatarColorClass, getAvatarInitials, isImageUrl } from "@/components/ui/Avatar";
+import { LabelColorDot } from "@/components/settings/LabelColorDot";
+import { useAgentStore } from "@/store/agentStore";
+import { useLabelStore } from "@/store/labelStore";
 import {
-  getContactPhotoUrl,
-  getContactMedia,
-  getContactFiles,
-  allAgents,
-  labels as allLabels,
-} from "@/data/mock";
-import { cn } from "@/lib/utils";
+  downloadMessageFile,
+  getConversationFiles,
+  getConversationImages,
+} from "@/lib/conversationAttachments";
+import { getFileTypeBadgeStyle, splitFileName } from "@/lib/fileUtils";
+import { cn, formatFileSize } from "@/lib/utils";
+import type { Message } from "@/types";
 import {
   PanelRightClose,
   Phone,
   Download,
-  MoreHorizontal,
-  FileText,
+  ExternalLink,
   X,
   Check,
   ChevronDown,
 } from "lucide-react";
 import type { Conversation, ConversationStatus } from "@/types";
+
+const EMPTY_MESSAGES: Message[] = [];
 
 const channelLabels: Record<string, string> = {
   whatsapp: "WhatsApp Business",
@@ -86,8 +90,8 @@ export function ContactDetails() {
         onClose={() => setContactSidebarOpen(false)}
       />
       <ContactSummary conversation={conversation} />
-      <MediaSection contactId={conversation.contact.id} />
-      <FilesSection contactId={conversation.contact.id} />
+      <MediaSection conversationId={conversation.id} />
+      <FilesSection conversationId={conversation.id} />
     </aside>
   );
 }
@@ -100,15 +104,30 @@ function ContactHero({
   onClose: () => void;
 }) {
   const { contact } = conversation;
-  const photoUrl = getContactPhotoUrl(contact.id);
+  const photoUrl = isImageUrl(contact.avatar) ? contact.avatar : null;
+  const initials = getAvatarInitials(contact.name);
+  const avatarColorClass = getAvatarColorClass(contact.name);
 
   return (
     <div className="relative h-52 shrink-0 overflow-hidden">
-      <img
-        src={photoUrl}
-        alt={contact.name}
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+      {photoUrl ? (
+        <img
+          src={photoUrl}
+          alt={contact.name}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center",
+            avatarColorClass
+          )}
+        >
+          <span className="text-7xl font-semibold text-white/90 select-none">
+            {initials}
+          </span>
+        </div>
+      )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/10" />
 
       <button
@@ -150,6 +169,17 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
   const setConversationStatus = useConversationStore((s) => s.setConversationStatus);
   const toggleConversationLabel = useConversationStore((s) => s.toggleConversationLabel);
   const showToast = useUIStore((s) => s.showToast);
+  const allAgents = useAgentStore((s) => s.agents);
+  const labels = useLabelStore((s) => s.labels);
+  const agents = useMemo(
+    () => allAgents.filter((agent) => agent.active !== false),
+    [allAgents]
+  );
+  const inboxLabels = useMemo(
+    () => labels.filter((label) => label.inboxId === conversation.inboxId),
+    [labels, conversation.inboxId]
+  );
+
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
@@ -246,7 +276,7 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
                   <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
                 )}
               </button>
-              {allAgents.map((agent) => {
+              {agents.map((agent) => {
                 const isSelected = conversation.assignee?.id === agent.id;
                 return (
                   <button
@@ -325,12 +355,12 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
               onClick={() => toggleConversationLabel(conversation.id, label.id)}
               className="text-[11px] px-2 py-1 rounded-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] flex items-center gap-1 hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <span className={cn("w-1.5 h-1.5 rounded-full", labelColor(label.color))} />
+              <LabelColorDot color={label.color} className="w-1.5 h-1.5" />
               {label.name}
             </button>
           ))}
 
-          {conversation.labels.length < allLabels.length && (
+          {conversation.labels.length < inboxLabels.length && (
             <>
               <button
                 type="button"
@@ -342,7 +372,7 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
 
               {labelsOpen && (
                 <div className="absolute top-full right-0 mt-1 w-44 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
-                  {allLabels
+                  {inboxLabels
                     .filter((label) => !conversation.labels.some((l) => l.id === label.id))
                     .map((label) => (
                       <button
@@ -354,7 +384,7 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
                         }}
                         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
                       >
-                        <span className={cn("w-2 h-2 rounded-full shrink-0", labelColor(label.color))} />
+                        <LabelColorDot color={label.color} className="w-2 h-2" />
                         <span className="truncate">{label.name}</span>
                       </button>
                     ))}
@@ -368,37 +398,65 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
   );
 }
 
-function MediaSection({ contactId }: { contactId: string }) {
-  const media = getContactMedia(contactId);
-  const visibleMedia = media.slice(0, 4);
-  const remainingCount = media.length - visibleMedia.length;
+function MediaSection({ conversationId }: { conversationId: string }) {
+  const messages = useConversationStore(
+    (s) => s.messages[conversationId] ?? EMPTY_MESSAGES
+  );
+  const openLightbox = useUIStore((s) => s.openLightbox);
+  const [showAll, setShowAll] = useState(false);
+
+  const images = useMemo(() => getConversationImages(messages), [messages]);
+  const previewCount = 4;
+  const visibleImages = showAll ? images : images.slice(0, previewCount);
+  const remainingCount = Math.max(0, images.length - previewCount);
+
+  if (images.length === 0) {
+    return (
+      <section className="px-4 py-4 border-b border-[var(--color-border-primary)]">
+        <SectionLabel className="mb-2">Media</SectionLabel>
+        <p className="text-xs text-[var(--color-text-muted)]">
+          No hay imágenes en esta conversación
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="px-4 py-4 border-b border-[var(--color-border-primary)]">
       <div className="flex items-center justify-between mb-3">
-        <SectionLabel>Media</SectionLabel>
-        <button className="text-xs font-medium text-[var(--color-brand)] hover:opacity-80 transition-opacity">
-          Ver todo
-        </button>
+        <SectionLabel>Media ({images.length})</SectionLabel>
+        {images.length > previewCount && (
+          <button
+            type="button"
+            onClick={() => setShowAll((value) => !value)}
+            className="text-xs font-medium text-[var(--color-brand)] hover:opacity-80 transition-opacity"
+          >
+            {showAll ? "Ver menos" : "Ver todo"}
+          </button>
+        )}
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
-        {visibleMedia.map((item, index) => {
-          const isLast = index === visibleMedia.length - 1 && remainingCount > 0;
+      <div className={cn("grid gap-2", showAll ? "grid-cols-3" : "grid-cols-4")}>
+        {visibleImages.map((message, index) => {
+          const isLastPreview =
+            !showAll &&
+            index === visibleImages.length - 1 &&
+            remainingCount > 0;
 
           return (
             <button
-              key={item.id}
+              key={message.id}
               type="button"
+              onClick={() => openLightbox(message.id)}
               className="relative aspect-square overflow-hidden rounded-lg bg-[var(--color-bg-tertiary)]"
-              title="Ver imagen"
+              title={message.fileName || "Ver imagen"}
             >
               <img
-                src={item.url}
-                alt=""
+                src={message.fileUrl}
+                alt={message.fileName || ""}
                 className="h-full w-full object-cover"
               />
-              {isLast && (
+              {isLastPreview && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-semibold text-white">
                   +{remainingCount}
                 </div>
@@ -411,50 +469,84 @@ function MediaSection({ contactId }: { contactId: string }) {
   );
 }
 
-function FilesSection({ contactId }: { contactId: string }) {
-  const files = getContactFiles(contactId);
+function FilesSection({ conversationId }: { conversationId: string }) {
+  const messages = useConversationStore(
+    (s) => s.messages[conversationId] ?? EMPTY_MESSAGES
+  );
+  const files = useMemo(() => getConversationFiles(messages), [messages]);
 
   return (
     <section className="px-4 py-4 border-b border-[var(--color-border-primary)]">
-      <SectionLabel className="mb-3">Archivos</SectionLabel>
+      <SectionLabel className="mb-3">
+        Archivos{files.length > 0 ? ` (${files.length})` : ""}
+      </SectionLabel>
 
-      <div className="space-y-2">
-        {files.map((file) => (
-          <div
-            key={file.id}
-            className="flex items-center gap-3 rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] px-3 py-2.5"
-          >
-            <div className="w-9 h-9 rounded-full bg-[var(--color-brand)]/15 flex items-center justify-center shrink-0">
-              <FileText className="w-4 h-4 text-[var(--color-brand)]" />
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                {file.name}
-              </p>
-              <p className="text-xs text-[var(--color-text-muted)]">{file.size}</p>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                type="button"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-                title="Descargar"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-                title="Más opciones"
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+      {files.length === 0 ? (
+        <p className="text-xs text-[var(--color-text-muted)]">
+          No hay archivos en esta conversación
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {files.map((file) => (
+            <FileRow key={file.id} message={file} />
+          ))}
+        </div>
+      )}
     </section>
+  );
+}
+
+function FileRow({ message }: { message: Message }) {
+  const fileName = message.fileName || message.content || "Archivo";
+  const { extension } = splitFileName(fileName);
+  const badge = getFileTypeBadgeStyle(extension, false);
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] px-3 py-2.5">
+      <div
+        className={cn(
+          "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold uppercase",
+          badge.badge
+        )}
+      >
+        {message.contentType === "audio" ? "AUD" : badge.label}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">
+          {fileName}
+        </p>
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {message.fileSize !== undefined
+            ? formatFileSize(message.fileSize)
+            : message.contentType === "audio"
+              ? "Audio"
+              : "Archivo"}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={() => downloadMessageFile(message)}
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+          title="Descargar"
+        >
+          <Download className="w-4 h-4" />
+        </button>
+        {message.fileUrl && (
+          <a
+            href={message.fileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+            title="Abrir"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -475,16 +567,4 @@ function SectionLabel({
       {children}
     </p>
   );
-}
-
-function labelColor(color: string): string {
-  const colors: Record<string, string> = {
-    purple: "bg-purple-500",
-    red: "bg-red-500",
-    blue: "bg-blue-500",
-    orange: "bg-orange-500",
-    green: "bg-emerald-500",
-    yellow: "bg-amber-500",
-  };
-  return colors[color] || "bg-gray-500";
 }

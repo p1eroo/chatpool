@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Mail,
@@ -10,8 +10,10 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useConversationStore } from "@/store/conversationStore";
-import { labels, allAgents } from "@/data/mock";
-import { cn, cnColor } from "@/lib/utils";
+import { useLabelStore } from "@/store/labelStore";
+import { useAgentStore } from "@/store/agentStore";
+import { LabelColorDot } from "@/components/settings/LabelColorDot";
+import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
 
 type SubmenuId = "labels" | "agents";
@@ -81,6 +83,13 @@ export function ConversationContextMenu({
   const toggleConversationLabel = useConversationStore((s) => s.toggleConversationLabel);
   const reassignConversation = useConversationStore((s) => s.reassignConversation);
   const deleteConversation = useConversationStore((s) => s.deleteConversation);
+  const allAgents = useAgentStore((s) => s.agents);
+  const agents = useMemo(
+    () => allAgents.filter((agent) => agent.active !== false),
+    [allAgents]
+  );
+  const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
+  const inboxLabels = getLabelsForInbox(conversation.inboxId);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -204,7 +213,7 @@ export function ConversationContextMenu({
 
       {activeSubmenu === "labels" && (
         <div className={submenuClassName} style={submenuStyle}>
-          {labels.map((label) => {
+          {inboxLabels.map((label) => {
             const isSelected = conversation.labels.some((l) => l.id === label.id);
             return (
               <button
@@ -215,7 +224,7 @@ export function ConversationContextMenu({
                 }
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
               >
-                <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", cnColor(label.color))} />
+                <LabelColorDot color={label.color} className="w-2.5 h-2.5" />
                 <span className="flex-1 truncate">{label.name}</span>
                 {isSelected && (
                   <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
@@ -239,7 +248,7 @@ export function ConversationContextMenu({
               <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
             )}
           </button>
-          {allAgents.map((agent) => {
+          {agents.map((agent) => {
             const isSelected = conversation.assignee?.id === agent.id;
             return (
               <button

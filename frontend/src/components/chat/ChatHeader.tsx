@@ -9,14 +9,11 @@ import {
   Globe,
   MoreVertical,
   CheckCircle,
-  UserPlus,
-  Check,
   Ban,
 } from "lucide-react";
 import type { Conversation } from "@/types";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
-import { allAgents } from "@/data/mock";
 import { cn } from "@/lib/utils";
 
 const channelIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -41,20 +38,14 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ conversation }: ChatHeaderProps) {
   const resolveConversation = useConversationStore((s) => s.resolveConversation);
-  const reassignConversation = useConversationStore((s) => s.reassignConversation);
   const blockContact = useConversationStore((s) => s.blockContact);
   const showToast = useUIStore((s) => s.showToast);
 
-  const [assignOpen, setAssignOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const assignRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (assignRef.current && !assignRef.current.contains(e.target as Node)) {
-        setAssignOpen(false);
-      }
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
@@ -66,14 +57,8 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
 
   if (!conversation) return null;
 
-  const { contact, channelType, assignee } = conversation;
+  const { contact, channelType } = conversation;
   const ChannelIcon = channelIcons[channelType] || Globe;
-
-  const handleAssign = (agentId: string | undefined) => {
-    reassignConversation(conversation.id, agentId);
-    setAssignOpen(false);
-    showToast(agentId ? "Conversación asignada" : "Conversación sin asignar");
-  };
 
   const handleBlock = () => {
     blockContact(conversation.id);
@@ -114,58 +99,6 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
       </div>
 
       <div className="flex items-center gap-1">
-        <div className="relative" ref={assignRef}>
-          <button
-            onClick={() => {
-              setAssignOpen(!assignOpen);
-              setMenuOpen(false);
-            }}
-            className={cn(
-              "h-8 px-2.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 border",
-              assignOpen
-                ? "text-[var(--color-text-primary)] bg-[var(--color-bg-tertiary)] border-[var(--color-border-primary)]"
-                : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] border-[var(--color-border-primary)]"
-            )}
-            title="Asignar agente"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            {assignee ? assignee.name.split(" ")[0] : "Asignar"}
-          </button>
-
-          {assignOpen && (
-            <div className="absolute top-full right-0 mt-1 w-56 max-h-72 overflow-y-auto bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
-              <button
-                type="button"
-                onClick={() => handleAssign(undefined)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-              >
-                <Avatar name="N" size="sm" />
-                <span className="flex-1 truncate">Ninguno</span>
-                {!assignee && (
-                  <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
-                )}
-              </button>
-              {allAgents.map((agent) => {
-                const isSelected = assignee?.id === agent.id;
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => handleAssign(agent.id)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-                  >
-                    <Avatar name={agent.name} size="sm" />
-                    <span className="flex-1 truncate">{agent.name}</span>
-                    {isSelected && (
-                      <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
         <button
           onClick={() => resolveConversation(conversation.id)}
           className="h-8 px-2.5 text-xs font-medium text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors flex items-center gap-1.5"
@@ -177,10 +110,7 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
 
         <div className="relative" ref={menuRef}>
           <button
-            onClick={() => {
-              setMenuOpen(!menuOpen);
-              setAssignOpen(false);
-            }}
+            onClick={() => setMenuOpen(!menuOpen)}
             className={cn(
               "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
               menuOpen

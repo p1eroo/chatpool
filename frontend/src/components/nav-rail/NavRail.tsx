@@ -1,20 +1,23 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   MessageSquare,
   Users,
   BarChart3,
   Settings,
-  Bell,
-  Search,
   Sun,
   Moon,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
-import { StatusDot } from "@/components/ui/StatusDot";
 import { Badge } from "@/components/ui/Badge";
+import { StatusDot } from "@/components/ui/StatusDot";
+import {
+  NotificationsButton,
+  NotificationsPopover,
+} from "@/components/nav-rail/NotificationsPopover";
+import { ProfileMenuPopover } from "@/components/nav-rail/ProfileMenuPopover";
 import { useConversationStore } from "@/store/conversationStore";
+import { useAuthStore } from "@/store/authStore";
 import { useThemeStore } from "@/store/themeStore";
 
 const navItems = [
@@ -34,6 +37,11 @@ export function NavRail() {
     [conversations]
   );
   const { theme, toggleTheme } = useThemeStore();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const notificationsAnchorRef = useRef<HTMLDivElement>(null);
+  const profileAnchorRef = useRef<HTMLDivElement>(null);
+  const currentAgent = useAuthStore((s) => s.getCurrentAgent());
 
   return (
     <aside
@@ -83,38 +91,60 @@ export function NavRail() {
       </div>
 
       <div className="flex flex-col items-center gap-3 pb-4">
-        <button
-          className="w-10 h-10 flex items-center justify-center rounded-xl transition-colors relative"
-          style={{ color: sItem }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = sHover; e.currentTarget.style.color = "white"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = sItem; }}
-          title="Buscar (Ctrl+K)"
-        >
-          <Search className="w-4 h-4" />
-        </button>
-        <button
-          className="w-10 h-10 flex items-center justify-center rounded-xl transition-colors relative"
-          style={{ color: sItem }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = sHover; e.currentTarget.style.color = "white"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = sItem; }}
-          title="Notificaciones"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-2 w-2 h-2 bg-[var(--color-brand)] rounded-full" />
-        </button>
+        <div className="relative" ref={notificationsAnchorRef}>
+          <NotificationsButton
+            count={totalUnread}
+            open={notificationsOpen}
+            onToggle={() => {
+              setProfileOpen(false);
+              setNotificationsOpen((prev) => !prev);
+            }}
+            itemColor={sItem}
+            hoverBg={sHover}
+          />
+          <NotificationsPopover
+            open={notificationsOpen}
+            anchorRef={notificationsAnchorRef}
+            onClose={() => setNotificationsOpen(false)}
+          />
+        </div>
         <button
           onClick={toggleTheme}
           className="w-10 h-10 flex items-center justify-center rounded-xl transition-colors"
           style={{ color: sItem }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = sHover; e.currentTarget.style.color = "white"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = sItem; }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = sHover;
+            e.currentTarget.style.color = "white";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = "transparent";
+            e.currentTarget.style.color = sItem;
+          }}
           title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
         >
           {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
-        <div className="relative mt-1">
-          <Avatar name="Carlos Mendoza" size="md" />
-          <StatusDot status="online" className="absolute -bottom-0.5 -right-0.5 !border-[var(--sidebar-bg)]" />
+        <div className="relative mt-1" ref={profileAnchorRef}>
+          <button
+            type="button"
+            onClick={() => {
+              setNotificationsOpen(false);
+              setProfileOpen((prev) => !prev);
+            }}
+            className="relative rounded-full transition-opacity hover:opacity-90"
+            title={currentAgent?.name ?? "Perfil"}
+          >
+            <Avatar name={currentAgent?.name ?? "?"} size="md" />
+            <StatusDot
+              status="online"
+              className="absolute -bottom-0.5 -right-0.5 !border-[var(--sidebar-bg)]"
+            />
+          </button>
+          <ProfileMenuPopover
+            open={profileOpen}
+            anchorRef={profileAnchorRef}
+            onClose={() => setProfileOpen(false)}
+          />
         </div>
       </div>
     </aside>

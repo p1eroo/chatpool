@@ -97,3 +97,18 @@ body {
 .animate-bounce-dot {
   animation: bounce-dot 1.4s ease-in-out infinite;
 }
+
+@keyframes message-highlight {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: color-mix(in srgb, var(--color-brand) 18%, transparent);
+  }
+}
+
+.animate-message-highlight {
+  animation: message-highlight 1.4s ease-out;
+  border-radius: 0.75rem;
+}

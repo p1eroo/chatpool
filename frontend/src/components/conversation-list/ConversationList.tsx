@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
 import { ConversationCard } from "./ConversationCard";
 import { ConversationContextMenu } from "./ConversationContextMenu";
-import { inboxes, currentUser } from "@/data/mock";
+import { useCurrentAgent } from "@/hooks/useCurrentAgent";
+import { useLabelStore } from "@/store/labelStore";
+import { useInboxStore } from "@/store/inboxStore";
 import {
   Search,
   MessageCircle,
+  Tag,
 } from "lucide-react";
 import type { AssigneeFilter } from "@/store/conversationStore";
 import type { Conversation } from "@/types";
+import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { cn } from "@/lib/utils";
 
 const assigneeTabs = [
@@ -23,8 +27,8 @@ const statusTabs = [
   { id: "all", label: "Todos" },
 ];
 
-function matchesAssignee(conversation: Conversation, assignee: AssigneeFilter) {
-  if (assignee === "mine") return conversation.assignee?.id === currentUser.id;
+function matchesAssignee(conversation: Conversation, assignee: AssigneeFilter, currentAgentId?: string) {
+  if (assignee === "mine") return Boolean(currentAgentId && conversation.assignee?.id === currentAgentId);
   if (assignee === "unassigned") return !conversation.assignee;
   return true;
 }
@@ -35,15 +39,20 @@ function matchesStatus(conversation: Conversation, status: string) {
 }
 
 export function ConversationList() {
+  const currentAgent = useCurrentAgent();
+  const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
   const conversations = useConversationStore((s) => s.conversations);
+  const inboxes = useInboxStore((s) => s.inboxes);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const filterStatus = useConversationStore((s) => s.filterStatus);
   const filterAssignee = useConversationStore((s) => s.filterAssignee);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
-  const setActiveConversation = useConversationStore((s) => s.setActiveConversation);
+  const filterLabelId = useConversationStore((s) => s.filterLabelId);
+  const openConversation = useConversationStore((s) => s.openConversation);
   const setFilterStatus = useConversationStore((s) => s.setFilterStatus);
   const setFilterAssignee = useConversationStore((s) => s.setFilterAssignee);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
+  const setFilterLabelId = useConversationStore((s) => s.setFilterLabelId);
 
   const [search, setSearch] = useState("");
   const [showInboxDropdown, setShowInboxDropdown] = useState(false);
@@ -55,6 +64,7 @@ export function ConversationList() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const activeInbox = inboxes.find((i) => i.id === filterInboxId);
+  const inboxLabels = filterInboxId ? getLabelsForInbox(filterInboxId) : [];
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -72,34 +82,52 @@ export function ConversationList() {
   }, [conversations, filterInboxId]);
 
   const statusCounts = useMemo(() => {
-    const base = inboxFiltered.filter((c) => matchesAssignee(c, filterAssignee));
+    const base = inboxFiltered.filter((c) => matchesAssignee(c, filterAssignee, currentAgent?.id));
     return {
       open: base.filter((c) => c.status === "open").length,
       resolved: base.filter((c) => c.status === "resolved").length,
       all: base.length,
     };
-  }, [inboxFiltered, filterAssignee]);
+  }, [inboxFiltered, filterAssignee, currentAgent?.id]);
 
   const assigneeCounts = useMemo(() => {
     const base = inboxFiltered.filter((c) => matchesStatus(c, filterStatus));
     return {
-      mine: base.filter((c) => c.assignee?.id === currentUser.id).length,
+      mine: base.filter((c) => currentAgent?.id && c.assignee?.id === currentAgent.id).length,
       unassigned: base.filter((c) => !c.assignee).length,
       all: base.length,
     };
-  }, [inboxFiltered, filterStatus]);
+  }, [inboxFiltered, filterStatus, currentAgent?.id]);
+
+  const labelBase = useMemo(() => {
+    return inboxFiltered.filter(
+      (c) =>
+        matchesAssignee(c, filterAssignee, currentAgent?.id) &&
+        matchesStatus(c, filterStatus)
+    );
+  }, [inboxFiltered, filterAssignee, filterStatus, currentAgent?.id]);
+
+  const labelCounts = useMemo(() => {
+    return inboxLabels.map((label) => ({
+      ...label,
+      count: labelBase.filter((c) => c.labels.some((l) => l.id === label.id)).length,
+    }));
+  }, [inboxLabels, labelBase]);
 
   const filtered = useMemo(() => {
     let result = conversations;
     if (filterStatus !== "all") result = result.filter((c) => c.status === filterStatus);
-    if (filterAssignee === "mine") {
-      result = result.filter((c) => c.assignee?.id === currentUser.id);
+    if (filterAssignee === "mine" && currentAgent?.id) {
+      result = result.filter((c) => c.assignee?.id === currentAgent.id);
     } else if (filterAssignee === "unassigned") {
       result = result.filter((c) => !c.assignee);
     }
     if (filterInboxId) result = result.filter((c) => c.inboxId === filterInboxId);
+    if (filterLabelId) {
+      result = result.filter((c) => c.labels.some((label) => label.id === filterLabelId));
+    }
     return result;
-  }, [conversations, filterStatus, filterAssignee, filterInboxId]);
+  }, [conversations, filterStatus, filterAssignee, filterInboxId, filterLabelId, currentAgent?.id]);
 
   const displayed = search
     ? filtered.filter(
@@ -223,6 +251,71 @@ export function ConversationList() {
             </button>
           ))}
         </div>
+
+        {filterInboxId ? (
+          labelCounts.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-[var(--color-border-primary)]">
+              <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
+                <Tag className="w-3 h-3 text-[var(--color-text-muted)]" />
+                <span className="text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
+                  Etiquetas
+                </span>
+              </div>
+              <div className="flex gap-1 overflow-x-auto pb-1">
+                <button
+                  type="button"
+                  onClick={() => setFilterLabelId(null)}
+                  className={cn(
+                    "px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors",
+                    !filterLabelId
+                      ? "bg-[var(--color-brand)] text-white"
+                      : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                  )}
+                >
+                  Todas
+                </button>
+                {labelCounts.map((label) => (
+                  <button
+                    key={label.id}
+                    type="button"
+                    onClick={() =>
+                      setFilterLabelId(filterLabelId === label.id ? null : label.id)
+                    }
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors inline-flex items-center gap-1.5",
+                      filterLabelId === label.id
+                        ? "bg-[var(--color-brand)] text-white"
+                        : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                    )}
+                  >
+                    <LabelColorDot
+                      color={label.color}
+                      className={cn(
+                        "w-1.5 h-1.5",
+                        filterLabelId === label.id && "ring-1 ring-white/80"
+                      )}
+                    />
+                    {label.name}
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        filterLabelId === label.id
+                          ? "text-white/75"
+                          : "text-[var(--color-text-muted)]"
+                      )}
+                    >
+                      {label.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
+        ) : (
+          <p className="mt-2 pt-2 border-t border-[var(--color-border-primary)] text-[11px] text-[var(--color-text-muted)]">
+            Selecciona una bandeja para filtrar por etiqueta
+          </p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -240,7 +333,7 @@ export function ConversationList() {
               key={conv.id}
               conversation={conv}
               isActive={conv.id === activeConversationId}
-              onClick={() => setActiveConversation(conv.id)}
+              onClick={() => openConversation(conv.id)}
               onContextMenu={(e) =>
                 setContextMenu({
                   conversationId: conv.id,

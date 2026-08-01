@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AgentStatus {
+  online
+  away
+  busy
+  offline
+}
+
+enum ChannelType {
+  website
+  email
+  whatsapp
+  facebook
+  instagram
+  telegram
+  sms
+  api
+}
+
+enum InboxStatus {
+  active
+  pending
+  disabled
+}
+
+enum IntegrationProvider {
+  meta
+  email
+  website
+}
+
+enum ConversationStatus {
+  open
+  resolved
+}
+
+enum Priority {
+  urgent
+  high
+  medium
+  low
+  none
+}
+
+enum MessageSenderType {
+  agent
+  contact
+  system
+  bot
+}
+
+enum MessageContentType {
+  text
+  image
+  file
+  audio
+}
+
+enum MessageStatus {
+  sent
+  delivered
+  read
+  failed
+}
+
+model Role {
+  id          String   @id
+  name        String
+  permissions Json
+  isSystem    Boolean  @default(false) @map("is_system")
+  agents      Agent[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("roles")
+}
+
+model Agent {
+  id                    String         @id @default(cuid())
+  name                  String
+  username              String         @unique
+  passwordHash          String         @map("password_hash")
+  phone                 String?
+  email                 String?
+  avatar                String
+  status                AgentStatus    @default(offline)
+  active                Boolean        @default(true)
+  roleId                String         @map("role_id")
+  role                  Role           @relation(fields: [roleId], references: [id])
+  activeSessionId       String?        @map("active_session_id")
+  inboxAgents           InboxAgent[]
+  assignedConversations Conversation[] @relation("ConversationAssignee")
+  messages              Message[]      @relation("AgentMessages")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
+
+  @@map("agents")
+}
+
+model Inbox {
+  id            String         @id @default(cuid())
+  name          String
+  channelType   ChannelType    @map("channel_type")
+  icon          String
+  settings      InboxSettings?
+  inboxAgents   InboxAgent[]
+  contacts      Contact[]
+  conversations Conversation[]
+  labels        Label[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@map("inboxes")
+}
+
+model InboxSettings {
+  inboxId            String              @id @map("inbox_id")
+  inbox              Inbox               @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  detail             String
+  status             InboxStatus         @default(pending)
+  provider           IntegrationProvider
+  providerResource   String              @map("provider_resource")
+  webhookUrl         String?             @map("webhook_url")
+  webhookVerifyToken String?             @map("webhook_verify_token")
+  description        String?
+  whatsappProvider   String?             @map("whatsapp_provider")
+  phoneNumberId      String?             @map("phone_number_id")
+  businessAccountId  String?             @map("business_account_id")
+  accessToken        String?             @map("access_token")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  @@map("inbox_settings")
+}
+
+model InboxAgent {
+  inboxId String @map("inbox_id")
+  agentId String @map("agent_id")
+  inbox   Inbox  @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([inboxId, agentId])
+  @@map("inbox_agents")
+}
+
+model IntegrationAccount {
+  id          String              @id
+  name        String
+  provider    IntegrationProvider @unique
+  description String
+  connected   Boolean             @default(false)
+  webhookUrl  String?             @map("webhook_url")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@map("integration_accounts")
+}
+
+model Contact {
+  id            String         @id @default(cuid())
+  inboxId       String         @map("inbox_id")
+  inbox         Inbox          @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  name          String
+  email         String         @default("")
+  phone         String?
+  avatar        String?
+  lastSeen      DateTime?      @map("last_seen")
+  isBlocked     Boolean        @default(false) @map("is_blocked")
+  waId          String?        @map("wa_id")
+  conversations Conversation[]
+  messages      Message[]      @relation("ContactMessages")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@unique([inboxId, waId])
+  @@map("contacts")
+}
+
+model Conversation {
+  id          String              @id @default(cuid())
+  inboxId     String              @map("inbox_id")
+  inbox       Inbox               @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  contactId   String              @map("contact_id")
+  contact     Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assigneeId  String?             @map("assignee_id")
+  assignee    Agent?              @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  status      ConversationStatus  @default(open)
+  priority    Priority            @default(none)
+  unreadCount Int                 @default(0) @map("unread_count")
+  isTyping    Boolean             @default(false) @map("is_typing")
+  labels      ConversationLabel[]
+  messages    Message[]
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@map("conversations")
+}
+
+model Message {
+  id                  String             @id @default(cuid())
+  conversationId      String             @map("conversation_id")
+  conversation        Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  content             String
+  senderType          MessageSenderType  @map("sender_type")
+  senderAgentId       String?            @map("sender_agent_id")
+  senderAgent         Agent?             @relation("AgentMessages", fields: [senderAgentId], references: [id])
+  senderContactId     String?            @map("sender_contact_id")
+  senderContact       Contact?           @relation("ContactMessages", fields: [senderContactId], references: [id])
+  senderName          String?            @map("sender_name")
+  isPrivate           Boolean            @default(false) @map("is_private")
+  attachedToMessageId String?            @map("attached_to_message_id")
+  replyToMessageId    String?            @map("reply_to_message_id")
+  replyToMessage      Message?           @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies             Message[]          @relation("MessageReplies")
+  contentType         MessageContentType @default(text) @map("content_type")
+  fileName            String?            @map("file_name")
+  fileSize            Int?               @map("file_size")
+  fileKey             String?            @map("file_key")
+  mimeType            String?            @map("mime_type")
+  mediaExternalId     String?            @map("media_external_id")
+  externalId          String?            @unique @map("external_id")
+  status              MessageStatus      @default(sent)
+  createdAt           DateTime           @default(now()) @map("created_at")
+
+  @@map("messages")
+}
+
+model Label {
+  id            String              @id @default(cuid())
+  inboxId       String              @map("inbox_id")
+  inbox         Inbox               @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  name          String
+  color         String
+  conversations ConversationLabel[]
+
+  @@unique([inboxId, name])
+  @@map("labels")
+}
+
+model ConversationLabel {
+  conversationId String       @map("conversation_id")
+  labelId        String       @map("label_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  label          Label        @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, labelId])
+  @@map("conversation_labels")
+}
+
+model CannedResponse {
+  id      String @id @default(cuid())
+  title   String
+  content String
+
+  @@map("canned_responses")
+}
