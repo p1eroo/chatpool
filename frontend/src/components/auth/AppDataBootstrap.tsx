@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { env } from "@/config/env";
 import { bootstrapAppData } from "@/services/bootstrapService";
 import { useAuthStore } from "@/store/authStore";
+import { AppLoadingState } from "@/components/ui/AppLoadingState";
 
 export function AppDataBootstrap({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -22,11 +23,7 @@ export function AppDataBootstrap({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated]);
 
   if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
-        <p className="text-sm text-[var(--color-text-muted)]">Cargando datos…</p>
-      </div>
-    );
+    return <AppLoadingState message="Cargando datos…" fullScreen />;
   }
 
   return children;

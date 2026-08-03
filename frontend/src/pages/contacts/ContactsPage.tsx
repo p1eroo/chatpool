@@ -4,8 +4,12 @@ import { useConversationStore } from "@/store/conversationStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { whatsappTemplates } from "@/data/mock";
 import { useContacts } from "@/hooks/useContacts";
+import { useContactHistoryMessages } from "@/hooks/useContactHistoryMessages";
+import { getContactMessagePreview } from "@/lib/contactMessagePreview";
+import { useUIStore } from "@/store/uiStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn, formatTime } from "@/lib/utils";
+import { compareConversationsByRecentActivity } from "@/lib/conversationSort";
 import { APP_LOCALE, APP_PHONE_PREFIX } from "@/lib/locale";
 import {
   Search,
@@ -21,8 +25,9 @@ import {
   ChevronDown,
   Ban,
   Send,
+  Mic,
 } from "lucide-react";
-import type { Contact, Conversation, Inbox } from "@/types";
+import type { Contact, Conversation, Inbox, Message } from "@/types";
 
 function groupByLetter(contacts: Contact[]) {
   const sorted = [...contacts].sort((a, b) => a.name.localeCompare(b.name, APP_LOCALE));
@@ -72,14 +77,25 @@ const CONTACT_LIST_WIDTH = 340;
 
 type SidePanelTab = "history" | "compose";
 
+type ContactComposeSendPayload = {
+  message: string;
+  template?: {
+    id: string;
+    name: string;
+    content: string;
+  };
+};
+
 export function ContactsPage() {
   const navigate = useNavigate();
+  const showToast = useUIStore((s) => s.showToast);
   const conversations = useConversationStore((s) => s.conversations);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
   const openConversation = useConversationStore((s) => s.openConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
   const sendMessage = useConversationStore((s) => s.sendMessage);
+  const sendTemplateMessage = useConversationStore((s) => s.sendTemplateMessage);
   const inboxes = useInboxStore((s) => s.inboxes);
 
   const [search, setSearch] = useState("");
@@ -136,7 +152,7 @@ export function ContactsPage() {
           c.contact.id === selectedContact.id &&
           c.inboxId === selectedContact.inboxId
       )
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      .sort(compareConversationsByRecentActivity);
   }, [selectedContact, conversations]);
 
   useEffect(() => {
@@ -148,25 +164,44 @@ export function ContactsPage() {
     navigate("/inbox");
   };
 
-  const handleSendMessage = (message: string) => {
-    if (!selectedContact || !message.trim()) return;
+  const handleSendMessage = async (payload: ContactComposeSendPayload) => {
+    const message = payload.message.trim();
+    if (!selectedContact || !message) return;
 
     const inbox = inboxes.find((i) => i.id === selectedContact.inboxId);
     if (!inbox) return;
 
-    const existing = contactConversations.find((c) => c.inboxId === inbox.id);
-    if (existing) {
-      sendMessage(existing.id, message.trim(), false);
-      openConversation(existing.id);
-    } else {
-      createConversation(
-        selectedContact,
-        inbox.id,
-        inbox.channelType,
-        message.trim()
+    const existing =
+      contactConversations[0] ??
+      conversations.find(
+        (conversation) =>
+          conversation.inboxId === selectedContact.inboxId &&
+          (conversation.contact.id === selectedContact.id ||
+            (selectedContact.phone &&
+              conversation.contact.phone === selectedContact.phone))
       );
+
+    const conversationId = existing
+      ? existing.id
+      : createConversation(selectedContact, inbox.id, inbox.channelType);
+
+    if (payload.template) {
+      const ok = await sendTemplateMessage(conversationId, {
+        templateId: payload.template.id,
+        templateName: payload.template.name,
+        content: payload.template.content,
+      });
+
+      if (!ok) {
+        showToast("Meta rechazó la plantilla. El aviso permanece activo.");
+      } else {
+        showToast("Plantilla enviada correctamente");
+      }
+    } else {
+      sendMessage(conversationId, message, false);
     }
 
+    openConversation(conversationId);
     setSidePanelTab("history");
     navigate("/inbox");
   };
@@ -189,24 +224,11 @@ export function ContactsPage() {
                 onClick={() => setShowInboxDropdown(!showInboxDropdown)}
                 className="flex items-center gap-2 text-[var(--color-text-primary)] font-semibold text-[15px] hover:opacity-80 transition-opacity"
               >
-                {activeInbox ? activeInbox.name : "Todas las bandejas"}
+                {activeInbox?.name ?? inboxes[0]?.name ?? "Bandeja"}
                 <svg className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6"/></svg>
               </button>
               {showInboxDropdown && (
                 <div className="absolute top-full left-0 mt-1 w-56 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
-                  <button
-                    onClick={() => {
-                      setFilterInboxId(null);
-                      setShowInboxDropdown(false);
-                    }}
-                    className={cn(
-                      "w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)] transition-colors",
-                      !filterInboxId ? "text-[var(--color-brand)]" : "text-[var(--color-text-primary)]"
-                    )}
-                  >
-                    Todas las bandejas
-                  </button>
-                  <div className="h-px bg-[var(--color-border-primary)] my-1" />
                   {inboxes.map((inbox) => (
                     <button
                       key={inbox.id}
@@ -462,12 +484,13 @@ function SendMessageComposer({
   contact: Contact;
   inbox?: Inbox;
   onClose: () => void;
-  onSend: (message: string) => void;
+  onSend: (payload: ContactComposeSendPayload) => void | Promise<void>;
 }) {
   const [message, setMessage] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
+  const [sending, setSending] = useState(false);
 
   const isTemplateLocked = selectedTemplateId !== null;
   const selectedTemplate = whatsappTemplates.find((t) => t.id === selectedTemplateId);
@@ -485,8 +508,23 @@ function SendMessageComposer({
   );
 
   const handleSend = () => {
-    if (!message.trim() || !inbox) return;
-    onSend(message);
+    if (!message.trim() || !inbox || sending) return;
+
+    setSending(true);
+    void Promise.resolve(
+      onSend({
+        message,
+        template: selectedTemplate
+          ? {
+              id: selectedTemplate.id,
+              name: selectedTemplate.name,
+              content: selectedTemplate.preview,
+            }
+          : undefined,
+      })
+    ).finally(() => {
+      setSending(false);
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -611,16 +649,16 @@ function SendMessageComposer({
           </button>
           <button
             onClick={handleSend}
-            disabled={!message.trim() || !inbox}
+            disabled={!message.trim() || !inbox || sending}
             className={cn(
               "h-8 px-3 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5",
-              message.trim()
+              message.trim() && !sending
                 ? "bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)]"
                 : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] cursor-not-allowed"
             )}
           >
-            Enviar
-            <span className="text-[10px] opacity-70">(⌘ + ↵)</span>
+            {sending ? "Enviando…" : "Enviar"}
+            {!sending ? <span className="text-[10px] opacity-70">(⌘ + ↵)</span> : null}
           </button>
         </div>
       </div>
@@ -667,9 +705,14 @@ function ContactSidePanel({
   activeTab: SidePanelTab;
   onTabChange: (tab: SidePanelTab) => void;
   onOpenChat: (id: string) => void;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (payload: ContactComposeSendPayload) => void | Promise<void>;
   inbox?: Inbox;
 }) {
+  const { contactMessages, loading, error } = useContactHistoryMessages(
+    conversations,
+    activeTab === "history"
+  );
+
   return (
     <aside className="w-[clamp(280px,30vw,480px)] bg-[var(--color-bg-secondary)] border-l border-[var(--color-border-primary)] flex flex-col shrink-0 min-h-0 animate-slide-in-right">
       <div className="flex border-b border-[var(--color-border-primary)] shrink-0">
@@ -724,13 +767,40 @@ function ContactSidePanel({
                 para escribirle.
               </p>
             </div>
+          ) : loading && contactMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 px-6 py-12">
+              <div className="relative flex h-10 w-10 items-center justify-center">
+                <span className="absolute inset-0 rounded-full border-2 border-[var(--color-brand)]/15" />
+                <span className="absolute inset-0 rounded-full border-2 border-transparent border-t-[var(--color-brand)] animate-spin" />
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)]">Cargando historial…</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+              <p className="text-sm text-[var(--color-text-primary)] font-semibold mb-1">
+                No se pudo cargar el historial
+              </p>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Intenta seleccionar el contacto de nuevo.
+              </p>
+            </div>
+          ) : contactMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+              <p className="text-sm text-[var(--color-text-primary)] font-semibold mb-1">
+                Sin mensajes del contacto
+              </p>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                {contact.name} aún no ha enviado mensajes en esta bandeja.
+              </p>
+            </div>
           ) : (
-            conversations.map((conv) => (
-              <HistoryItem
-                key={conv.id}
-                conversation={conv}
+            contactMessages.map((message) => (
+              <ContactHistoryMessageItem
+                key={message.id}
+                message={message}
                 contact={contact}
-                onClick={() => onOpenChat(conv.id)}
+                conversation={conversations.find((c) => c.id === message.conversationId)!}
+                onClick={() => onOpenChat(message.conversationId)}
               />
             ))
           )}
@@ -740,21 +810,21 @@ function ContactSidePanel({
   );
 }
 
-function HistoryItem({
-  conversation,
+function ContactHistoryMessageItem({
+  message,
   contact,
+  conversation,
   onClick,
 }: {
-  conversation: Conversation;
+  message: Message;
   contact: Contact;
+  conversation: Conversation;
   onClick: () => void;
 }) {
   const ChannelIcon = channelIcons[conversation.channelType] || Globe;
   const channelColor = channelColors[conversation.channelType] || "text-gray-400";
-  const preview = conversation.lastMessage?.content?.slice(0, 80) || "Sin mensajes";
-  const time = conversation.lastMessage
-    ? formatTime(conversation.lastMessage.createdAt)
-    : formatTime(conversation.updatedAt);
+  const preview = getContactMessagePreview(message);
+  const isAudio = message.contentType === "audio";
 
   return (
     <button
@@ -780,11 +850,12 @@ function HistoryItem({
               {contact.name}
             </span>
             <span className="text-[11px] text-[var(--color-text-muted)] shrink-0 ml-2">
-              {time}
+              {formatTime(message.createdAt)}
             </span>
           </div>
-          <p className="text-xs text-[var(--color-text-secondary)] line-clamp-2">
-            {preview}
+          <p className="text-xs text-[var(--color-text-secondary)] line-clamp-2 flex items-center gap-1.5">
+            {isAudio ? <Mic className="w-3 h-3 shrink-0 opacity-70" /> : null}
+            <span className="truncate">{preview}</span>
           </p>
         </div>
       </div>

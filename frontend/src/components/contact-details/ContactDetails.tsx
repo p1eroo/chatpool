@@ -204,16 +204,20 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleAssign = (agentId: string | undefined) => {
-    reassignConversation(conversation.id, agentId);
+  const handleAssign = async (agentId: string | undefined) => {
+    const ok = await reassignConversation(conversation.id, agentId);
     setAssignOpen(false);
-    showToast(agentId ? "Agente actualizado" : "Conversación sin asignar");
+    if (!ok) showToast("No se pudo actualizar el agente");
   };
 
-  const handleStatusChange = (status: ConversationStatus) => {
-    setConversationStatus(conversation.id, status);
+  const handleStatusChange = async (status: ConversationStatus) => {
+    const ok = await setConversationStatus(conversation.id, status);
     setStatusOpen(false);
-    showToast("Estado actualizado");
+    if (!ok) {
+      showToast("No se pudo actualizar el estado");
+    } else if (status === "resolved") {
+      showToast("Conversación resuelta");
+    }
   };
 
   return (
@@ -352,7 +356,10 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
             <button
               key={label.id}
               type="button"
-              onClick={() => toggleConversationLabel(conversation.id, label.id)}
+              onClick={async () => {
+                const ok = await toggleConversationLabel(conversation.id, label.id);
+                if (!ok) showToast("No se pudo actualizar la etiqueta");
+              }}
               className="text-[11px] px-2 py-1 rounded-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] flex items-center gap-1 hover:bg-[var(--color-bg-hover)] transition-colors"
             >
               <LabelColorDot color={label.color} className="w-1.5 h-1.5" />
@@ -378,9 +385,10 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
                       <button
                         key={label.id}
                         type="button"
-                        onClick={() => {
-                          toggleConversationLabel(conversation.id, label.id);
+                        onClick={async () => {
+                          const ok = await toggleConversationLabel(conversation.id, label.id);
                           setLabelsOpen(false);
+                          if (!ok) showToast("No se pudo actualizar la etiqueta");
                         }}
                         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
                       >

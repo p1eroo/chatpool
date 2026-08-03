@@ -37,7 +37,7 @@ export function useVerifyMetaConnection(inboxId: string) {
     onSuccess: async (result) => {
       if (result.ok) {
         await refreshInboxDataFromApi();
-        await refreshConversationsFromApi({ broad: true });
+        await refreshConversationsFromApi();
         void queryClient.invalidateQueries({ queryKey: contactKeys.all });
       }
       void queryClient.invalidateQueries({ queryKey: integrationKeys.all });

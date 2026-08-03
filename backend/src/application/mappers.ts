@@ -112,7 +112,9 @@ export function mapMessage(message: {
   fileKey: string | null;
   mimeType: string | null;
   mediaExternalId: string | null;
+  externalId: string | null;
   status: string;
+  sortOrder: number;
   createdAt: Date;
   senderAgent?: { name: string } | null;
   senderContact?: { name: string } | null;
@@ -145,6 +147,8 @@ export function mapMessage(message: {
       ? `/conversations/${message.conversationId}/messages/${message.id}/attachment`
       : undefined,
     mimeType: message.mimeType ?? undefined,
+    externalId: message.externalId ?? undefined,
+    sortOrder: message.sortOrder,
     createdAt: message.createdAt.toISOString(),
     status: message.status as Message["status"],
   };
@@ -160,6 +164,7 @@ export function mapConversation(
     isTyping: boolean;
     createdAt: Date;
     updatedAt: Date;
+    lastMessageAt: Date | null;
     contact: Parameters<typeof mapContact>[0];
     assignee: Parameters<typeof mapAgentProfile>[0] | null;
     inbox: { channelType: string };
@@ -167,7 +172,8 @@ export function mapConversation(
     messages: Array<Parameters<typeof mapMessage>[0]>;
   }
 ): Conversation {
-  const lastMessage = row.messages[0] ? mapMessage(row.messages[0]) : null;
+  const mappedLast = row.messages[0] ? mapMessage(row.messages[0]) : null;
+  const lastMessage = mappedLast?.senderType === "system" ? null : mappedLast;
 
   return {
     id: row.id,
@@ -181,6 +187,7 @@ export function mapConversation(
     labels: row.labels.map((item) => mapLabel(item.label)),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
     isTyping: row.isTyping,
     channelType: row.inbox.channelType as ChannelType,
   };

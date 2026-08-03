@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { env } from "@/config/env";
 import { getAccessToken } from "@/api/client";
 import { registerAuthUnauthorizedHandler, useAuthStore } from "@/store/authStore";
+import { AppLoadingState } from "@/components/ui/AppLoadingState";
 
 export function AuthSessionProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -32,11 +33,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
   }, [validateSession, isAuthenticated, navigate]);
 
   if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
-        <p className="text-sm text-[var(--color-text-muted)]">Verificando sesión…</p>
-      </div>
-    );
+    return <AppLoadingState message="Verificando sesión…" fullScreen />;
   }
 
   return children;

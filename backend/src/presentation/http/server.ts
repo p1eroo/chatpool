@@ -29,6 +29,8 @@ export async function buildApp() {
   await app.register(cors, {
     origin: env.CORS_ORIGIN.split(",").map((item) => item.trim()),
     credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Chatpool-Read-Reason"],
   });
 
   await app.register(jwt, {

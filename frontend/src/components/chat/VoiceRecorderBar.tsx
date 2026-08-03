@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Mic, Pause, Play, Send, Trash2 } from "lucide-react";
 import {
   formatVoiceTime,
@@ -16,14 +16,26 @@ interface VoiceRecorderBarProps {
 
 export function VoiceRecorderBar({ onSend, onCancel, onError }: VoiceRecorderBarProps) {
   const recorder = useVoiceRecorder();
+  const startedRef = useRef(false);
 
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    let active = true;
+
     void recorder.start().then((started) => {
+      if (!active) return;
       if (!started) {
         onError("No se pudo acceder al micrófono");
         onCancel();
       }
     });
+
+    return () => {
+      active = false;
+      recorder.cancel();
+    };
   }, []);
 
   const handleCancel = () => {
@@ -35,10 +47,11 @@ export function VoiceRecorderBar({ onSend, onCancel, onError }: VoiceRecorderBar
     const result = await recorder.sendRecording();
     if (!result) {
       onError("La grabación está vacía");
-      handleCancel();
       return;
     }
+
     onSend(result);
+    recorder.confirmSent();
   };
 
   const isPreview = recorder.mode === "preview";

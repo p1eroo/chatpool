@@ -130,20 +130,6 @@ export const integrationAccounts: IntegrationAccount[] = [
     connected: true,
     webhookUrl: "https://api.chatpool.app/webhooks/meta",
   },
-  {
-    id: "integration-email",
-    name: "Correo SMTP",
-    provider: "email",
-    description: "Bandejas de correo electrónico",
-    connected: true,
-  },
-  {
-    id: "integration-website",
-    name: "Chat Web",
-    provider: "website",
-    description: "Widget en sitio propio",
-    connected: true,
-  },
 ];
 
 export function getInboxSettings(inboxId: string): InboxSettings | undefined {
@@ -160,7 +146,7 @@ export function getInboxById(inboxId: string): Inbox | undefined {
 
 function makeMessages(conversationId: string): Message[] {
   const now = Date.now();
-  return [
+  const messages: Message[] = [
     {
       id: `msg-${conversationId}-1`,
       conversationId,
@@ -209,6 +195,11 @@ function makeMessages(conversationId: string): Message[] {
       status: "read",
     },
   ];
+
+  return messages.map((message, index) => ({
+    ...message,
+    sortOrder: index + 1,
+  }));
 }
 
 export const conversations: Conversation[] = [
@@ -224,6 +215,7 @@ export const conversations: Conversation[] = [
     labels: [labels[0], labels[1]],
     createdAt: new Date(Date.now() - 86400000),
     updatedAt: new Date(Date.now() - 120000),
+    lastMessageAt: null,
     isTyping: false,
     channelType: "whatsapp",
   },
@@ -239,6 +231,7 @@ export const conversations: Conversation[] = [
     labels: [labels[5], labels[6]],
     createdAt: new Date(Date.now() - 172800000),
     updatedAt: new Date(Date.now() - 3600000),
+    lastMessageAt: null,
     isTyping: false,
     channelType: "email",
   },
@@ -254,6 +247,7 @@ export const conversations: Conversation[] = [
     labels: [labels[7]],
     createdAt: new Date(Date.now() - 259200000),
     updatedAt: new Date(Date.now() - 10800000),
+    lastMessageAt: null,
     isTyping: false,
     channelType: "facebook",
   },
@@ -269,6 +263,7 @@ export const conversations: Conversation[] = [
     labels: [labels[1], labels[2]],
     createdAt: new Date(Date.now() - 43200000),
     updatedAt: new Date(Date.now() - 18000000),
+    lastMessageAt: null,
     isTyping: false,
     channelType: "whatsapp",
   },
@@ -284,6 +279,7 @@ export const conversations: Conversation[] = [
     labels: [labels[9], labels[10]],
     createdAt: new Date(Date.now() - 7200000),
     updatedAt: new Date(Date.now() - 600000),
+    lastMessageAt: null,
     isTyping: true,
     channelType: "website",
   },
@@ -299,6 +295,7 @@ export const conversations: Conversation[] = [
     labels: [labels[5]],
     createdAt: new Date(Date.now() - 345600000),
     updatedAt: new Date(Date.now() - 86400000),
+    lastMessageAt: null,
     isTyping: false,
     channelType: "email",
   },
@@ -314,6 +311,7 @@ export const conversations: Conversation[] = [
     labels: [labels[11]],
     createdAt: new Date(Date.now() - 518400000),
     updatedAt: new Date(Date.now() - 172800000),
+    lastMessageAt: null,
     isTyping: false,
     channelType: "instagram",
   },
@@ -329,6 +327,7 @@ export const conversations: Conversation[] = [
     labels: [labels[1]],
     createdAt: new Date(Date.now() - 3600000),
     updatedAt: new Date(Date.now() - 300000),
+    lastMessageAt: null,
     isTyping: false,
     channelType: "whatsapp",
   },
@@ -336,6 +335,7 @@ export const conversations: Conversation[] = [
 
 conversations.forEach((conv) => {
   conv.lastMessage = makeMessages(conv.id).at(-1) || null;
+  conv.lastMessageAt = conv.lastMessage?.createdAt ?? conv.updatedAt;
 });
 
 export function getMessages(_conversationId: string): Message[] {

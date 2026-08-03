@@ -6,9 +6,14 @@ import {
   createWebhookVerifyToken,
 } from "../../infrastructure/webhooks/webhook-url.builder.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
+import {
+  IMPLEMENTED_INTEGRATION_PROVIDERS,
+  isImplementedIntegrationProvider,
+} from "../../shared/integration-providers.js";
 
 export async function listIntegrationAccounts() {
   const accounts = await prisma.integrationAccount.findMany({
+    where: { provider: { in: [...IMPLEMENTED_INTEGRATION_PROVIDERS] } },
     orderBy: { name: "asc" },
   });
 
@@ -119,6 +124,10 @@ export async function verifyMetaConnection(input: {
 }
 
 export async function registerInboxWebhook(inboxId: string, provider: "meta" | "email" | "website") {
+  if (!isImplementedIntegrationProvider(provider)) {
+    throw new AppError("Este proveedor de integración aún no está disponible");
+  }
+
   const settings = await prisma.inboxSettings.findUnique({ where: { inboxId } });
   if (!settings) {
     throw new NotFoundError("Bandeja no encontrada");

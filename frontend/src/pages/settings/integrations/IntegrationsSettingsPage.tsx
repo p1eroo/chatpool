@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, Plug } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getProviderWebhookHelp } from "@/lib/integrationProviders";
 import type { IntegrationAccountDto } from "@/types/api";
 import { useIntegrationAccounts, useProviderInboxes } from "@/hooks/useIntegrations";
 import { useInboxStore } from "@/store/inboxStore";
@@ -15,7 +16,6 @@ const providerIcons: Record<string, string> = {
 export function IntegrationsSettingsPage() {
   const showToast = useUIStore((s) => s.showToast);
   const getByInboxId = useInboxSettingsStore((s) => s.getByInboxId);
-  const inboxes = useInboxStore((s) => s.inboxes);
   const getInboxById = useInboxStore((s) => s.getInboxById);
   const { data: accounts = [] } = useIntegrationAccounts();
 
@@ -27,38 +27,53 @@ export function IntegrationsSettingsPage() {
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-[var(--color-text-secondary)]">
-        Vista global de proveedores conectados. Cada bandeja usa un recurso del proveedor (número,
-        página, widget, etc.). Configura el webhook en Meta Business Suite apuntando a estas URLs.
+        Proveedores disponibles en tu instancia. Cuando se despliegue una integración nueva,
+        aparecerá aquí automáticamente.
       </p>
 
-      {accounts.map((account) => (
-        <ProviderSection
-          key={account.id}
-          account={account}
-          inboxes={inboxes}
-          getInboxById={getInboxById}
-          getByInboxId={getByInboxId}
-          onCopyWebhook={copyWebhook}
-        />
-      ))}
+      {accounts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--color-bg-tertiary)]">
+            <Plug className="h-6 w-6 text-[var(--color-text-muted)]" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text-primary)]">
+              Sin integraciones activas
+            </p>
+            <p className="mt-1 text-[13px] text-[var(--color-text-secondary)] max-w-md">
+              Aún no hay proveedores desplegados. Cuando configures una bandeja con un canal
+              soportado, verás su webhook y bandejas vinculadas en esta pantalla.
+            </p>
+          </div>
+        </div>
+      ) : (
+        accounts.map((account) => (
+          <ProviderSection
+            key={account.id}
+            account={account}
+            getInboxById={getInboxById}
+            getByInboxId={getByInboxId}
+            onCopyWebhook={copyWebhook}
+          />
+        ))
+      )}
     </div>
   );
 }
 
 function ProviderSection({
   account,
-  inboxes,
   getInboxById,
   getByInboxId,
   onCopyWebhook,
 }: {
   account: IntegrationAccountDto;
-  inboxes: ReturnType<typeof useInboxStore.getState>["inboxes"];
   getInboxById: ReturnType<typeof useInboxStore.getState>["getInboxById"];
   getByInboxId: ReturnType<typeof useInboxSettingsStore.getState>["getByInboxId"];
   onCopyWebhook: (url: string) => void;
 }) {
   const { data: linkedInboxes = [] } = useProviderInboxes(account.provider);
+  const webhookHelp = getProviderWebhookHelp(account.provider);
 
   return (
     <SettingsSection
@@ -96,10 +111,9 @@ function ProviderSection({
                 <Copy className="w-3.5 h-3.5" />
               </button>
             </div>
-            <p className="text-[11px] text-[var(--color-text-muted)] mt-2">
-              Callback URL para Meta Cloud API. Verifica el token en el backend al recibir el
-              challenge GET.
-            </p>
+            {webhookHelp ? (
+              <p className="text-[11px] text-[var(--color-text-muted)] mt-2">{webhookHelp}</p>
+            ) : null}
           </div>
         )}
 
@@ -108,6 +122,11 @@ function ProviderSection({
             Bandejas vinculadas ({linkedInboxes.length})
           </h4>
           <div className="space-y-2">
+            {linkedInboxes.length === 0 ? (
+              <p className="text-[12px] text-[var(--color-text-muted)] px-1 py-2">
+                Ninguna bandeja usa este proveedor todavía.
+              </p>
+            ) : null}
             {linkedInboxes.map((settings) => {
               const inbox = getInboxById(settings.inboxId);
               const liveStatus = getByInboxId(settings.inboxId)?.status ?? settings.status;
@@ -151,10 +170,9 @@ function ProviderSection({
               </div>
             )}
             <p className="text-[12px] text-[var(--color-text-secondary)]">
-              {inboxes.filter((inbox) =>
-                ["whatsapp", "facebook", "instagram"].includes(inbox.channelType)
-              ).length}{" "}
-              bandejas usan Meta API en esta cuenta.
+              {linkedInboxes.length}{" "}
+              {linkedInboxes.length === 1 ? "bandeja usa" : "bandejas usan"} Meta API en esta
+              cuenta.
             </p>
           </div>
         )}

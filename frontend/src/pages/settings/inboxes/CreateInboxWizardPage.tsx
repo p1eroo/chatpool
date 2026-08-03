@@ -8,6 +8,7 @@ import {
   getChannelOption,
   getProviderForChannel,
 } from "@/lib/inboxUtils";
+import { getImplementedChannelWizardOptions } from "@/lib/integrationProviders";
 import { buildInboxWebhookUrl } from "@/lib/webhooks";
 import { inboxApiService } from "@/services/inboxApiService";
 import { useAuthStore } from "@/store/authStore";
@@ -57,6 +58,11 @@ export function CreateInboxWizardPage() {
   const channelMeta = useMemo(
     () => (channelType ? getChannelOption(channelType) : null),
     [channelType]
+  );
+
+  const availableChannelOptions = useMemo(
+    () => getImplementedChannelWizardOptions(channelWizardOptions),
+    []
   );
 
   const isConfigureFormValid = () => {
@@ -149,11 +155,11 @@ export function CreateInboxWizardPage() {
                   Elija un canal
                 </h2>
                 <p className="text-sm text-[var(--color-text-secondary)] mb-6 max-w-xl">
-                  Chatpool soporta chats en vivo, WhatsApp, Facebook, Instagram, correo y más.
-                  Cada canal se configura como una bandeja independiente.
+                  Elige el canal que quieres conectar. Solo aparecen integraciones ya disponibles
+                  en tu instancia.
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {channelWizardOptions.map((option) => {
+                  {availableChannelOptions.map((option) => {
                     const Icon = option.icon;
                     const selected = channelType === option.value;
                     return (

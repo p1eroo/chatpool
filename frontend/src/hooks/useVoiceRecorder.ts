@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { resolveRecorderMimeType } from "@/lib/voiceRecording";
 
 export type VoiceRecorderMode = "idle" | "recording" | "preview";
 
@@ -183,9 +184,8 @@ export function useVoiceRecorder() {
         stopAnalyserLoop();
 
         recorder.onstop = () => {
-          const blob = new Blob(chunksRef.current, {
-            type: recorder.mimeType || "audio/webm",
-          });
+          const mimeType = recorder.mimeType || resolveRecorderMimeType();
+          const blob = new Blob(chunksRef.current, { type: mimeType });
           const durationSeconds = Math.max(
             1,
             Math.round((Date.now() - recordingStartRef.current) / 1000)
@@ -214,6 +214,7 @@ export function useVoiceRecorder() {
         };
 
         if (recorder.state !== "inactive") {
+          recorder.requestData();
           recorder.stop();
         } else {
           resolve(null);
@@ -238,7 +239,9 @@ export function useVoiceRecorder() {
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      const recorder = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream, {
+        mimeType: resolveRecorderMimeType(),
+      });
       recorderRef.current = recorder;
       chunksRef.current = [];
 
@@ -272,20 +275,15 @@ export function useVoiceRecorder() {
   }, [finalizeRecorder, mode]);
 
   const sendRecording = useCallback(async (): Promise<VoiceRecordingResult | null> => {
-    if (mode === "preview" && blobRef.current && previewUrlRef.current) {
-      const result = {
+    if (mode === "preview" && blobRef.current) {
+      const url =
+        previewUrlRef.current ?? URL.createObjectURL(blobRef.current);
+
+      return {
         blob: blobRef.current,
-        url: previewUrlRef.current,
+        url,
         durationSeconds: previewDuration || elapsedSeconds || 1,
       };
-      previewUrlRef.current = null;
-      blobRef.current = null;
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setMode("idle");
-      return result;
     }
 
     if (mode === "recording") {
@@ -294,6 +292,24 @@ export function useVoiceRecorder() {
 
     return null;
   }, [elapsedSeconds, finalizeRecorder, mode, previewDuration]);
+
+  const confirmSent = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    blobRef.current = null;
+    setIsPlaying(false);
+    setPlaybackTime(0);
+    setPreviewDuration(0);
+    setMode("idle");
+    setElapsedSeconds(0);
+    resetLevels();
+  }, [resetLevels]);
 
   const togglePlayback = useCallback(() => {
     const audio = audioRef.current;
@@ -321,6 +337,7 @@ export function useVoiceRecorder() {
     start,
     pauseRecording,
     sendRecording,
+    confirmSent,
     togglePlayback,
     cancel,
   };

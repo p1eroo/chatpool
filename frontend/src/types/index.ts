@@ -116,6 +116,8 @@ export interface Message {
   fileSize?: number;
   fileUrl?: string;
   attachmentUrl?: string;
+  externalId?: string;
+  sortOrder?: number;
   createdAt: Date;
   status?: "sent" | "delivered" | "read" | "failed";
 }
@@ -145,6 +147,7 @@ export interface Conversation {
   labels: Label[];
   createdAt: Date;
   updatedAt: Date;
+  lastMessageAt: Date | null;
   isTyping: boolean;
   channelType: ChannelType;
 }

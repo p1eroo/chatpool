@@ -10,6 +10,11 @@ import {
   processSmbAppStateSync,
   upsertWhatsAppContact,
 } from "../contacts/whatsapp-contact-sync.service.js";
+import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
+import { touchConversationLastMessageAt } from "../conversations/conversation-last-message.js";
+import { runWithConversationMessageLock } from "../conversations/conversation-message-serializer.js";
+import { nextMessageSortOrder } from "../conversations/message-sort-order.js";
+import { parseMetaMessageTimestamp } from "../../shared/meta-message-time.js";
 
 interface MetaMediaPayload {
   id?: string;
@@ -221,26 +226,11 @@ export async function processMetaWebhookPayload(
 
         if (!contact) continue;
 
-        let conversation = await prisma.conversation.findFirst({
-          where: {
-            inboxId: settings.inboxId,
-            contactId: contact.id,
-            status: "open",
-          },
+        const { conversation } = await findOrReopenConversationForContact({
+          inboxId: settings.inboxId,
+          contactId: contact.id,
+          defaultAssigneeId,
         });
-
-        if (!conversation) {
-          conversation = await prisma.conversation.create({
-            data: {
-              inboxId: settings.inboxId,
-              contactId: contact.id,
-              assigneeId: defaultAssigneeId,
-              status: "open",
-              priority: "none",
-              unreadCount: 0,
-            },
-          });
-        }
 
         const existing = await prisma.message.findUnique({
           where: { externalId: message.id },
@@ -301,33 +291,47 @@ export async function processMetaWebhookPayload(
           mimeType = parsed.mimeType;
         }
 
-        const createdMessage = await prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            content,
-            senderType: "contact",
-            senderContactId: contact.id,
-            senderName: contactName,
-            contentType,
-            fileName,
-            fileSize,
-            fileKey,
-            mimeType,
-            mediaExternalId,
-            externalId: message.id,
-            replyToMessageId,
-            status: "delivered",
-          },
-          include: messageInclude,
-        });
+        const messageAt = parseMetaMessageTimestamp(message.timestamp);
 
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            unreadCount: { increment: 1 },
-            updatedAt: new Date(),
-          },
-        });
+        const createdMessage = await runWithConversationMessageLock(
+          conversation.id,
+          async () => {
+            const sortOrder = await nextMessageSortOrder(conversation.id);
+
+            const created = await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                content,
+                senderType: "contact",
+                senderContactId: contact.id,
+                senderName: contactName,
+                contentType,
+                fileName,
+                fileSize,
+                fileKey,
+                mimeType,
+                mediaExternalId,
+                externalId: message.id,
+                replyToMessageId,
+                status: "delivered",
+                createdAt: messageAt,
+                sortOrder,
+              },
+              include: messageInclude,
+            });
+
+            await prisma.conversation.update({
+              where: { id: conversation.id },
+              data: {
+                unreadCount: { increment: 1 },
+              },
+            });
+
+            await touchConversationLastMessageAt(conversation.id, messageAt);
+
+            return created;
+          }
+        );
 
         await emitMessageCreated(conversation.id, createdMessage.id);
 

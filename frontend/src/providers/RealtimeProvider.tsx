@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getAccessToken } from "@/api/client";
 import { env } from "@/config/env";
+import { notifyIncomingMessage } from "@/lib/incomingMessageNotifications";
 import { buildRealtimeUrl, type RealtimeEvent } from "@/lib/realtime";
 import { parseConversation, parseMessage } from "@/lib/parseApiDates";
 import { refreshConversationsFromApi } from "@/services/bootstrapService";
@@ -42,10 +43,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (event.type === "message.created") {
-        useConversationStore.getState().applyRealtimeMessage(
-          parseMessage(event.payload.message as never),
-          parseConversation(event.payload.conversation as never)
-        );
+        const message = parseMessage(event.payload.message as never);
+        const conversation = parseConversation(event.payload.conversation as never);
+
+        useConversationStore.getState().applyRealtimeMessage(message, conversation);
+        notifyIncomingMessage(message, conversation.id);
         return;
       }
 

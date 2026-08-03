@@ -163,13 +163,15 @@ export async function conversationsRoutes(app: FastifyInstance) {
 
   app.patch("/conversations/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = request.user as { sub: string };
     const body = updateConversationSchema.parse(request.body);
-    return reply.send(await updateConversation(id, body));
+    return reply.send(await updateConversation(id, body, user.sub));
   });
 
   app.post("/conversations/:id/labels/:labelId/toggle", async (request, reply) => {
     const { id, labelId } = request.params as { id: string; labelId: string };
-    return reply.send(await toggleConversationLabel(id, labelId));
+    const user = request.user as { sub: string };
+    return reply.send(await toggleConversationLabel(id, labelId, user.sub));
   });
 
   app.delete("/conversations/:id", async (request, reply) => {

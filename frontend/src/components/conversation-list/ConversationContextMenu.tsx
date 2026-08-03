@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } fro
 import { createPortal } from "react-dom";
 import {
   Mail,
+  RotateCcw,
   Check,
   Tag,
   UserPlus,
@@ -79,6 +80,7 @@ export function ConversationContextMenu({
   });
 
   const resolveConversation = useConversationStore((s) => s.resolveConversation);
+  const reopenConversation = useConversationStore((s) => s.reopenConversation);
   const markAsUnread = useConversationStore((s) => s.markAsUnread);
   const toggleConversationLabel = useConversationStore((s) => s.toggleConversationLabel);
   const reassignConversation = useConversationStore((s) => s.reassignConversation);
@@ -153,8 +155,8 @@ export function ConversationContextMenu({
     };
   }, [onClose]);
 
-  const runAction = (action: () => void) => {
-    action();
+  const runAction = (action: () => void | Promise<void>) => {
+    void action();
     onClose();
   };
 
@@ -183,6 +185,13 @@ export function ConversationContextMenu({
         label="Marcar como resuelto"
         disabled={conversation.status === "resolved"}
         onClick={() => runAction(() => resolveConversation(conversation.id))}
+      />
+
+      <MenuItem
+        icon={RotateCcw}
+        label="Reabrir conversación"
+        disabled={conversation.status === "open"}
+        onClick={() => runAction(() => reopenConversation(conversation.id))}
       />
 
       <div className="my-1 h-px bg-[var(--color-border-primary)]" />

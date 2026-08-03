@@ -82,7 +82,9 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
               )}
             </div>
             <span className="text-[11px] text-[var(--color-text-muted)] shrink-0 ml-2">
-              {lastMessage ? formatTime(lastMessage.createdAt) : formatTime(conversation.updatedAt)}
+              {lastMessage
+                ? formatTime(lastMessage.createdAt)
+                : formatTime(conversation.lastMessageAt ?? conversation.updatedAt)}
             </span>
           </div>
 

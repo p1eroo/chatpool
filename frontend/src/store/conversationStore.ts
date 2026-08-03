@@ -9,6 +9,18 @@ import { saveActiveConversation } from "@/lib/activeConversationSession";
 import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
 import { inboxes as seedInboxes } from "@/data/mock";
 import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
+import {
+  nextOptimisticSortOrder,
+  seedOptimisticSortOrder,
+  syncOptimisticSortOrder,
+} from "@/lib/optimisticMessageSort";
+import { sortMessagesChronologically } from "@/lib/messageOrder";
+import { pickLatestPreviewMessage, pickLatestPreviewFromMessages } from "@/lib/conversationPreview";
+import {
+  mergeConversationLastMessageAt,
+  shouldMessageAffectConversationSort,
+  sortConversations,
+} from "@/lib/conversationSort";
 import { isApiError } from "@/api/errors";
 import { conversationApiService } from "@/services/conversationApiService";
 import { useUIStore } from "@/store/uiStore";
@@ -27,6 +39,10 @@ interface ConversationState {
   isInboxViewActive: boolean;
   isAppDataBootstrapped: boolean;
   messages: Record<string, Message[]>;
+  /** true cuando GET /messages cargó el historial completo de esa conversación */
+  messagesLoadedFromApi: Record<string, boolean>;
+  /** true mientras GET /messages está en curso para esa conversación */
+  messagesLoading: Record<string, boolean>;
   templateWindowOverrides: Record<string, boolean>;
   filterStatus: string;
   filterAssignee: AssigneeFilter;
@@ -47,7 +63,7 @@ interface ConversationState {
   clearActiveConversationSelection: () => void;
   setFilterStatus: (status: string) => void;
   setFilterAssignee: (assignee: AssigneeFilter) => void;
-  setFilterInboxId: (inboxId: string | null) => void;
+  setFilterInboxId: (inboxId: string) => void;
   setFilterLabelId: (labelId: string | null) => void;
   sendMessage: (
     conversationId: string,
@@ -71,11 +87,12 @@ interface ConversationState {
     channelType: ChannelType,
     initialMessage?: string
   ) => string;
-  resolveConversation: (id: string) => void;
-  setConversationStatus: (id: string, status: ConversationStatus) => void;
-  reassignConversation: (id: string, agentId: string | undefined) => void;
+  resolveConversation: (id: string) => Promise<boolean>;
+  reopenConversation: (id: string) => Promise<boolean>;
+  setConversationStatus: (id: string, status: ConversationStatus) => Promise<boolean>;
+  reassignConversation: (id: string, agentId: string | undefined) => Promise<boolean>;
   markAsUnread: (id: string) => void;
-  toggleConversationLabel: (id: string, labelId: string) => void;
+  toggleConversationLabel: (id: string, labelId: string) => Promise<boolean>;
   deleteConversation: (id: string) => void;
   deleteMessage: (conversationId: string, messageId: string) => void;
   blockContact: (conversationId: string) => void;
@@ -85,30 +102,13 @@ interface ConversationState {
   getTotalUnread: () => number;
 }
 
-function sortConversations(conversations: Conversation[]): Conversation[] {
-  return [...conversations].sort(
-    (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
-  );
-}
-
-function pickLatestMessage(
-  ...candidates: Array<Message | null | undefined>
-): Message | null {
-  const items = candidates.filter((item): item is Message => Boolean(item));
-  if (items.length === 0) return null;
-
-  return items.reduce((latest, current) =>
-    new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest
-  );
-}
-
 function mergeConversationOnRealtimeMessage(
   existing: Conversation,
   incoming: Conversation,
   message: Message,
   isNewMessage: boolean
 ): Conversation {
-  const lastMessage = pickLatestMessage(
+  const lastMessage = pickLatestPreviewMessage(
     existing.lastMessage,
     incoming.lastMessage,
     isNewMessage ? message : null
@@ -117,6 +117,11 @@ function mergeConversationOnRealtimeMessage(
   return {
     ...incoming,
     lastMessage,
+    lastMessageAt: mergeConversationLastMessageAt(
+      existing,
+      incoming,
+      isNewMessage ? message : null
+    ),
     updatedAt: new Date(
       Math.max(new Date(existing.updatedAt).getTime(), new Date(incoming.updatedAt).getTime())
     ),
@@ -129,11 +134,173 @@ function mergeConversationOnRealtimeUpdate(
 ): Conversation {
   return {
     ...incoming,
-    lastMessage: pickLatestMessage(existing.lastMessage, incoming.lastMessage),
+    lastMessage: pickLatestPreviewMessage(existing.lastMessage, incoming.lastMessage),
+    lastMessageAt: mergeConversationLastMessageAt(existing, incoming),
     updatedAt: new Date(
       Math.max(new Date(existing.updatedAt).getTime(), new Date(incoming.updatedAt).getTime())
     ),
   };
+}
+
+function getCurrentActorName(): string {
+  return useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "")?.name ?? "Agente";
+}
+
+function appendSystemActivityMessage(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  get: () => ConversationState,
+  conversationId: string,
+  content: string
+) {
+  appendMessageToState(set, get, conversationId, {
+    id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    conversationId,
+    content,
+    senderType: "system",
+    isPrivate: false,
+    contentType: "text",
+    createdAt: new Date(),
+    status: "sent",
+  }, false);
+}
+
+const PENDING_ACTIVITY_PREFIX = "pending-activity-";
+
+function createPendingActivityMessageId(): string {
+  return `${PENDING_ACTIVITY_PREFIX}${crypto.randomUUID()}`;
+}
+
+function isPendingActivityMessageId(id: string): boolean {
+  return id.startsWith(PENDING_ACTIVITY_PREFIX);
+}
+
+function appendOptimisticActivityIfChatOpen(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  get: () => ConversationState,
+  conversationId: string,
+  content: string
+): string | null {
+  if (get().activeConversationId !== conversationId) return null;
+
+  if (env.useMock) {
+    appendSystemActivityMessage(set, get, conversationId, content);
+    return null;
+  }
+
+  const pendingId = createPendingActivityMessageId();
+  appendMessageToState(
+    set,
+    get,
+    conversationId,
+    {
+      id: pendingId,
+      conversationId,
+      content,
+      senderType: "system",
+      isPrivate: false,
+      contentType: "text",
+      createdAt: new Date(),
+      status: "sent",
+    },
+    false
+  );
+  return pendingId;
+}
+
+function removePendingActivityMessage(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  conversationId: string,
+  pendingId: string | null
+) {
+  if (!pendingId) return;
+
+  set((state) => ({
+    messages: {
+      ...state.messages,
+      [conversationId]: (state.messages[conversationId] ?? []).filter(
+        (message) => message.id !== pendingId
+      ),
+    },
+  }));
+}
+
+function findPendingActivityReplaceIndex(messages: Message[], incoming: Message): number {
+  if (incoming.senderType !== "system") return -1;
+
+  return messages.findIndex(
+    (item) =>
+      isPendingActivityMessageId(item.id) &&
+      item.senderType === "system" &&
+      item.content === incoming.content
+  );
+}
+
+async function reconcileActivityAfterApi(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  get: () => ConversationState,
+  conversationId: string,
+  pendingId: string | null
+): Promise<void> {
+  if (env.useMock || !pendingId || get().activeConversationId !== conversationId) return;
+
+  try {
+    const msgs = await conversationApiService.getMessages(conversationId);
+    const pendingContent = get()
+      .messages[conversationId]?.find((message) => message.id === pendingId)?.content;
+    const serverMsg = pendingContent
+      ? msgs.find(
+          (message) => message.senderType === "system" && message.content === pendingContent
+        )
+      : undefined;
+
+    set((state) => {
+      const existing = state.messages[conversationId] ?? [];
+      let next: Message[];
+
+      if (serverMsg) {
+        const seen = new Set<string>();
+        next = existing
+          .map((message) => (message.id === pendingId ? serverMsg : message))
+          .filter((message) => {
+            if (seen.has(message.id)) return false;
+            seen.add(message.id);
+            return true;
+          });
+      } else {
+        next = mergeMessagesById(
+          msgs,
+          existing.filter((message) => !isPendingActivityMessageId(message.id))
+        );
+      }
+
+      next = sortMessagesChronologically(next);
+
+      return {
+        messages: { ...state.messages, [conversationId]: next },
+        messagesLoadedFromApi: { ...state.messagesLoadedFromApi, [conversationId]: true },
+      };
+    });
+
+    syncTemplateWindowOverride(set, get, conversationId, get().messages[conversationId] ?? []);
+  } catch {
+    // El WebSocket puede reconciliar el pending-activity más tarde.
+  }
 }
 
 function appendMessageToState(
@@ -173,24 +340,35 @@ function appendMessageToState(
       updatedMessages = [...convMessages, newMessage];
     }
   } else {
-    updatedMessages = [...convMessages, newMessage];
+    updatedMessages = sortMessagesChronologically([...convMessages, newMessage]);
   }
 
   const appendedToEnd = updatedMessages[updatedMessages.length - 1]?.id === newMessage.id;
+
+  const affectsSort = shouldMessageAffectConversationSort(newMessage);
 
   set((state) => ({
     messages: {
       ...state.messages,
       [conversationId]: updatedMessages,
     },
-    conversations: state.conversations.map((c) =>
-      c.id === conversationId
-        ? {
-            ...c,
-            lastMessage: appendedToEnd ? newMessage : c.lastMessage,
-            updatedAt: new Date(),
-          }
-        : c
+    conversations: sortConversations(
+      state.conversations.map((c) =>
+        c.id === conversationId
+          ? {
+              ...c,
+              lastMessage: pickLatestPreviewMessage(
+                appendedToEnd ? newMessage : null,
+                c.lastMessage
+              ),
+              lastMessageAt:
+                affectsSort && appendedToEnd
+                  ? newMessage.createdAt
+                  : c.lastMessageAt,
+              updatedAt: new Date(),
+            }
+          : c
+      )
     ),
   }));
 }
@@ -216,6 +394,111 @@ function syncTemplateWindowOverride(
   }
 }
 
+function mergeMessagesById(primary: Message[], secondary: Message[]): Message[] {
+  const byId = new Map<string, Message>();
+  for (const message of primary) byId.set(message.id, message);
+  for (const message of secondary) {
+    if (!byId.has(message.id)) byId.set(message.id, message);
+  }
+  return sortMessagesChronologically([...byId.values()]);
+}
+
+const PENDING_MESSAGE_PREFIX = "pending-";
+
+function createPendingMessageId(): string {
+  return `${PENDING_MESSAGE_PREFIX}${crypto.randomUUID()}`;
+}
+
+function isPendingMessageId(id: string): boolean {
+  return id.startsWith(PENDING_MESSAGE_PREFIX);
+}
+
+function findPendingOutgoingReplaceIndex(messages: Message[], incoming: Message): number {
+  if (incoming.senderType !== "agent") return -1;
+
+  return messages.findIndex(
+    (item) =>
+      isPendingMessageId(item.id) &&
+      item.senderType === "agent" &&
+      item.senderId === incoming.senderId &&
+      item.content === incoming.content &&
+      item.isPrivate === incoming.isPrivate &&
+      item.contentType === incoming.contentType
+  );
+}
+
+function reconcileOutgoingMessage(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  get: () => ConversationState,
+  conversationId: string,
+  pendingId: string,
+  apiMessage: Message
+) {
+  set((state) => {
+    const current = state.messages[conversationId] ?? [];
+    const pendingIndex = current.findIndex((item) => item.id === pendingId);
+    const hasServerMessage = current.some((item) => item.id === apiMessage.id);
+
+    let next: Message[];
+    if (pendingIndex >= 0) {
+      next = [...current];
+      next[pendingIndex] = apiMessage;
+    } else if (hasServerMessage) {
+      next = current.map((item) => (item.id === apiMessage.id ? apiMessage : item));
+    } else {
+      next = [...current, apiMessage];
+    }
+
+    next = sortMessagesChronologically(next);
+    const latest = next[next.length - 1] ?? null;
+
+    return {
+      messages: { ...state.messages, [conversationId]: next },
+      conversations: sortConversations(
+        state.conversations.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                lastMessage: pickLatestPreviewMessage(conversation.lastMessage, latest),
+                lastMessageAt:
+                  latest && shouldMessageAffectConversationSort(latest)
+                    ? latest.createdAt
+                    : conversation.lastMessageAt,
+                updatedAt: new Date(),
+              }
+            : conversation
+        )
+      ),
+    };
+  });
+
+  syncTemplateWindowOverride(set, get, conversationId, get().messages[conversationId] ?? []);
+  syncOptimisticSortOrder(conversationId, apiMessage.sortOrder);
+}
+
+function removePendingMessage(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  conversationId: string,
+  pendingId: string
+) {
+  set((state) => ({
+    messages: {
+      ...state.messages,
+      [conversationId]: (state.messages[conversationId] ?? []).filter(
+        (item) => item.id !== pendingId
+      ),
+    },
+  }));
+}
+
 function getInitialInboxFilter(): string | null {
   if (!env.useMock) return null;
 
@@ -232,6 +515,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   isInboxViewActive: false,
   isAppDataBootstrapped: false,
   messages: {},
+  messagesLoadedFromApi: {},
+  messagesLoading: {},
   templateWindowOverrides: {},
   filterStatus: "open",
   filterAssignee: "mine",
@@ -265,7 +550,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           )
         : {
             ...conversation,
-            lastMessage: pickLatestMessage(conversation.lastMessage, message),
+            lastMessage: pickLatestPreviewMessage(conversation.lastMessage, message),
           };
 
       const conversations = sortConversations(
@@ -281,26 +566,44 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           conversations,
           messages: {
             ...currentState.messages,
-            [conversation.id]: existingMessages.map((item) =>
-              item.id === message.id ? { ...item, ...message } : item
+            [conversation.id]: sortMessagesChronologically(
+              existingMessages.map((item) =>
+                item.id === message.id ? { ...item, ...message } : item
+              )
             ),
           },
         };
+      }
+
+      const outgoingPendingIndex = findPendingOutgoingReplaceIndex(
+        existingMessages,
+        message
+      );
+      const pendingIndex =
+        outgoingPendingIndex >= 0
+          ? outgoingPendingIndex
+          : findPendingActivityReplaceIndex(existingMessages, message);
+      let nextMessages: Message[];
+
+      if (pendingIndex >= 0) {
+        nextMessages = [...existingMessages];
+        nextMessages[pendingIndex] = message;
+        nextMessages = sortMessagesChronologically(nextMessages);
+      } else {
+        nextMessages = sortMessagesChronologically([...existingMessages, message]);
       }
 
       return {
         conversations,
         messages: {
           ...currentState.messages,
-          [conversation.id]: [...existingMessages, message],
+          [conversation.id]: nextMessages,
         },
       };
     });
 
-    syncTemplateWindowOverride(set, get, conversation.id, [
-      ...(get().messages[conversation.id] ?? []),
-      message,
-    ]);
+    syncOptimisticSortOrder(conversation.id, message.sortOrder);
+    syncTemplateWindowOverride(set, get, conversation.id, get().messages[conversation.id] ?? []);
   },
 
   applyRealtimeMessageUpdate: (message, conversationId) => {
@@ -398,9 +701,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({ activeConversationId: id });
 
     const state = get();
-    const hasMessages = Boolean(state.messages[id]);
 
     if (env.useMock) {
+      const hasMessages = Boolean(state.messages[id]);
       if (!hasMessages) {
         set((s) => ({
           messages: { ...s.messages, [id]: getMessages(id) },
@@ -411,16 +714,35 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       return;
     }
 
-    if (!hasMessages) {
-      void conversationApiService.getMessages(id).then((msgs) => {
-        set((s) => ({
-          messages: { ...s.messages, [id]: msgs },
-        }));
-        syncTemplateWindowOverride(set, get, id, msgs);
-      });
-    } else {
+    if (state.messagesLoadedFromApi[id]) {
       syncTemplateWindowOverride(set, get, id, state.messages[id] ?? []);
+      return;
     }
+
+    set((s) => ({
+      messagesLoading: { ...s.messagesLoading, [id]: true },
+    }));
+
+    void conversationApiService
+      .getMessages(id)
+      .then((msgs) => {
+        set((s) => {
+          const existing = s.messages[id] ?? [];
+          const merged = mergeMessagesById(msgs, existing);
+          seedOptimisticSortOrder(id, merged);
+          return {
+            messages: { ...s.messages, [id]: merged },
+            messagesLoadedFromApi: { ...s.messagesLoadedFromApi, [id]: true },
+            messagesLoading: { ...s.messagesLoading, [id]: false },
+          };
+        });
+        syncTemplateWindowOverride(set, get, id, get().messages[id] ?? []);
+      })
+      .catch(() => {
+        set((s) => ({
+          messagesLoading: { ...s.messagesLoading, [id]: false },
+        }));
+      });
   },
 
   openConversation: (id) => {
@@ -464,15 +786,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({ filterInboxId: inboxId, filterLabelId: null });
 
     if (!env.useMock) {
-      const { filterStatus, filterAssignee, filterLabelId } = get();
       void conversationApiService
-        .list({
-          inboxId,
-          status: filterStatus,
-          assignee: filterAssignee,
-          labelId: filterLabelId,
-        })
-        .then((conversations) => set({ conversations }))
+        .list({ inboxId, status: "all", assignee: "all" })
+        .then((conversations) => get().setConversations(conversations))
         .catch(() => {});
     }
   },
@@ -485,6 +801,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       inboxId,
       contact,
       lastMessage: null,
+      lastMessageAt: null,
       unreadCount: 0,
       status: "open",
       priority: "none",
@@ -561,6 +878,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       fileName: options?.fileName,
       fileSize: options?.fileSize,
       fileUrl: options?.fileUrl,
+      sortOrder: overrides?.sortOrder ?? nextOptimisticSortOrder(conversationId),
       createdAt:
         overrides?.createdAt ??
         (attachedMessage
@@ -570,6 +888,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     });
 
     if (!env.useMock) {
+      const pendingId = createPendingMessageId();
+      const optimistic = buildLocalMessage({ id: pendingId, status: "sent" });
+      appendMessageToState(
+        set,
+        get,
+        conversationId,
+        optimistic,
+        isPrivate,
+        attachedToMessageId
+      );
+
       const uploadFile = options?.file;
       const contentType = options?.contentType ?? "text";
 
@@ -587,17 +916,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             replyToMessageId
           )
           .then((apiMessage) => {
-            const merged: Message = {
+            reconcileOutgoingMessage(set, get, conversationId, pendingId, {
               ...apiMessage,
-              replyTo: apiMessage.replyTo ?? buildLocalMessage().replyTo,
-              attachedToMessageId: buildLocalMessage().attachedToMessageId,
-              audioUrl:
-                contentType === "audio" ? apiMessage.fileUrl : options?.audioUrl,
+              replyTo: apiMessage.replyTo ?? optimistic.replyTo,
+              attachedToMessageId: optimistic.attachedToMessageId,
+              audioUrl: contentType === "audio" ? apiMessage.fileUrl : options?.audioUrl,
               audioDuration: options?.audioDuration,
-            };
-            appendMessageToState(set, get, conversationId, merged, isPrivate, attachedToMessageId);
+            });
           })
           .catch((error) => {
+            removePendingMessage(set, conversationId, pendingId);
             useUIStore.getState().showToast(
               isApiError(error) ? error.message : "No se pudo enviar el archivo"
             );
@@ -611,16 +939,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           replyToMessageId,
         })
         .then((apiMessage) => {
-          const merged: Message = {
+          reconcileOutgoingMessage(set, get, conversationId, pendingId, {
             ...apiMessage,
-            replyTo: apiMessage.replyTo ?? buildLocalMessage().replyTo,
-            attachedToMessageId: buildLocalMessage().attachedToMessageId,
+            replyTo: apiMessage.replyTo ?? optimistic.replyTo,
+            attachedToMessageId: optimistic.attachedToMessageId,
             audioUrl: options?.audioUrl,
             audioDuration: options?.audioDuration,
-          };
-          appendMessageToState(set, get, conversationId, merged, isPrivate, attachedToMessageId);
+          });
         })
         .catch((error) => {
+          removePendingMessage(set, conversationId, pendingId);
           useUIStore.getState().showToast(
             isApiError(error) ? error.message : "No se pudo enviar el mensaje"
           );
@@ -638,11 +966,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     );
   },
 
-  resolveConversation: (id) => {
-    get().setConversationStatus(id, "resolved");
-  },
+  resolveConversation: (id) => get().setConversationStatus(id, "resolved"),
 
-  setConversationStatus: (id, status) => {
+  reopenConversation: (id) => get().setConversationStatus(id, "open"),
+
+  setConversationStatus: async (id, status) => {
+    const previous = get().conversations.find((c) => c.id === id);
+    if (!previous) return false;
+
+    const previousActiveId = get().activeConversationId;
+    const actorName = getCurrentActorName();
+    const isReopen = status === "open" && previous.status === "resolved";
+
     set((state) => ({
       conversations: state.conversations.map((c) =>
         c.id === id ? { ...c, status } : c
@@ -653,23 +988,105 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           : state.activeConversationId,
     }));
 
-    if (!env.useMock) {
-      void conversationApiService.updateConversation(id, { status }).catch(() => {});
+    let pendingActivityId: string | null = null;
+
+    if (env.useMock) {
+      if (status === "resolved") {
+        appendSystemActivityMessage(
+          set,
+          get,
+          id,
+          `La conversación fue marcada como resuelta por ${actorName}`
+        );
+      } else if (isReopen) {
+        appendSystemActivityMessage(
+          set,
+          get,
+          id,
+          `La conversación fue reabierta por ${actorName}`
+        );
+      }
+      return true;
+    }
+
+    if (isReopen) {
+      pendingActivityId = appendOptimisticActivityIfChatOpen(
+        set,
+        get,
+        id,
+        `La conversación fue reabierta por ${actorName}`
+      );
+    }
+
+    try {
+      const updated = await conversationApiService.updateConversation(id, { status });
+      set((state) => ({
+        conversations: state.conversations.map((c) => (c.id === id ? updated : c)),
+        ...(status === "resolved"
+          ? { messagesLoadedFromApi: { ...state.messagesLoadedFromApi, [id]: false } }
+          : {}),
+      }));
+
+      if (isReopen) {
+        await reconcileActivityAfterApi(set, get, id, pendingActivityId);
+      }
+
+      return true;
+    } catch {
+      removePendingActivityMessage(set, id, pendingActivityId);
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === id ? { ...c, status: previous.status } : c
+        ),
+        activeConversationId: previousActiveId,
+      }));
+      return false;
     }
   },
 
-  reassignConversation: (id, agentId) => {
+  reassignConversation: async (id, agentId) => {
+    const previous = get().conversations.find((c) => c.id === id);
     const agent = useAgentStore.getState().agents.find((a) => a.id === agentId);
+    const actorName = getCurrentActorName();
+
     set((state) => ({
       conversations: state.conversations.map((c) =>
         c.id === id ? { ...c, assignee: agent || undefined } : c
       ),
     }));
 
-    if (!env.useMock) {
-      void conversationApiService
-        .updateConversation(id, { assigneeId: agentId ?? null })
-        .catch(() => {});
+    let pendingActivityId: string | null = null;
+    let activityContent: string | null = null;
+
+    if (agentId) {
+      activityContent = `La conversación fue asignada a ${agent?.name ?? "un agente"} por ${actorName}`;
+    } else if (previous?.assignee) {
+      activityContent = `La conversación fue desasignada por ${actorName}`;
+    }
+
+    if (activityContent) {
+      pendingActivityId = appendOptimisticActivityIfChatOpen(
+        set,
+        get,
+        id,
+        activityContent
+      );
+    }
+
+    if (env.useMock) return true;
+
+    try {
+      await conversationApiService.updateConversation(id, { assigneeId: agentId ?? null });
+      await reconcileActivityAfterApi(set, get, id, pendingActivityId);
+      return true;
+    } catch {
+      removePendingActivityMessage(set, id, pendingActivityId);
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === id ? { ...c, assignee: previous?.assignee } : c
+        ),
+      }));
+      return false;
     }
   },
 
@@ -685,15 +1102,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
   },
 
-  toggleConversationLabel: (id, labelId) => {
+  toggleConversationLabel: async (id, labelId) => {
     const conversation = get().conversations.find((c) => c.id === id);
     const label = useLabelStore.getState().labels.find((l) => l.id === labelId);
-    if (!conversation || !label || label.inboxId !== conversation.inboxId) return;
+    if (!conversation || !label || label.inboxId !== conversation.inboxId) return false;
 
     const hasLabel = conversation.labels.some((l) => l.id === labelId);
     const optimisticLabels = hasLabel
       ? conversation.labels.filter((l) => l.id !== labelId)
       : [...conversation.labels, label];
+    const actorName = getCurrentActorName();
+    const activityContent = hasLabel
+      ? `Se quitó la etiqueta "${label.name}" por ${actorName}`
+      : `Se añadió la etiqueta "${label.name}" por ${actorName}`;
 
     set((state) => ({
       conversations: state.conversations.map((c) =>
@@ -701,32 +1122,43 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       ),
     }));
 
-    if (!env.useMock) {
-      void conversationApiService
-        .toggleLabel(id, labelId)
-        .then((updated) => {
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c.id === id ? updated : c
-            ),
-          }));
-        })
-        .catch(() => {
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c.id === id ? { ...c, labels: conversation.labels } : c
-            ),
-          }));
-        });
+    const pendingActivityId = appendOptimisticActivityIfChatOpen(
+      set,
+      get,
+      id,
+      activityContent
+    );
+
+    if (env.useMock) return true;
+
+    try {
+      const updated = await conversationApiService.toggleLabel(id, labelId);
+      set((state) => ({
+        conversations: state.conversations.map((c) => (c.id === id ? updated : c)),
+      }));
+      await reconcileActivityAfterApi(set, get, id, pendingActivityId);
+      return true;
+    } catch {
+      removePendingActivityMessage(set, id, pendingActivityId);
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === id ? { ...c, labels: conversation.labels } : c
+        ),
+      }));
+      return false;
     }
   },
 
   deleteConversation: (id) => {
     set((state) => {
       const { [id]: _, ...restMessages } = state.messages;
+      const { [id]: __loaded, ...restLoaded } = state.messagesLoadedFromApi;
+      const { [id]: __loading, ...restLoading } = state.messagesLoading;
       return {
         conversations: state.conversations.filter((c) => c.id !== id),
         messages: restMessages,
+        messagesLoadedFromApi: restLoaded,
+        messagesLoading: restLoading,
         activeConversationId:
           state.activeConversationId === id ? null : state.activeConversationId,
       };
@@ -741,18 +1173,20 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((state) => {
       const convMessages = state.messages[conversationId] || [];
       const updatedMessages = convMessages.filter((m) => m.id !== messageId);
-      const lastMessage =
-        updatedMessages.length > 0 ? updatedMessages[updatedMessages.length - 1] : null;
+      const lastMessage = pickLatestPreviewFromMessages(updatedMessages);
+      const lastMessageAt = lastMessage?.createdAt ?? null;
 
       return {
         messages: {
           ...state.messages,
           [conversationId]: updatedMessages,
         },
-        conversations: state.conversations.map((c) =>
-          c.id === conversationId
-            ? { ...c, lastMessage, updatedAt: new Date() }
-            : c
+        conversations: sortConversations(
+          state.conversations.map((c) =>
+            c.id === conversationId
+              ? { ...c, lastMessage, lastMessageAt, updatedAt: new Date() }
+              : c
+          )
         ),
       };
     });

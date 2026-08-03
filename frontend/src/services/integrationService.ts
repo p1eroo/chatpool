@@ -2,6 +2,7 @@ import { apiRequest } from "@/api/client";
 import { env } from "@/config/env";
 import { isValidMetaCredentials } from "@/lib/metaApi";
 import { buildInboxWebhookUrl, buildProviderWebhookUrl } from "@/lib/webhooks";
+import { filterImplementedIntegrationAccounts } from "@/lib/integrationProviders";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useIntegrationStore } from "@/store/integrationStore";
 import type {
@@ -82,7 +83,9 @@ async function httpRegisterWebhook(
 export const integrationService = {
   async getAccounts(): Promise<IntegrationAccountDto[]> {
     if (env.useMock) {
-      return useIntegrationStore.getState().accounts.map((account) => ({
+      return filterImplementedIntegrationAccounts(
+        useIntegrationStore.getState().accounts
+      ).map((account) => ({
         ...account,
         webhookUrl: account.webhookUrl ?? buildProviderWebhookUrl(account.provider),
       }));

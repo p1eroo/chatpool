@@ -200,6 +200,7 @@ model Conversation {
   messages    Message[]
   createdAt   DateTime            @default(now()) @map("created_at")
   updatedAt   DateTime            @updatedAt @map("updated_at")
+  lastMessageAt DateTime?         @map("last_message_at")
 
   @@map("conversations")
 }
@@ -228,8 +229,10 @@ model Message {
   mediaExternalId     String?            @map("media_external_id")
   externalId          String?            @unique @map("external_id")
   status              MessageStatus      @default(sent)
+  sortOrder           Int                @default(0) @map("sort_order")
   createdAt           DateTime           @default(now()) @map("created_at")
 
+  @@index([conversationId, sortOrder])
   @@map("messages")
 }
 

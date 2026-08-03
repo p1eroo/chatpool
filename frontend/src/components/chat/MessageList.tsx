@@ -3,7 +3,9 @@ import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { MessageBubble } from "./MessageBubble";
 import { MessageContextMenu } from "./MessageContextMenu";
+import { ChatMessagesLoading } from "./ChatMessagesLoading";
 import { formatDate } from "@/lib/utils";
+import { sortMessagesChronologically } from "@/lib/messageOrder";
 import type { Message } from "@/types";
 import { ChatHeader } from "./ChatHeader";
 
@@ -11,14 +13,19 @@ export function MessageList() {
   const conversations = useConversationStore((s) => s.conversations);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const allMessages = useConversationStore((s) => s.messages);
+  const messagesLoading = useConversationStore((s) => s.messagesLoading);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId) || null,
     [conversations, activeConversationId]
   );
-  const messages = useMemo(
-    () => (activeConversationId ? allMessages[activeConversationId] || [] : []),
-    [allMessages, activeConversationId]
+  const messages = useMemo(() => {
+    const raw = activeConversationId ? allMessages[activeConversationId] || [] : [];
+    return sortMessagesChronologically(raw);
+  }, [allMessages, activeConversationId]);
+
+  const isLoadingMessages = Boolean(
+    activeConversationId && messagesLoading[activeConversationId]
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -118,7 +125,10 @@ export function MessageList() {
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <ChatHeader conversation={activeConversation} />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-3">
+      {isLoadingMessages && messages.length === 0 ? (
+        <ChatMessagesLoading />
+      ) : (
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-3 min-h-0">
         {messageGroups.map((group) => (
           <div key={group.date}>
             <div className="flex justify-center my-3">
@@ -178,6 +188,7 @@ export function MessageList() {
         )}
         <div ref={bottomRef} />
       </div>
+      )}
 
       {contextMenu &&
         activeConversationId &&

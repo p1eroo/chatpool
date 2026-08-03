@@ -157,10 +157,6 @@ export function LoginPage() {
                   {loading ? "Iniciando sesión…" : "Iniciar sesión"}
                 </button>
               </form>
-
-              <p className="mt-6 text-xs text-[#7d828a]">
-                Superadmin: {DEMO_USERNAME}
-              </p>
             </div>
           </div>
 

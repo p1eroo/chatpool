@@ -13,6 +13,7 @@ export function ChatArea() {
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const conversations = useConversationStore((s) => s.conversations);
   const messages = useConversationStore((s) => s.messages);
+  const messagesLoading = useConversationStore((s) => s.messagesLoading);
   const templateWindowOverrides = useConversationStore((s) => s.templateWindowOverrides);
   const toast = useUIStore((s) => s.toast);
   const noteAboutMessage = useUIStore((s) => s.noteAboutMessage);
@@ -28,15 +29,21 @@ export function ChatArea() {
 
   const activeMessages = activeConversationId ? messages[activeConversationId] ?? [] : [];
 
+  const isLoadingMessages = Boolean(
+    activeConversationId && messagesLoading[activeConversationId]
+  );
+
   const whatsAppWindowClosed =
     Boolean(activeConversationId) &&
+    !isLoadingMessages &&
     isWhatsAppReplyWindowClosed(activeConversation?.channelType, activeMessages, {
       templateUnlocked: activeConversationId
         ? templateWindowOverrides[activeConversationId]
         : false,
     });
 
-  const canAcceptDrop = Boolean(activeConversationId) && !whatsAppWindowClosed;
+  const canAcceptDrop =
+    Boolean(activeConversationId) && !isLoadingMessages && !whatsAppWindowClosed;
 
   const handleDragEnter = useCallback(
     (e: React.DragEvent) => {
@@ -101,7 +108,7 @@ export function ChatArea() {
       onDrop={handleDrop}
     >
       <MessageList />
-      {activeConversationId &&
+      {activeConversationId && !isLoadingMessages &&
         (whatsAppWindowClosed ? (
           <WhatsAppReplyWindowBanner conversationId={activeConversationId} />
         ) : (

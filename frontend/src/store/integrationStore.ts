@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { integrationAccounts as seedAccounts } from "@/data/mock";
+import { filterImplementedIntegrationAccounts } from "@/lib/integrationProviders";
 import { buildProviderWebhookUrl } from "@/lib/webhooks";
 import type { IntegrationAccount } from "@/types";
 
@@ -12,7 +13,9 @@ function loadAccounts(): IntegrationAccount[] {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved) as IntegrationAccount[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return filterImplementedIntegrationAccounts(parsed);
+      }
     }
   } catch {
     // ignore invalid storage

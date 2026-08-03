@@ -11,10 +11,6 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { StatusDot } from "@/components/ui/StatusDot";
-import {
-  NotificationsButton,
-  NotificationsPopover,
-} from "@/components/nav-rail/NotificationsPopover";
 import { ProfileMenuPopover } from "@/components/nav-rail/ProfileMenuPopover";
 import { useConversationStore } from "@/store/conversationStore";
 import { useAuthStore } from "@/store/authStore";
@@ -37,9 +33,7 @@ export function NavRail() {
     [conversations]
   );
   const { theme, toggleTheme } = useThemeStore();
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const notificationsAnchorRef = useRef<HTMLDivElement>(null);
   const profileAnchorRef = useRef<HTMLDivElement>(null);
   const currentAgent = useAuthStore((s) => s.getCurrentAgent());
 
@@ -91,23 +85,6 @@ export function NavRail() {
       </div>
 
       <div className="flex flex-col items-center gap-3 pb-4">
-        <div className="relative" ref={notificationsAnchorRef}>
-          <NotificationsButton
-            count={totalUnread}
-            open={notificationsOpen}
-            onToggle={() => {
-              setProfileOpen(false);
-              setNotificationsOpen((prev) => !prev);
-            }}
-            itemColor={sItem}
-            hoverBg={sHover}
-          />
-          <NotificationsPopover
-            open={notificationsOpen}
-            anchorRef={notificationsAnchorRef}
-            onClose={() => setNotificationsOpen(false)}
-          />
-        </div>
         <button
           onClick={toggleTheme}
           className="w-10 h-10 flex items-center justify-center rounded-xl transition-colors"
@@ -127,10 +104,7 @@ export function NavRail() {
         <div className="relative mt-1" ref={profileAnchorRef}>
           <button
             type="button"
-            onClick={() => {
-              setNotificationsOpen(false);
-              setProfileOpen((prev) => !prev);
-            }}
+            onClick={() => setProfileOpen((prev) => !prev)}
             className="relative rounded-full transition-opacity hover:opacity-90"
             title={currentAgent?.name ?? "Perfil"}
           >

@@ -10,6 +10,7 @@ import {
   MoreVertical,
   CheckCircle,
   Ban,
+  ChevronDown,
 } from "lucide-react";
 import type { Conversation } from "@/types";
 import { useConversationStore } from "@/store/conversationStore";
@@ -38,6 +39,7 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ conversation }: ChatHeaderProps) {
   const resolveConversation = useConversationStore((s) => s.resolveConversation);
+  const reopenConversation = useConversationStore((s) => s.reopenConversation);
   const blockContact = useConversationStore((s) => s.blockContact);
   const showToast = useUIStore((s) => s.showToast);
 
@@ -59,6 +61,8 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
 
   const { contact, channelType } = conversation;
   const ChannelIcon = channelIcons[channelType] || Globe;
+
+  const isResolved = conversation.status === "resolved";
 
   const handleBlock = () => {
     blockContact(conversation.id);
@@ -99,14 +103,33 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
       </div>
 
       <div className="flex items-center gap-1">
-        <button
-          onClick={() => resolveConversation(conversation.id)}
-          className="h-8 px-2.5 text-xs font-medium text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors flex items-center gap-1.5"
-          title="Resolver conversación"
-        >
-          <CheckCircle className="w-3.5 h-3.5" />
-          Resolver
-        </button>
+        {isResolved ? (
+          <button
+            onClick={async () => {
+              const ok = await reopenConversation(conversation.id);
+              if (!ok) showToast("No se pudo reabrir la conversación");
+            }}
+            className="h-8 px-2.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors flex items-center gap-1.5 border border-[var(--color-border-primary)]"
+            title="Reabrir conversación"
+          >
+            Reabrir
+            <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+          </button>
+        ) : (
+          <button
+            onClick={async () => {
+              const ok = await resolveConversation(conversation.id);
+              showToast(
+                ok ? "Conversación resuelta" : "No se pudo resolver la conversación"
+              );
+            }}
+            className="h-8 px-2.5 text-xs font-medium text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors flex items-center gap-1.5"
+            title="Resolver conversación"
+          >
+            <CheckCircle className="w-3.5 h-3.5" />
+            Resolver
+          </button>
+        )}
 
         <div className="relative" ref={menuRef}>
           <button

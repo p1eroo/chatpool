@@ -2,16 +2,19 @@ import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { broadcastRealtime } from "../../infrastructure/realtime/realtime-hub.js";
 import { mapConversation, mapMessage, messageInclude } from "../mappers.js";
 
+const conversationPreviewMessages = {
+  where: { senderType: { not: "system" as const } },
+  orderBy: [{ sortOrder: "desc" as const }, { createdAt: "desc" as const }],
+  take: 1,
+  include: messageInclude,
+};
+
 const conversationInclude = {
   contact: true,
   assignee: true,
   inbox: true,
   labels: { include: { label: true } },
-  messages: {
-    orderBy: { createdAt: "desc" as const },
-    take: 1,
-    include: messageInclude,
-  },
+  messages: conversationPreviewMessages,
 };
 
 export async function emitMessageCreated(

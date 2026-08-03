@@ -11,6 +11,14 @@ import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useLabelStore } from "@/store/labelStore";
 
+async function fetchInboxConversations(inboxId: string | null) {
+  return conversationApiService.list({
+    inboxId,
+    status: "all",
+    assignee: "all",
+  });
+}
+
 export async function refreshInboxDataFromApi(): Promise<void> {
   if (env.useMock) return;
 
@@ -44,37 +52,25 @@ export async function bootstrapAppData(): Promise<void> {
   const inboxIds = inboxes.map((inbox) => inbox.id);
   const inboxFilterId = agentId ? resolveInboxFilter(agentId, inboxIds) : inboxIds[0] ?? null;
 
-  if (agentId) {
+  if (agentId && inboxFilterId) {
     saveInboxFilter(agentId, inboxFilterId);
   }
 
-  const { filterStatus, filterAssignee } = useConversationStore.getState();
   useConversationStore.setState({
     filterInboxId: inboxFilterId,
     filterLabelId: null,
   });
 
-  const conversations = await conversationApiService.list({
-    inboxId: inboxFilterId,
-    status: filterStatus,
-    assignee: filterAssignee,
-  });
+  const conversations = await fetchInboxConversations(inboxFilterId);
 
   useConversationStore.getState().setConversations(conversations);
   useConversationStore.getState().setAppDataBootstrapped(true);
 }
 
-export async function refreshConversationsFromApi(options?: { broad?: boolean }): Promise<void> {
+export async function refreshConversationsFromApi(): Promise<void> {
   if (env.useMock) return;
-  const { filterStatus, filterAssignee, filterInboxId, filterLabelId } =
-    useConversationStore.getState();
+  const { filterInboxId } = useConversationStore.getState();
 
-  const conversations = await conversationApiService.list({
-    inboxId: filterInboxId,
-    status: options?.broad ? "all" : filterStatus,
-    assignee: options?.broad ? "all" : filterAssignee,
-    labelId: options?.broad ? null : filterLabelId,
-  });
-
+  const conversations = await fetchInboxConversations(filterInboxId);
   useConversationStore.getState().setConversations(conversations);
 }

@@ -112,3 +112,17 @@ body {
   animation: message-highlight 1.4s ease-out;
   border-radius: 0.75rem;
 }
+
+@keyframes chat-skeleton {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.animate-chat-skeleton {
+  animation: chat-skeleton 1.6s ease-in-out infinite;
+}

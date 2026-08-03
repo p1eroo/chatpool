@@ -8,6 +8,7 @@ import { VoiceRecorderBar } from "@/components/chat/VoiceRecorderBar";
 import { ComposerEmojiPicker } from "@/components/chat/ComposerEmojiPicker";
 import { CannedResponsesPopover } from "@/components/chat/CannedResponsesPopover";
 import { FileAttachmentCard } from "@/components/chat/FileAttachmentCard";
+import { voiceFileFromBlob } from "@/lib/voiceRecording";
 import { formatVoiceTime, type VoiceRecordingResult } from "@/hooks/useVoiceRecorder";
 import {
   Smile,
@@ -239,9 +240,7 @@ export function ChatComposer() {
         contentType: "audio",
         audioDuration: result.durationSeconds,
         replyToMessageId: replyToMessage?.id,
-        file: new File([result.blob], "voice.webm", {
-          type: result.blob.type || "audio/webm",
-        }),
+        file: voiceFileFromBlob(result.blob),
       });
       setReplyToMessage(null);
       setIsRecording(false);

@@ -1,9 +1,10 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { buildInboxWebhookUrl } from "../../infrastructure/webhooks/webhook-url.builder.js";
 import { mapInbox, mapInboxSettings } from "../mappers.js";
-import { NotFoundError } from "../../domain/errors.js";
+import { AppError, NotFoundError } from "../../domain/errors.js";
 import type { CreateInboxBody } from "../../types/api-responses.js";
 import { getProviderForChannel } from "../../shared/channel-utils.js";
+import { isImplementedChannelType } from "../../shared/integration-providers.js";
 
 export async function listInboxes() {
   const inboxes = await prisma.inbox.findMany({
@@ -51,6 +52,10 @@ export async function getInboxById(inboxId: string) {
 }
 
 export async function createInbox(input: CreateInboxBody) {
+  if (!isImplementedChannelType(input.channelType)) {
+    throw new AppError("Este canal aún no está disponible para crear bandejas");
+  }
+
   const provider = getProviderForChannel(input.channelType);
 
   const inbox = await prisma.inbox.create({

@@ -59,6 +59,8 @@ export interface Message {
   fileUrl?: string;
   attachmentUrl?: string;
   mimeType?: string;
+  externalId?: string;
+  sortOrder?: number;
   createdAt: string;
   status?: "sent" | "delivered" | "read" | "failed";
 }
@@ -82,6 +84,7 @@ export interface Conversation {
   labels: Label[];
   createdAt: string;
   updatedAt: string;
+  lastMessageAt: string | null;
   isTyping: boolean;
   channelType: ChannelType;
 }
