@@ -4,7 +4,7 @@ set -o pipefail
 
 # ============================================================
 #  Chatpool - Deploy Script
-#  Frontend → /var/www/chatpool-client/
+#  Frontend → /var/www/chatpool/  (nginx root de chat.taximonterrico.com)
 #  Backend  → PM2 chatpool-api
 # ============================================================
 
@@ -17,7 +17,7 @@ GRAY='\033[0;90m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FRONTEND_DEST="${FRONTEND_DEST:-/var/www/chatpool-client}"
+FRONTEND_DEST="${FRONTEND_DEST:-/var/www/chatpool}"
 PM2_APP="${PM2_APP:-chatpool-api}"
 
 header() {
