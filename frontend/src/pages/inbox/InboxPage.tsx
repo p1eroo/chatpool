@@ -18,11 +18,21 @@ export function InboxPage() {
         savedConversationId &&
         store.conversations.some((conversation) => conversation.id === savedConversationId)
       ) {
-        store.selectConversation(savedConversationId);
+        store.openConversation(savedConversationId);
       }
     }
 
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      const current = useConversationStore.getState();
+      if (!current.isInboxViewActive || !current.activeConversationId) return;
+      current.acknowledgeConversationRead(current.activeConversationId, "tab-visible");
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       store.setInboxViewActive(false);
     };
   }, []);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { MessageBubble } from "./MessageBubble";
@@ -8,6 +9,12 @@ import { formatDate } from "@/lib/utils";
 import { sortMessagesChronologically } from "@/lib/messageOrder";
 import type { Message } from "@/types";
 import { ChatHeader } from "./ChatHeader";
+
+const NEAR_BOTTOM_PX = 96;
+
+function isScrollNearBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+}
 
 export function MessageList() {
   const conversations = useConversationStore((s) => s.conversations);
@@ -30,6 +37,13 @@ export function MessageList() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const prevMessageMetaRef = useRef<{ conversationId: string | null; length: number }>({
+    conversationId: null,
+    length: 0,
+  });
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [newBelowCount, setNewBelowCount] = useState(0);
   const [contextMenu, setContextMenu] = useState<{
     messageId: string;
     x: number;
@@ -40,9 +54,62 @@ export function MessageList() {
   const clearJumpToMessage = useUIStore((s) => s.clearJumpToMessage);
   const showToast = useUIStore((s) => s.showToast);
 
+  const updateNearBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = isScrollNearBottom(el);
+    isNearBottomRef.current = near;
+    setIsNearBottom(near);
+    if (near) {
+      setNewBelowCount((count) => (count > 0 ? 0 : count));
+    }
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    bottomRef.current?.scrollIntoView({ behavior });
+    isNearBottomRef.current = true;
+    setIsNearBottom(true);
+    setNewBelowCount(0);
+  };
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, activeConversation?.id]);
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onScroll = () => updateNearBottom();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    const conversationId = activeConversation?.id ?? null;
+    const prev = prevMessageMetaRef.current;
+    const length = messages.length;
+
+    if (conversationId !== prev.conversationId) {
+      prevMessageMetaRef.current = { conversationId, length };
+      setNewBelowCount(0);
+      requestAnimationFrame(() => scrollToBottom("auto"));
+      return;
+    }
+
+    if (length > prev.length) {
+      // Carga inicial del historial (0 → N): no contar como "mensajes nuevos".
+      if (prev.length === 0) {
+        requestAnimationFrame(() => scrollToBottom("auto"));
+      } else if (isNearBottomRef.current) {
+        requestAnimationFrame(() => scrollToBottom("smooth"));
+      } else {
+        const added = messages.slice(prev.length);
+        const addedContact = added.filter((message) => message.senderType === "contact").length;
+        if (addedContact > 0) {
+          setNewBelowCount((count) => count + addedContact);
+        }
+      }
+    }
+
+    prevMessageMetaRef.current = { conversationId, length };
+  }, [messages, activeConversation?.id]);
 
   useEffect(() => {
     if (!jumpToMessageId || !scrollRef.current) return;
@@ -122,71 +189,87 @@ export function MessageList() {
     });
   };
 
+  const newMessagesLabel =
+    newBelowCount === 1 ? "1 mensaje nuevo" : `${newBelowCount} mensajes nuevos`;
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <ChatHeader conversation={activeConversation} />
       {isLoadingMessages && messages.length === 0 ? (
         <ChatMessagesLoading />
       ) : (
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-3 min-h-0">
-        {messageGroups.map((group) => (
-          <div key={group.date}>
-            <div className="flex justify-center my-3">
-              <span className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-3 py-1 rounded-full">
-                {group.date}
-              </span>
-            </div>
-            {group.messages.map((msg, i) => {
-              const attachedToMessage = msg.attachedToMessageId
-                ? messages.find((m) => m.id === msg.attachedToMessageId)
-                : undefined;
-              const hasAttachedNotesAbove = messages.some(
-                (m) => m.attachedToMessageId === msg.id
-              );
+      <div className="relative flex-1 min-h-0">
+        <div ref={scrollRef} className="h-full overflow-y-auto py-3">
+          {messageGroups.map((group) => (
+            <div key={group.date}>
+              <div className="flex justify-center my-3">
+                <span className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-3 py-1 rounded-full">
+                  {group.date}
+                </span>
+              </div>
+              {group.messages.map((msg, i) => {
+                const attachedToMessage = msg.attachedToMessageId
+                  ? messages.find((m) => m.id === msg.attachedToMessageId)
+                  : undefined;
+                const hasAttachedNotesAbove = messages.some(
+                  (m) => m.attachedToMessageId === msg.id
+                );
 
-              return (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                  isHighlighted={highlightedMessageId === msg.id}
-                  attachedToMessage={attachedToMessage}
-                  hasAttachedNotesAbove={hasAttachedNotesAbove}
-                  isMenuOpen={contextMenu?.messageId === msg.id}
-                  isLastInGroup={
-                    msg.isPrivate ||
-                    i === group.messages.length - 1 ||
-                    group.messages[i + 1]?.senderType !== msg.senderType ||
-                    group.messages[i + 1]?.isPrivate !== msg.isPrivate ||
-                    !!group.messages[i + 1]?.attachedToMessageId
-                  }
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    openMessageMenu(msg.id, e.currentTarget as HTMLElement, {
-                      x: e.clientX,
-                      y: e.clientY,
-                    });
-                  }}
-                  onMenuOpen={(e) => {
-                    openMessageMenu(msg.id, e.currentTarget);
-                  }}
-                />
-              );
-            })}
-          </div>
-        ))}
-        {activeConversation.isTyping && (
-          <div className="px-4 mb-3">
-            <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-              <span className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0s" }} />
-                <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.15s" }} />
-                <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.3s" }} />
-              </span>
-              {activeConversation.contact.name} está escribiendo...
+                return (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    isHighlighted={highlightedMessageId === msg.id}
+                    attachedToMessage={attachedToMessage}
+                    hasAttachedNotesAbove={hasAttachedNotesAbove}
+                    isMenuOpen={contextMenu?.messageId === msg.id}
+                    isLastInGroup={
+                      msg.isPrivate ||
+                      i === group.messages.length - 1 ||
+                      group.messages[i + 1]?.senderType !== msg.senderType ||
+                      group.messages[i + 1]?.isPrivate !== msg.isPrivate ||
+                      !!group.messages[i + 1]?.attachedToMessageId
+                    }
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      openMessageMenu(msg.id, e.currentTarget as HTMLElement, {
+                        x: e.clientX,
+                        y: e.clientY,
+                      });
+                    }}
+                    onMenuOpen={(e) => {
+                      openMessageMenu(msg.id, e.currentTarget);
+                    }}
+                  />
+                );
+              })}
             </div>
-          </div>
+          ))}
+          {activeConversation.isTyping && (
+            <div className="px-4 mb-3">
+              <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                <span className="flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0s" }} />
+                  <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.15s" }} />
+                  <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.3s" }} />
+                </span>
+                {activeConversation.contact.name} está escribiendo...
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {newBelowCount > 0 && !isNearBottom && (
+          <button
+            type="button"
+            onClick={() => scrollToBottom("smooth")}
+            className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)]/95 px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] shadow-lg backdrop-blur-sm transition-colors hover:bg-[var(--color-bg-tertiary)] animate-fade-in"
+          >
+            <ChevronDown className="h-3.5 w-3.5 text-[var(--color-brand)]" />
+            {newMessagesLabel}
+          </button>
         )}
-        <div ref={bottomRef} />
       </div>
       )}
 

@@ -61,6 +61,8 @@ interface ConversationState {
   selectConversation: (id: string | null) => void;
   /** Clic explícito del usuario: selecciona y marca leído si hay unread. */
   openConversation: (id: string) => void;
+  /** Marca leída la conversación activa (p. ej. al volver a la pestaña). */
+  acknowledgeConversationRead: (id: string, reason?: string) => void;
   clearActiveConversationSelection: () => void;
   setFilterStatus: (status: string) => void;
   setFilterAssignee: (assignee: AssigneeFilter) => void;
@@ -141,6 +143,55 @@ function mergeConversationOnRealtimeUpdate(
       Math.max(new Date(existing.updatedAt).getTime(), new Date(incoming.updatedAt).getTime())
     ),
   };
+}
+
+const markReadWhileViewingTimers = new Map<string, number>();
+
+function isActivelyViewingConversation(
+  state: Pick<ConversationState, "activeConversationId" | "isInboxViewActive">,
+  conversationId: string
+): boolean {
+  return (
+    state.isInboxViewActive &&
+    state.activeConversationId === conversationId &&
+    typeof document !== "undefined" &&
+    document.visibilityState === "visible"
+  );
+}
+
+function clearUnreadCountLocally(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  conversationId: string
+) {
+  set((state) => {
+    const current = state.conversations.find((item) => item.id === conversationId);
+    if (!current || current.unreadCount <= 0) return state;
+    return {
+      conversations: state.conversations.map((item) =>
+        item.id === conversationId ? { ...item, unreadCount: 0 } : item
+      ),
+    };
+  });
+}
+
+function scheduleMarkReadWhileViewing(conversationId: string, reason: string) {
+  if (env.useMock) return;
+
+  const existing = markReadWhileViewingTimers.get(conversationId);
+  if (existing !== undefined) {
+    window.clearTimeout(existing);
+  }
+
+  const timer = window.setTimeout(() => {
+    markReadWhileViewingTimers.delete(conversationId);
+    void conversationApiService.markRead(conversationId, reason).catch(() => {});
+  }, 350);
+
+  markReadWhileViewingTimers.set(conversationId, timer);
 }
 
 function getCurrentActorName(): string {
@@ -534,6 +585,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   setAppDataBootstrapped: (ready) => set({ isAppDataBootstrapped: ready }),
 
   applyRealtimeMessage: (message, conversation) => {
+    let shouldMarkReadWhileViewing = false;
+
     set((currentState) => {
       const existingMessages = currentState.messages[conversation.id] ?? [];
       const hasMessage = existingMessages.some((item) => item.id === message.id);
@@ -541,18 +594,25 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         (item) => item.id === conversation.id
       );
       const hasConversation = Boolean(existingConversation);
+      const isNewMessage = !hasMessage;
+      const viewing = isActivelyViewingConversation(currentState, conversation.id);
 
-      const mergedConversation = existingConversation
+      let mergedConversation = existingConversation
         ? mergeConversationOnRealtimeMessage(
             existingConversation,
             conversation,
             message,
-            !hasMessage
+            isNewMessage
           )
         : {
             ...conversation,
             lastMessage: pickLatestPreviewMessage(conversation.lastMessage, message),
           };
+
+      if (viewing && message.senderType === "contact" && isNewMessage) {
+        mergedConversation = { ...mergedConversation, unreadCount: 0 };
+        shouldMarkReadWhileViewing = true;
+      }
 
       const conversations = sortConversations(
         hasConversation
@@ -603,6 +663,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       };
     });
 
+    if (shouldMarkReadWhileViewing) {
+      scheduleMarkReadWhileViewing(conversation.id, "active-view");
+    }
+
     syncOptimisticSortOrder(conversation.id, message.sortOrder);
     syncTemplateWindowOverride(set, get, conversation.id, get().messages[conversation.id] ?? []);
   },
@@ -630,9 +694,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         (item) => item.id === conversation.id
       );
       const hasConversation = Boolean(existingConversation);
-      const mergedConversation = existingConversation
+      let mergedConversation = existingConversation
         ? mergeConversationOnRealtimeUpdate(existingConversation, conversation)
         : conversation;
+
+      if (
+        isActivelyViewingConversation(state, conversation.id) &&
+        mergedConversation.unreadCount > 0
+      ) {
+        mergedConversation = { ...mergedConversation, unreadCount: 0 };
+      }
 
       const conversations = sortConversations(
         hasConversation
@@ -752,26 +823,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     get().selectConversation(id);
 
-    if (env.useMock) {
-      if (unreadCount > 0) {
-        set((s) => ({
-          conversations: s.conversations.map((c) =>
-            c.id === id ? { ...c, unreadCount: 0 } : c
-          ),
-        }));
-      }
-      return;
-    }
-
     if (unreadCount <= 0) return;
 
-    void conversationApiService.markRead(id, "user-open").then(() => {
-      set((s) => ({
-        conversations: s.conversations.map((c) =>
-          c.id === id ? { ...c, unreadCount: 0 } : c
-        ),
-      }));
-    });
+    clearUnreadCountLocally(set, id);
+
+    if (env.useMock) return;
+
+    scheduleMarkReadWhileViewing(id, "user-open");
+  },
+
+  acknowledgeConversationRead: (id, reason = "acknowledge") => {
+    const unreadCount =
+      get().conversations.find((conversation) => conversation.id === id)?.unreadCount ?? 0;
+    if (unreadCount <= 0) return;
+
+    clearUnreadCountLocally(set, id);
+    if (env.useMock) return;
+    scheduleMarkReadWhileViewing(id, reason);
   },
 
   clearActiveConversationSelection: () => set({ activeConversationId: null }),

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getAccessToken } from "@/api/client";
 import { env } from "@/config/env";
+import { requestAppUpdateCheck } from "@/config/appVersion";
 import { notifyIncomingMessage } from "@/lib/incomingMessageNotifications";
 import { buildRealtimeUrl, type RealtimeEvent } from "@/lib/realtime";
 import { parseConversation, parseMessage } from "@/lib/parseApiDates";
@@ -35,6 +36,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     const handleEvent = (event: RealtimeEvent) => {
       if (event.type === "connected") {
+        // Tras un deploy el API se reinicia y el WS reconecta: una sola lectura de version.json.
+        requestAppUpdateCheck();
+
         const { isAppDataBootstrapped } = useConversationStore.getState();
         if (isAppDataBootstrapped) {
           void refreshConversationsFromApi();

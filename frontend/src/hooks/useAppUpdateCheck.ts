@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { APP_BUILD_ID, fetchDeployedBuildId } from "@/config/appVersion";
+import {
+  APP_BUILD_ID,
+  APP_UPDATE_CHECK_EVENT,
+  fetchDeployedBuildId,
+} from "@/config/appVersion";
 
-const CHECK_INTERVAL_MS = 30_000;
 const DISMISS_STORAGE_KEY = "chatpool-update-dismissed-build";
 
 function readDismissedBuildId(): string | null {
@@ -30,11 +33,11 @@ export function useAppUpdateCheck() {
     checkingRef.current = true;
 
     try {
-      const remoteBuildId = await fetchDeployedBuildId();
-      if (!remoteBuildId || remoteBuildId === APP_BUILD_ID) return;
-      if (readDismissedBuildId() === remoteBuildId) return;
+      const remote = await fetchDeployedBuildId();
+      if (!remote || remote === APP_BUILD_ID) return;
+      if (readDismissedBuildId() === remote) return;
 
-      setRemoteBuildId(remoteBuildId);
+      setRemoteBuildId(remote);
       setUpdateAvailable(true);
     } finally {
       checkingRef.current = false;
@@ -46,23 +49,24 @@ export function useAppUpdateCheck() {
 
     void checkForUpdate();
 
-    const interval = window.setInterval(() => {
-      void checkForUpdate();
-    }, CHECK_INTERVAL_MS);
-
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         void checkForUpdate();
       }
     };
 
+    const onRequested = () => {
+      void checkForUpdate();
+    };
+
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
+    window.addEventListener(APP_UPDATE_CHECK_EVENT, onRequested);
 
     return () => {
-      window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
+      window.removeEventListener(APP_UPDATE_CHECK_EVENT, onRequested);
     };
   }, [checkForUpdate]);
 
