@@ -20,10 +20,12 @@ export async function contactsRoutes(app: FastifyInstance) {
 
   app.get("/contacts", async (request, reply) => {
     const query = request.query as { inboxId?: string };
+    const user = request.user as { sub: string };
 
     return reply.send(
       await listContacts({
         inboxId: query.inboxId,
+        agentId: user.sub,
       })
     );
   });

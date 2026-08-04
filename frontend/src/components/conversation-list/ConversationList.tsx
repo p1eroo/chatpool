@@ -5,6 +5,8 @@ import { ConversationContextMenu } from "./ConversationContextMenu";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useLabelStore } from "@/store/labelStore";
 import { useInboxStore } from "@/store/inboxStore";
+import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
+import { filterAccessibleInboxes } from "@/lib/agentInboxAccess";
 import {
   Search,
   MessageCircle,
@@ -44,7 +46,12 @@ export function ConversationList() {
   const currentAgent = useCurrentAgent();
   const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
   const conversations = useConversationStore((s) => s.conversations);
-  const inboxes = useInboxStore((s) => s.inboxes);
+  const allInboxes = useInboxStore((s) => s.inboxes);
+  const inboxSettings = useInboxSettingsStore((s) => s.settings);
+  const inboxes = useMemo(
+    () => filterAccessibleInboxes(allInboxes, currentAgent?.id, inboxSettings),
+    [allInboxes, currentAgent?.id, inboxSettings]
+  );
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const filterStatus = useConversationStore((s) => s.filterStatus);
   const filterAssignee = useConversationStore((s) => s.filterAssignee);
@@ -69,6 +76,16 @@ export function ConversationList() {
 
   const activeInbox = inboxes.find((i) => i.id === filterInboxId);
   const inboxLabels = filterInboxId ? getLabelsForInbox(filterInboxId) : [];
+
+  useEffect(() => {
+    if (inboxes.length === 0) {
+      if (filterInboxId !== null) setFilterInboxId(null);
+      return;
+    }
+    if (!filterInboxId || !inboxes.some((inbox) => inbox.id === filterInboxId)) {
+      setFilterInboxId(inboxes[0].id);
+    }
+  }, [filterInboxId, inboxes, setFilterInboxId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -171,7 +188,7 @@ export function ConversationList() {
               className="flex items-center gap-2 text-[var(--color-text-primary)] font-semibold text-[15px] hover:opacity-80 transition-opacity max-w-full"
             >
               <span className="truncate">
-                {activeInbox?.name ?? inboxes[0]?.name ?? "Bandeja"}
+                {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
               </span>
               <svg className="w-3.5 h-3.5 text-[var(--color-text-secondary)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6"/></svg>
             </button>
@@ -350,10 +367,25 @@ export function ConversationList() {
         {displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-6">
             <MessageCircle className="w-12 h-12 text-[var(--color-text-muted)] mb-3 opacity-40" />
-            <p className="text-[var(--color-text-secondary)] text-sm font-medium">Sin conversaciones</p>
-            <p className="text-[var(--color-text-muted)] text-xs mt-1">
-              No hay conversaciones en esta vista
-            </p>
+            {inboxes.length === 0 ? (
+              <>
+                <p className="text-[var(--color-text-secondary)] text-sm font-medium">
+                  Sin bandejas asignadas
+                </p>
+                <p className="text-[var(--color-text-muted)] text-xs mt-1">
+                  Pide a un administrador que te dé acceso a una bandeja
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-[var(--color-text-secondary)] text-sm font-medium">
+                  Sin conversaciones
+                </p>
+                <p className="text-[var(--color-text-muted)] text-xs mt-1">
+                  No hay conversaciones en esta vista
+                </p>
+              </>
+            )}
           </div>
         ) : (
           displayed.map((conv) => (

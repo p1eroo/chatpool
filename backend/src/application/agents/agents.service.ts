@@ -3,6 +3,7 @@ import { hashPassword } from "../../infrastructure/security/password.service.js"
 import { mapAgentProfile } from "../mappers.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import type { CreateAgentBody, UpdateAgentBody } from "../../types/api-responses.js";
+import { replaceAgentInboxAccess } from "../inboxes/inbox-access.service.js";
 
 const PROTECTED_USERNAME = "soporte";
 
@@ -58,6 +59,10 @@ export async function updateAgent(id: string, input: UpdateAgentBody) {
       status: input.status,
     },
   });
+
+  if (input.inboxIds !== undefined) {
+    await replaceAgentInboxAccess(id, input.inboxIds);
+  }
 
   return mapAgentProfile(updated);
 }

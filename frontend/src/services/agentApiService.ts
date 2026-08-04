@@ -28,6 +28,7 @@ export const agentApiService = {
     patch: Partial<
       Pick<Agent, "name" | "username" | "phone" | "roleId" | "active" | "status"> & {
         password?: string;
+        inboxIds?: string[];
       }
     >
   ): Promise<Agent> {

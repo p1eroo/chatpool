@@ -92,7 +92,7 @@ interface AgentState {
     id: string,
     patch: Partial<
       Pick<Agent, "name" | "username" | "password" | "phone" | "roleId" | "active" | "status">
-    >
+    > & { inboxIds?: string[] }
   ) => Promise<boolean>;
   removeAgent: (id: string) => Promise<boolean>;
   getAgentById: (id: string) => Agent | undefined;
@@ -222,6 +222,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           roleId: nextPatch.roleId,
           active: nextPatch.active,
           status: nextPatch.status,
+          inboxIds: nextPatch.inboxIds,
         });
         const role = useRoleStore.getState().getRoleById(updated.roleId);
         const merged = {

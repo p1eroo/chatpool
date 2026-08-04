@@ -1,11 +1,24 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import { mapContact } from "../mappers.js";
+import {
+  assertAgentCanAccessInbox,
+  listInboxIdsForAgent,
+} from "../inboxes/inbox-access.service.js";
 
-export async function listContacts(filters: { inboxId?: string }) {
+export async function listContacts(filters: { inboxId?: string; agentId?: string }) {
   const where: Record<string, unknown> = {};
 
-  if (filters.inboxId) {
+  if (filters.agentId) {
+    if (filters.inboxId) {
+      await assertAgentCanAccessInbox(filters.agentId, filters.inboxId);
+      where.inboxId = filters.inboxId;
+    } else {
+      const accessibleInboxIds = await listInboxIdsForAgent(filters.agentId);
+      if (accessibleInboxIds.length === 0) return [];
+      where.inboxId = { in: accessibleInboxIds };
+    }
+  } else if (filters.inboxId) {
     where.inboxId = filters.inboxId;
   }
 

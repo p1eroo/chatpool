@@ -64,7 +64,7 @@ interface ConversationState {
   clearActiveConversationSelection: () => void;
   setFilterStatus: (status: string) => void;
   setFilterAssignee: (assignee: AssigneeFilter) => void;
-  setFilterInboxId: (inboxId: string) => void;
+  setFilterInboxId: (inboxId: string | null) => void;
   setFilterLabelId: (labelId: string | null) => void;
   sendMessage: (
     conversationId: string,
@@ -780,13 +780,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   setFilterAssignee: (assignee) => set({ filterAssignee: assignee }),
   setFilterInboxId: (inboxId) => {
     const agentId = getCurrentAgentId();
-    if (agentId) {
+    if (agentId && inboxId) {
       saveInboxFilter(agentId, inboxId);
     }
 
     set({ filterInboxId: inboxId, filterLabelId: null });
 
     if (!env.useMock) {
+      if (!inboxId) {
+        set({ conversations: [] });
+        return;
+      }
       void conversationApiService
         .list({ inboxId, status: "all", assignee: "all" })
         .then((conversations) => get().setConversations(conversations))

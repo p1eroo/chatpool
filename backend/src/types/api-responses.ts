@@ -128,6 +128,7 @@ export interface UpdateAgentBody {
   phone?: string;
   active?: boolean;
   status?: AgentStatus;
+  inboxIds?: string[];
 }
 
 export interface CreateInboxBody {

@@ -15,6 +15,10 @@ import { uploadConversationMedia } from "../media/media-storage.service.js";
 import { deliverWhatsAppOutbound } from "../media/meta-outbound.service.js";
 import { normalizeAudioForWhatsApp } from "../media/audio-transcode.service.js";
 import {
+  assertAgentCanAccessInbox,
+  listInboxIdsForAgent,
+} from "../inboxes/inbox-access.service.js";
+import {
   recordConversationAssigneeActivity,
   recordConversationAutoReopenedActivity,
   recordConversationLabelActivity,
@@ -69,7 +73,19 @@ export async function listConversations(filters: {
 }) {
   const where: Record<string, unknown> = {};
 
-  if (filters.inboxId) where.inboxId = filters.inboxId;
+  if (filters.agentId) {
+    if (filters.inboxId) {
+      await assertAgentCanAccessInbox(filters.agentId, filters.inboxId);
+      where.inboxId = filters.inboxId;
+    } else {
+      const accessibleInboxIds = await listInboxIdsForAgent(filters.agentId);
+      if (accessibleInboxIds.length === 0) return [];
+      where.inboxId = { in: accessibleInboxIds };
+    }
+  } else if (filters.inboxId) {
+    where.inboxId = filters.inboxId;
+  }
+
   if (filters.status && filters.status !== "all") where.status = filters.status;
 
   if (filters.assignee === "mine" && filters.agentId) {

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useConversationStore } from "@/store/conversationStore";
 import { useInboxStore } from "@/store/inboxStore";
+import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
+import { useCurrentAgent } from "@/hooks/useCurrentAgent";
+import { filterAccessibleInboxes } from "@/lib/agentInboxAccess";
 import { whatsappTemplates } from "@/data/mock";
 import { useContacts, useDeleteContact, useUpdateContact } from "@/hooks/useContacts";
 import { useHasPermission } from "@/hooks/useAgentPermissions";
@@ -90,6 +93,7 @@ type ContactComposeSendPayload = {
 export function ContactsPage() {
   const navigate = useNavigate();
   const showToast = useUIStore((s) => s.showToast);
+  const currentAgent = useCurrentAgent();
   const conversations = useConversationStore((s) => s.conversations);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
@@ -97,7 +101,12 @@ export function ContactsPage() {
   const createConversation = useConversationStore((s) => s.createConversation);
   const sendMessage = useConversationStore((s) => s.sendMessage);
   const sendTemplateMessage = useConversationStore((s) => s.sendTemplateMessage);
-  const inboxes = useInboxStore((s) => s.inboxes);
+  const allInboxes = useInboxStore((s) => s.inboxes);
+  const inboxSettings = useInboxSettingsStore((s) => s.settings);
+  const inboxes = useMemo(
+    () => filterAccessibleInboxes(allInboxes, currentAgent?.id, inboxSettings),
+    [allInboxes, currentAgent?.id, inboxSettings]
+  );
 
   const [search, setSearch] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
@@ -225,7 +234,7 @@ export function ContactsPage() {
                 onClick={() => setShowInboxDropdown(!showInboxDropdown)}
                 className="flex items-center gap-2 text-[var(--color-text-primary)] font-semibold text-[15px] hover:opacity-80 transition-opacity"
               >
-                {activeInbox?.name ?? inboxes[0]?.name ?? "Bandeja"}
+                {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
                 <svg className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6"/></svg>
               </button>
               {showInboxDropdown && (

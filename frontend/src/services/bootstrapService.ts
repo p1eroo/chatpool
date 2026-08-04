@@ -7,6 +7,7 @@ import { inboxApiService } from "@/services/inboxApiService";
 import { labelApiService } from "@/services/labelApiService";
 import { roleApiService } from "@/services/roleApiService";
 import { getCurrentAgentId } from "@/lib/authSession";
+import { getAccessibleInboxIds } from "@/lib/agentInboxAccess";
 import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
 import { mergeAgentProfile, useAgentStore } from "@/store/agentStore";
 import { useConversationStore } from "@/store/conversationStore";
@@ -29,6 +30,7 @@ async function fetchRolesForBootstrap(): Promise<Role[]> {
 }
 
 async function fetchInboxConversations(inboxId: string | null) {
+  if (!inboxId) return [];
   return conversationApiService.list({
     inboxId,
     status: "all",
@@ -73,8 +75,10 @@ export async function bootstrapAppData(): Promise<void> {
   }
 
   const agentId = getCurrentAgentId();
-  const inboxIds = inboxes.map((inbox) => inbox.id);
-  const inboxFilterId = agentId ? resolveInboxFilter(agentId, inboxIds) : inboxIds[0] ?? null;
+  const accessibleInboxIds = getAccessibleInboxIds(agentId, settings);
+  const inboxFilterId = agentId
+    ? resolveInboxFilter(agentId, accessibleInboxIds)
+    : accessibleInboxIds[0] ?? null;
 
   if (agentId && inboxFilterId) {
     saveInboxFilter(agentId, inboxFilterId);

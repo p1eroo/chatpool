@@ -27,6 +27,7 @@ const updateAgentSchema = z.object({
   phone: z.string().optional(),
   active: z.boolean().optional(),
   status: z.enum(["online", "away", "busy", "offline"]).optional(),
+  inboxIds: z.array(z.string().min(1)).optional(),
 });
 
 export async function agentsRoutes(app: FastifyInstance) {
@@ -55,8 +56,15 @@ export async function agentsRoutes(app: FastifyInstance) {
     if (
       isSelf &&
       !canManageAgents &&
-      (body.roleId !== undefined || body.active !== undefined || body.username !== undefined)
+      (body.roleId !== undefined ||
+        body.active !== undefined ||
+        body.username !== undefined ||
+        body.inboxIds !== undefined)
     ) {
+      throw new ForbiddenError();
+    }
+
+    if (body.inboxIds !== undefined && !canManageAgents) {
       throw new ForbiddenError();
     }
 

@@ -67,6 +67,7 @@ export function AgentsSettingsPage() {
       phone: data.phone,
       roleId: data.roleId,
       active: data.active,
+      inboxIds: data.inboxIds,
     });
     if (!ok) {
       showToast("No se pudo guardar. Revisa usuario, teléfono o contraseña.");
