@@ -31,7 +31,11 @@ export type AssigneeFilter = "mine" | "unassigned" | "all";
 export interface SendTemplateInput {
   templateId: string;
   templateName: string;
+  language: string;
   content: string;
+  bodyParameters?: string[];
+  headerParameters?: string[];
+  buttonUrlParameters?: Array<{ index: number; text: string }>;
 }
 
 interface ConversationState {
@@ -725,8 +729,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       let message: Message;
 
       if (env.useMock) {
-        if (input.templateId === "demo_fail") return false;
-
         const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
         message = {
           id: `msg-${Date.now()}`,

@@ -108,7 +108,15 @@ export const conversationApiService = {
 
   async sendTemplate(
     conversationId: string,
-    payload: { templateId: string; templateName: string; content: string }
+    payload: {
+      templateId: string;
+      templateName: string;
+      language: string;
+      content: string;
+      bodyParameters?: string[];
+      headerParameters?: string[];
+      buttonUrlParameters?: Array<{ index: number; text: string }>;
+    }
   ): Promise<Message> {
     const row = await apiRequest<Message>(`/conversations/${conversationId}/templates`, {
       method: "POST",

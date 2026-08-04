@@ -157,9 +157,15 @@ export interface SendMessageBody {
 }
 
 export interface SendTemplateBody {
-  templateId: string;
+  /** Compat: id local `name__language` o solo name. */
+  templateId?: string;
   templateName: string;
-  content: string;
+  language: string;
+  /** Preview opcional; el servidor lo regenera con los parámetros. */
+  content?: string;
+  bodyParameters?: string[];
+  headerParameters?: string[];
+  buttonUrlParameters?: Array<{ index: number; text: string }>;
 }
 
 export interface UpdateConversationBody {

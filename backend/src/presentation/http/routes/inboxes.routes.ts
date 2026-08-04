@@ -11,6 +11,7 @@ import {
   listAllLabels,
   listLabelsForInbox,
 } from "../../../application/labels/labels.service.js";
+import { listWhatsAppTemplatesForInbox } from "../../../application/whatsapp/whatsapp-templates.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
 import { requirePermission } from "../plugins/require-permission.plugin.js";
 
@@ -69,6 +70,16 @@ export async function inboxesRoutes(app: FastifyInstance) {
     const { inboxId } = request.params as { inboxId: string };
     return reply.send(await listLabelsForInbox(inboxId));
   });
+
+  app.get(
+    "/inboxes/:inboxId/whatsapp-templates",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { inboxId } = request.params as { inboxId: string };
+      const user = request.user as { sub: string };
+      return reply.send(await listWhatsAppTemplatesForInbox(inboxId, user.sub));
+    }
+  );
 
   app.post(
     "/inboxes/:inboxId/labels",

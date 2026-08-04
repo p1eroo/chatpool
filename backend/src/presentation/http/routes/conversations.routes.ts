@@ -28,9 +28,20 @@ const sendMessageSchema = z.object({
 });
 
 const sendTemplateSchema = z.object({
-  templateId: z.string().min(1),
+  templateId: z.string().optional(),
   templateName: z.string().min(1),
-  content: z.string().min(1),
+  language: z.string().min(1),
+  content: z.string().optional(),
+  bodyParameters: z.array(z.string()).optional(),
+  headerParameters: z.array(z.string()).optional(),
+  buttonUrlParameters: z
+    .array(
+      z.object({
+        index: z.number().int().min(0),
+        text: z.string().min(1),
+      })
+    )
+    .optional(),
 });
 
 const updateConversationSchema = z.object({

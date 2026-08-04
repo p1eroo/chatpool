@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { useHasPermission } from "@/hooks/useAgentPermissions";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
-import { isAcceptedAttachmentFile } from "@/lib/attachmentUtils";
+import { getClipboardAttachmentFile, isAcceptedAttachmentFile } from "@/lib/attachmentUtils";
 import { MessageList } from "./MessageList";
 import { ChatComposer } from "./ChatComposer";
 import { WhatsAppReplyWindowBanner } from "./WhatsAppReplyWindowBanner";
@@ -104,6 +104,34 @@ export function ChatArea() {
     [canAcceptDrop, noteAboutMessage, requestAttachFile, showToast]
   );
 
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (!canAcceptDrop) return;
+
+      // El composer ya maneja Ctrl+V cuando el foco está en el textarea.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("textarea, input")) return;
+
+      const file = getClipboardAttachmentFile(e.clipboardData);
+      if (!file) return;
+
+      e.preventDefault();
+
+      if (noteAboutMessage) {
+        showToast("No puedes adjuntar archivos en una nota privada");
+        return;
+      }
+
+      if (!isAcceptedAttachmentFile(file)) {
+        showToast("Tipo de archivo no soportado");
+        return;
+      }
+
+      requestAttachFile(file);
+    },
+    [canAcceptDrop, noteAboutMessage, requestAttachFile, showToast]
+  );
+
   return (
     <div
       className="flex-1 flex flex-col min-w-0 bg-[var(--color-bg-primary)] h-screen relative"
@@ -111,6 +139,7 @@ export function ChatArea() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onPaste={handlePaste}
     >
       <MessageList />
       {activeConversationId && !isLoadingMessages &&

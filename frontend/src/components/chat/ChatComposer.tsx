@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
-import { isAcceptedAttachmentFile } from "@/lib/attachmentUtils";
-import { whatsappTemplates } from "@/data/mock";
+import { getClipboardAttachmentFile, isAcceptedAttachmentFile } from "@/lib/attachmentUtils";
 import { cn } from "@/lib/utils";
 import { VoiceRecorderBar } from "@/components/chat/VoiceRecorderBar";
 import { ComposerEmojiPicker } from "@/components/chat/ComposerEmojiPicker";
 import { CannedResponsesPopover } from "@/components/chat/CannedResponsesPopover";
 import { FileAttachmentCard } from "@/components/chat/FileAttachmentCard";
+import { WhatsAppTemplateList } from "@/components/chat/WhatsAppTemplateList";
+import { WhatsAppTemplateParamForm } from "@/components/chat/WhatsAppTemplateParamForm";
+import { useWhatsAppTemplates } from "@/hooks/useWhatsAppTemplates";
 import { voiceFileFromBlob } from "@/lib/voiceRecording";
 import { formatVoiceTime, type VoiceRecordingResult } from "@/hooks/useVoiceRecorder";
+import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
+import {
+  buildTemplatePreviewContent,
+  templateNeedsParams,
+} from "@/types/whatsappTemplate";
 import {
   Smile,
   Paperclip,
@@ -19,7 +26,6 @@ import {
   CornerUpLeft,
   X,
   Mic,
-  Search,
   StickyNote,
 } from "lucide-react";
 
@@ -34,6 +40,7 @@ export function ChatComposer() {
   const conversations = useConversationStore((s) => s.conversations);
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const sendMessage = useConversationStore((s) => s.sendMessage);
+  const sendTemplateMessage = useConversationStore((s) => s.sendTemplateMessage);
   const {
     replyToMessage,
     setReplyToMessage,
@@ -49,11 +56,24 @@ export function ChatComposer() {
     [conversations, activeConversationId]
   );
   const isWhatsApp = activeConversation?.channelType === "whatsapp";
+  const { templates, loading: templatesLoading, error: templatesError } = useWhatsAppTemplates(
+    isWhatsApp ? activeConversation?.inboxId : null
+  );
 
   const [content, setContent] = useState("");
   const [activePopover, setActivePopover] = useState<PopoverId>(null);
   const [templateSearch, setTemplateSearch] = useState("");
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<WhatsAppTemplate | null>(null);
+  const [bodyParameters, setBodyParameters] = useState<string[]>([]);
+  const [headerParameters, setHeaderParameters] = useState<string[]>([]);
+  const [buttonUrlParameters, setButtonUrlParameters] = useState<Record<number, string>>({});
+  const [draftTemplate, setDraftTemplate] = useState<WhatsAppTemplate | null>(null);
+  const [draftBodyParameters, setDraftBodyParameters] = useState<string[]>([]);
+  const [draftHeaderParameters, setDraftHeaderParameters] = useState<string[]>([]);
+  const [draftButtonUrlParameters, setDraftButtonUrlParameters] = useState<Record<number, string>>(
+    {}
+  );
+  const [sendingTemplate, setSendingTemplate] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
 
@@ -64,13 +84,7 @@ export function ChatComposer() {
 
   pendingAttachmentRef.current = pendingAttachment;
 
-  const selectedTemplate = whatsappTemplates.find((t) => t.id === selectedTemplateId);
-  const isTemplateLocked = selectedTemplateId !== null;
-  const filteredTemplates = whatsappTemplates.filter(
-    (template) =>
-      template.name.toLowerCase().includes(templateSearch.toLowerCase()) ||
-      template.preview.toLowerCase().includes(templateSearch.toLowerCase())
-  );
+  const isTemplateLocked = selectedTemplate !== null;
 
   useEffect(() => {
     if (replyToMessage || noteAboutMessage) {
@@ -82,7 +96,12 @@ export function ChatComposer() {
     setReplyToMessage(null);
     setNoteAboutMessage(null);
     setContent("");
-    setSelectedTemplateId(null);
+    setSelectedTemplate(null);
+    setBodyParameters([]);
+    setHeaderParameters([]);
+    setButtonUrlParameters({});
+    setDraftTemplate(null);
+    setTemplateSearch("");
     setActivePopover(null);
     setIsRecording(false);
     setPendingAttachment((prev) => {
@@ -127,6 +146,28 @@ export function ChatComposer() {
     [activeConversationId, noteAboutMessage, isTemplateLocked]
   );
 
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const file = getClipboardAttachmentFile(e.clipboardData);
+      if (!file) return;
+
+      e.preventDefault();
+
+      if (noteAboutMessage) {
+        showToast("No puedes adjuntar archivos en una nota privada");
+        return;
+      }
+      if (isTemplateLocked) {
+        showToast("No puedes adjuntar archivos con una plantilla seleccionada");
+        return;
+      }
+      if (!stageFile(file)) {
+        showToast("Tipo de archivo no soportado");
+      }
+    },
+    [noteAboutMessage, isTemplateLocked, stageFile, showToast]
+  );
+
   useEffect(() => {
     if (!attachFileRequest) return;
 
@@ -164,8 +205,62 @@ export function ChatComposer() {
     });
   }, []);
 
+  const clearTemplate = useCallback(() => {
+    setSelectedTemplate(null);
+    setBodyParameters([]);
+    setHeaderParameters([]);
+    setButtonUrlParameters({});
+    setContent("");
+  }, []);
+
   const handleSend = useCallback(() => {
-    if (!activeConversationId) return;
+    if (!activeConversationId || sendingTemplate) return;
+
+    if (selectedTemplate) {
+      const paramsReady =
+        bodyParameters.every((value) => value.trim()) &&
+        headerParameters.every((value) => value.trim()) &&
+        selectedTemplate.buttonUrlParamIndexes.every((index) =>
+          buttonUrlParameters[index]?.trim()
+        );
+
+      if (!paramsReady) {
+        showToast("Completa todas las variables de la plantilla");
+        return;
+      }
+
+      const preview = buildTemplatePreviewContent(
+        selectedTemplate,
+        bodyParameters,
+        headerParameters
+      );
+
+      setSendingTemplate(true);
+      void sendTemplateMessage(activeConversationId, {
+        templateId: selectedTemplate.id,
+        templateName: selectedTemplate.name,
+        language: selectedTemplate.language,
+        content: preview,
+        bodyParameters,
+        headerParameters,
+        buttonUrlParameters: selectedTemplate.buttonUrlParamIndexes.map((index) => ({
+          index,
+          text: buttonUrlParameters[index] ?? "",
+        })),
+      })
+        .then((ok) => {
+          if (!ok) {
+            showToast("Meta rechazó la plantilla");
+            return;
+          }
+          clearTemplate();
+          setReplyToMessage(null);
+          setNoteAboutMessage(null);
+          showToast("Plantilla enviada correctamente");
+        })
+        .finally(() => setSendingTemplate(false));
+      return;
+    }
 
     const caption = content.trim();
     const attachment = pendingAttachment;
@@ -186,7 +281,6 @@ export function ChatComposer() {
       setContent("");
       setReplyToMessage(null);
       setNoteAboutMessage(null);
-      setSelectedTemplateId(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
@@ -202,7 +296,6 @@ export function ChatComposer() {
     setContent("");
     setReplyToMessage(null);
     setNoteAboutMessage(null);
-    setSelectedTemplateId(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -213,6 +306,14 @@ export function ChatComposer() {
     replyToMessage,
     pendingAttachment,
     sendMessage,
+    sendTemplateMessage,
+    selectedTemplate,
+    bodyParameters,
+    headerParameters,
+    buttonUrlParameters,
+    sendingTemplate,
+    clearTemplate,
+    showToast,
     setReplyToMessage,
     setNoteAboutMessage,
   ]);
@@ -273,7 +374,17 @@ export function ChatComposer() {
     });
   };
 
-  const canSend = Boolean(content.trim() || pendingAttachment);
+  const templateParamsReady =
+    !selectedTemplate ||
+    (bodyParameters.every((value) => value.trim()) &&
+      headerParameters.every((value) => value.trim()) &&
+      selectedTemplate.buttonUrlParamIndexes.every((index) => buttonUrlParameters[index]?.trim()));
+
+  const canSend =
+    !sendingTemplate &&
+    (selectedTemplate
+      ? templateParamsReady
+      : Boolean(content.trim() || pendingAttachment));
 
   const togglePopover = (id: PopoverId) => {
     setActivePopover((prev) => (prev === id ? null : id));
@@ -286,18 +397,49 @@ export function ChatComposer() {
     textareaRef.current?.focus();
   };
 
-  const applyTemplate = (templateId: string) => {
-    const template = whatsappTemplates.find((t) => t.id === templateId);
-    if (!template) return;
-    setSelectedTemplateId(template.id);
-    setContent(template.preview);
+  const applyTemplateSelection = (template: WhatsAppTemplate) => {
+    if (!template.supported) {
+      showToast(template.unsupportedReason ?? "Plantilla no soportada");
+      return;
+    }
+
+    const body = Array.from({ length: template.bodyParamCount }, () => "");
+    const header = Array.from({ length: template.headerParamCount }, () => "");
+    const buttons = Object.fromEntries(
+      template.buttonUrlParamIndexes.map((index) => [index, ""])
+    );
+
+    setSelectedTemplate(template);
+    setBodyParameters(body);
+    setHeaderParameters(header);
+    setButtonUrlParameters(buttons);
+    setContent(buildTemplatePreviewContent(template, body, header));
+    setDraftTemplate(null);
     setActivePopover(null);
+    setPendingAttachment((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
     textareaRef.current?.focus();
   };
 
-  const clearTemplate = () => {
-    setSelectedTemplateId(null);
-    setContent("");
+  const handlePickTemplate = (template: WhatsAppTemplate) => {
+    if (!template.supported) {
+      showToast(template.unsupportedReason ?? "Plantilla no soportada");
+      return;
+    }
+
+    if (!templateNeedsParams(template)) {
+      applyTemplateSelection(template);
+      return;
+    }
+
+    setDraftTemplate(template);
+    setDraftBodyParameters(Array.from({ length: template.bodyParamCount }, () => ""));
+    setDraftHeaderParameters(Array.from({ length: template.headerParamCount }, () => ""));
+    setDraftButtonUrlParameters(
+      Object.fromEntries(template.buttonUrlParamIndexes.map((index) => [index, ""]))
+    );
   };
 
   const toolbarDisabled = isRecording;
@@ -363,19 +505,82 @@ export function ChatComposer() {
       )}
 
       {isTemplateLocked && selectedTemplate && (
-        <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)]">
-          <MessageSquare className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          <span className="text-xs font-medium text-[var(--color-text-primary)] flex-1 truncate">
-            Plantilla: {selectedTemplate.name}
-          </span>
-          <button
-            type="button"
-            onClick={clearTemplate}
-            className="w-6 h-6 flex items-center justify-center rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-            title="Quitar plantilla"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+        <div className="mb-2 space-y-2">
+          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)]">
+            <MessageSquare className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="text-xs font-medium text-[var(--color-text-primary)] flex-1 truncate">
+              Plantilla: {selectedTemplate.name}
+              <span className="text-[var(--color-text-muted)] font-normal">
+                {" "}
+                · {selectedTemplate.language}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={clearTemplate}
+              className="w-6 h-6 flex items-center justify-center rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+              title="Quitar plantilla"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {templateNeedsParams(selectedTemplate) && (
+            <div className="space-y-2 px-1">
+              {selectedTemplate.headerParamCount > 0 &&
+                Array.from({ length: selectedTemplate.headerParamCount }, (_, index) => (
+                  <input
+                    key={`composer-header-${index}`}
+                    type="text"
+                    value={headerParameters[index] ?? ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setHeaderParameters((prev) => {
+                        const next = prev.map((item, i) => (i === index ? value : item));
+                        setContent(
+                          buildTemplatePreviewContent(selectedTemplate, bodyParameters, next)
+                        );
+                        return next;
+                      });
+                    }}
+                    placeholder={`Encabezado {{${index + 1}}}`}
+                    className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
+                  />
+                ))}
+              {selectedTemplate.bodyParamCount > 0 &&
+                Array.from({ length: selectedTemplate.bodyParamCount }, (_, index) => (
+                  <input
+                    key={`composer-body-${index}`}
+                    type="text"
+                    value={bodyParameters[index] ?? ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setBodyParameters((prev) => {
+                        const next = prev.map((item, i) => (i === index ? value : item));
+                        setContent(
+                          buildTemplatePreviewContent(selectedTemplate, next, headerParameters)
+                        );
+                        return next;
+                      });
+                    }}
+                    placeholder={`Variable {{${index + 1}}}`}
+                    className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
+                  />
+                ))}
+              {selectedTemplate.buttonUrlParamIndexes.map((index) => (
+                <input
+                  key={`composer-button-${index}`}
+                  type="text"
+                  value={buttonUrlParameters[index] ?? ""}
+                  onChange={(e) =>
+                    setButtonUrlParameters((prev) => ({ ...prev, [index]: e.target.value }))
+                  }
+                  placeholder={`Botón URL #${index + 1}`}
+                  className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -439,7 +644,10 @@ export function ChatComposer() {
                 title="Plantillas de WhatsApp"
                 disabled={toolbarDisabled || isRecording}
                 active={activePopover === "template"}
-                onClick={() => togglePopover("template")}
+                onClick={() => {
+                  setDraftTemplate(null);
+                  togglePopover("template");
+                }}
               >
                 <MessageSquare className="w-4 h-4 text-emerald-400" />
               </ToolbarButton>
@@ -454,35 +662,52 @@ export function ChatComposer() {
 
             {activePopover === "template" && (
               <ComposerPopover title="Plantillas de WhatsApp" wide align="left">
-                <div className="p-3 border-b border-[var(--color-border-primary)]">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
-                    <input
-                      type="text"
-                      placeholder="Buscar plantillas"
-                      value={templateSearch}
-                      onChange={(e) => setTemplateSearch(e.target.value)}
-                      className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg pl-9 pr-3 py-2.5 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                    />
-                  </div>
-                </div>
-                <div className="max-h-72 overflow-y-auto py-1.5">
-                  {filteredTemplates.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => applyTemplate(template.id)}
-                      className="w-full px-4 py-2.5 text-left hover:bg-[var(--color-bg-hover)] transition-colors"
-                    >
-                      <p className="text-sm font-medium text-[var(--color-text-primary)] mb-1">
-                        {template.name}
-                      </p>
-                      <p className="text-xs text-[var(--color-text-secondary)] line-clamp-2 leading-relaxed">
-                        {template.preview}
-                      </p>
-                    </button>
-                  ))}
-                </div>
+                {draftTemplate ? (
+                  <WhatsAppTemplateParamForm
+                    template={draftTemplate}
+                    bodyParameters={draftBodyParameters}
+                    headerParameters={draftHeaderParameters}
+                    buttonUrlParameters={draftButtonUrlParameters}
+                    onBodyChange={(index, value) =>
+                      setDraftBodyParameters((prev) =>
+                        prev.map((item, i) => (i === index ? value : item))
+                      )
+                    }
+                    onHeaderChange={(index, value) =>
+                      setDraftHeaderParameters((prev) =>
+                        prev.map((item, i) => (i === index ? value : item))
+                      )
+                    }
+                    onButtonChange={(index, value) =>
+                      setDraftButtonUrlParameters((prev) => ({ ...prev, [index]: value }))
+                    }
+                    onCancel={() => setDraftTemplate(null)}
+                    onConfirm={() => {
+                      setSelectedTemplate(draftTemplate);
+                      setBodyParameters(draftBodyParameters);
+                      setHeaderParameters(draftHeaderParameters);
+                      setButtonUrlParameters(draftButtonUrlParameters);
+                      setContent(
+                        buildTemplatePreviewContent(
+                          draftTemplate,
+                          draftBodyParameters,
+                          draftHeaderParameters
+                        )
+                      );
+                      setDraftTemplate(null);
+                      setActivePopover(null);
+                    }}
+                  />
+                ) : (
+                  <WhatsAppTemplateList
+                    templates={templates}
+                    loading={templatesLoading}
+                    error={templatesError}
+                    search={templateSearch}
+                    onSearchChange={setTemplateSearch}
+                    onSelect={handlePickTemplate}
+                  />
+                )}
               </ComposerPopover>
             )}
           </div>
@@ -494,6 +719,7 @@ export function ChatComposer() {
               if (!isTemplateLocked) setContent(e.target.value);
             }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onInput={handleInput}
             placeholder={
               noteAboutMessage ? "Escribe una nota privada..." : "Escribe un mensaje..."

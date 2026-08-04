@@ -433,12 +433,6 @@ import type { CannedResponse } from "@/types";
 
 export type { CannedResponse };
 
-export interface WhatsAppTemplate {
-  id: string;
-  name: string;
-  preview: string;
-}
-
 export const cannedResponses: CannedResponse[] = [
   {
     id: "cr-1",
@@ -459,30 +453,6 @@ export const cannedResponses: CannedResponse[] = [
     id: "cr-4",
     title: "Despedida",
     content: "Gracias por contactarnos. Quedamos atentos si necesitas algo más.",
-  },
-];
-
-export const whatsappTemplates: WhatsAppTemplate[] = [
-  {
-    id: "hello_world",
-    name: "hello_world",
-    preview:
-      "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta.",
-  },
-  {
-    id: "order_update",
-    name: "order_update",
-    preview: "Hola {{1}}, tu pedido #{{2}} ha sido actualizado. Estado actual: {{3}}.",
-  },
-  {
-    id: "appointment_reminder",
-    name: "appointment_reminder",
-    preview: "Hola {{1}}, te recordamos tu cita programada para el {{2}} a las {{3}}.",
-  },
-  {
-    id: "demo_fail",
-    name: "demo_fail (simula error Meta)",
-    preview: "Plantilla de prueba que simula un rechazo de Meta al enviar.",
   },
 ];
 

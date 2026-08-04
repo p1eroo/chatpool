@@ -1,43 +1,76 @@
 import { useMemo, useState } from "react";
-import { Loader2, MessageSquare, Search } from "lucide-react";
-import { whatsappTemplates } from "@/data/mock";
+import { Loader2, MessageSquare } from "lucide-react";
+import { WhatsAppTemplateList } from "@/components/chat/WhatsAppTemplateList";
+import { WhatsAppTemplateParamForm } from "@/components/chat/WhatsAppTemplateParamForm";
+import { useWhatsAppTemplates } from "@/hooks/useWhatsAppTemplates";
 import { WHATSAPP_WINDOW_DOCS_URL } from "@/lib/whatsappReplyWindow";
 import { cn } from "@/lib/utils";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
+import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
+import {
+  buildTemplatePreviewContent,
+  templateNeedsParams,
+} from "@/types/whatsappTemplate";
 
 interface WhatsAppReplyWindowBannerProps {
   conversationId: string;
 }
 
 export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindowBannerProps) {
+  const conversations = useConversationStore((s) => s.conversations);
   const sendTemplateMessage = useConversationStore((s) => s.sendTemplateMessage);
   const showToast = useUIStore((s) => s.showToast);
 
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [sendingTemplateId, setSendingTemplateId] = useState<string | null>(null);
-
-  const filteredTemplates = useMemo(
-    () =>
-      whatsappTemplates.filter(
-        (template) =>
-          template.name.toLowerCase().includes(search.toLowerCase()) ||
-          template.preview.toLowerCase().includes(search.toLowerCase())
-      ),
-    [search]
+  const inboxId = useMemo(
+    () => conversations.find((item) => item.id === conversationId)?.inboxId ?? null,
+    [conversations, conversationId]
   );
 
-  const handleSendTemplate = async (templateId: string) => {
-    const template = whatsappTemplates.find((item) => item.id === templateId);
-    if (!template || sendingTemplateId) return;
+  const { templates, loading, error } = useWhatsAppTemplates(inboxId);
 
-    setSendingTemplateId(templateId);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sending, setSending] = useState(false);
+  const [draftTemplate, setDraftTemplate] = useState<WhatsAppTemplate | null>(null);
+  const [bodyParameters, setBodyParameters] = useState<string[]>([]);
+  const [headerParameters, setHeaderParameters] = useState<string[]>([]);
+  const [buttonUrlParameters, setButtonUrlParameters] = useState<Record<number, string>>({});
+
+  const resetDraft = () => {
+    setDraftTemplate(null);
+    setBodyParameters([]);
+    setHeaderParameters([]);
+    setButtonUrlParameters({});
+  };
+
+  const sendTemplate = async (
+    template: WhatsAppTemplate,
+    params: {
+      bodyParameters: string[];
+      headerParameters: string[];
+      buttonUrlParameters: Record<number, string>;
+    }
+  ) => {
+    setSending(true);
     try {
+      const content = buildTemplatePreviewContent(
+        template,
+        params.bodyParameters,
+        params.headerParameters
+      );
+
       const ok = await sendTemplateMessage(conversationId, {
         templateId: template.id,
         templateName: template.name,
-        content: template.preview,
+        language: template.language,
+        content,
+        bodyParameters: params.bodyParameters,
+        headerParameters: params.headerParameters,
+        buttonUrlParameters: template.buttonUrlParamIndexes.map((index) => ({
+          index,
+          text: params.buttonUrlParameters[index] ?? "",
+        })),
       });
 
       if (!ok) {
@@ -47,10 +80,34 @@ export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindo
 
       setPickerOpen(false);
       setSearch("");
+      resetDraft();
       showToast("Plantilla enviada correctamente");
     } finally {
-      setSendingTemplateId(null);
+      setSending(false);
     }
+  };
+
+  const handleSelectTemplate = (template: WhatsAppTemplate) => {
+    if (!template.supported) {
+      showToast(template.unsupportedReason ?? "Plantilla no soportada");
+      return;
+    }
+
+    if (!templateNeedsParams(template)) {
+      void sendTemplate(template, {
+        bodyParameters: [],
+        headerParameters: [],
+        buttonUrlParameters: {},
+      });
+      return;
+    }
+
+    setDraftTemplate(template);
+    setBodyParameters(Array.from({ length: template.bodyParamCount }, () => ""));
+    setHeaderParameters(Array.from({ length: template.headerParamCount }, () => ""));
+    setButtonUrlParameters(
+      Object.fromEntries(template.buttonUrlParamIndexes.map((index) => [index, ""]))
+    );
   };
 
   return (
@@ -73,20 +130,23 @@ export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindo
       <div className="px-3 pb-3 relative">
         <button
           type="button"
-          onClick={() => setPickerOpen((prev) => !prev)}
-          disabled={Boolean(sendingTemplateId)}
+          onClick={() => {
+            setPickerOpen((prev) => !prev);
+            resetDraft();
+          }}
+          disabled={sending}
           className={cn(
             "w-full h-10 flex items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors",
             "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10",
-            sendingTemplateId && "opacity-60 cursor-not-allowed"
+            sending && "opacity-60 cursor-not-allowed"
           )}
         >
-          {sendingTemplateId ? (
+          {sending ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <MessageSquare className="w-4 h-4" />
           )}
-          {sendingTemplateId ? "Enviando plantilla…" : "Enviar plantilla de WhatsApp"}
+          {sending ? "Enviando plantilla…" : "Enviar plantilla de WhatsApp"}
         </button>
 
         {pickerOpen && (
@@ -96,41 +156,44 @@ export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindo
                 Plantillas de WhatsApp
               </p>
             </div>
-            <div className="p-3 border-b border-[var(--color-border-primary)]">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
-                <input
-                  type="text"
-                  placeholder="Buscar plantillas"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg pl-9 pr-3 py-2.5 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                />
-              </div>
-            </div>
-            <div className="max-h-64 overflow-y-auto py-1.5">
-              {filteredTemplates.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  disabled={Boolean(sendingTemplateId)}
-                  onClick={() => void handleSendTemplate(template.id)}
-                  className="w-full px-4 py-2.5 text-left hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-50"
-                >
-                  <p className="text-sm font-medium text-[var(--color-text-primary)] mb-1">
-                    {template.name}
-                  </p>
-                  <p className="text-xs text-[var(--color-text-secondary)] line-clamp-2 leading-relaxed">
-                    {template.preview}
-                  </p>
-                </button>
-              ))}
-              {filteredTemplates.length === 0 && (
-                <p className="px-4 py-6 text-sm text-center text-[var(--color-text-muted)]">
-                  Sin resultados
-                </p>
-              )}
-            </div>
+
+            {draftTemplate ? (
+              <WhatsAppTemplateParamForm
+                template={draftTemplate}
+                bodyParameters={bodyParameters}
+                headerParameters={headerParameters}
+                buttonUrlParameters={buttonUrlParameters}
+                onBodyChange={(index, value) =>
+                  setBodyParameters((prev) => prev.map((item, i) => (i === index ? value : item)))
+                }
+                onHeaderChange={(index, value) =>
+                  setHeaderParameters((prev) => prev.map((item, i) => (i === index ? value : item)))
+                }
+                onButtonChange={(index, value) =>
+                  setButtonUrlParameters((prev) => ({ ...prev, [index]: value }))
+                }
+                onCancel={resetDraft}
+                onConfirm={() =>
+                  void sendTemplate(draftTemplate, {
+                    bodyParameters,
+                    headerParameters,
+                    buttonUrlParameters,
+                  })
+                }
+                confirmLabel={sending ? "Enviando…" : "Enviar plantilla"}
+                busy={sending}
+              />
+            ) : (
+              <WhatsAppTemplateList
+                templates={templates}
+                loading={loading}
+                error={error}
+                search={search}
+                onSearchChange={setSearch}
+                onSelect={handleSelectTemplate}
+                disabled={sending}
+              />
+            )}
           </div>
         )}
       </div>

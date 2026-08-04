@@ -1,6 +1,9 @@
 import type { MessageContentType } from "@prisma/client";
 import { prisma } from "../../infrastructure/database/prisma.client.js";
-import { metaApiClient } from "../../infrastructure/meta/meta-api.client.js";
+import {
+  metaApiClient,
+  type WhatsAppTemplateSendComponent,
+} from "../../infrastructure/meta/meta-api.client.js";
 import { AppError } from "../../domain/errors.js";
 import { resolveMetaSendFailure } from "../../shared/meta-api-errors.js";
 import { resolveWhatsAppOutboundTarget } from "../../shared/whatsapp-contact.js";
@@ -124,6 +127,39 @@ export async function deliverWhatsAppOutbound(params: {
       },
     });
     return { externalId, mediaExternalId };
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    const failure = resolveMetaSendFailure(error);
+    throw new AppError(failure.message, 502, failure.code);
+  }
+}
+
+export async function deliverWhatsAppTemplate(params: {
+  inboxId: string;
+  recipientWaId: string | null;
+  recipientPhone: string | null;
+  name: string;
+  language: string;
+  components?: WhatsAppTemplateSendComponent[];
+}): Promise<{ externalId: string }> {
+  const { phoneNumberId, accessToken } = await resolveInboxWhatsAppCredentials(params.inboxId);
+  const target = resolveRecipientOrThrow(params.recipientWaId, params.recipientPhone);
+  const addressing =
+    target.kind === "phone"
+      ? { to: target.to }
+      : { recipient: target.recipient };
+
+  try {
+    const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
+      ...addressing,
+      type: "template",
+      template: {
+        name: params.name,
+        language: { code: params.language },
+        components: params.components?.length ? params.components : undefined,
+      },
+    });
+    return { externalId };
   } catch (error) {
     if (error instanceof AppError) throw error;
     const failure = resolveMetaSendFailure(error);

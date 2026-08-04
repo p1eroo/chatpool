@@ -1,5 +1,6 @@
 import { apiRequest } from "@/api/client";
 import type { Inbox, InboxSettings } from "@/types";
+import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
 import type { CreateInboxInput } from "@/store/inboxStore";
 import { getProviderForChannel } from "@/lib/inboxUtils";
 
@@ -10,6 +11,10 @@ export const inboxApiService = {
 
   async listSettings(): Promise<InboxSettings[]> {
     return apiRequest<InboxSettings[]>("/inboxes/settings");
+  },
+
+  async listWhatsAppTemplates(inboxId: string): Promise<WhatsAppTemplate[]> {
+    return apiRequest<WhatsAppTemplate[]>(`/inboxes/${inboxId}/whatsapp-templates`);
   },
 
   async create(input: CreateInboxInput & {

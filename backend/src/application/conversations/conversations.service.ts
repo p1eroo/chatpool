@@ -13,12 +13,18 @@ import {
   emitMessageCreated,
 } from "../realtime/realtime.service.js";
 import { uploadConversationMedia } from "../media/media-storage.service.js";
-import { deliverWhatsAppOutbound } from "../media/meta-outbound.service.js";
+import { deliverWhatsAppOutbound, deliverWhatsAppTemplate } from "../media/meta-outbound.service.js";
 import { normalizeAudioForWhatsApp } from "../media/audio-transcode.service.js";
 import {
   assertAgentCanAccessInbox,
   listInboxIdsForAgent,
 } from "../inboxes/inbox-access.service.js";
+import {
+  assertTemplateParameters,
+  buildTemplatePreview,
+  findApprovedTemplate,
+} from "../whatsapp/whatsapp-templates.service.js";
+import type { WhatsAppTemplateSendComponent } from "../../infrastructure/meta/meta-api.client.js";
 import {
   recordConversationAssigneeActivity,
   recordConversationAutoReopenedActivity,
@@ -300,46 +306,101 @@ export async function sendAgentMessageWithFile(
   );
 }
 
-/** Simula envío de plantilla Meta (integración real en fase Meta). */
+/** Envía una plantilla aprobada de WhatsApp vía Meta Cloud API. */
 export async function sendWhatsAppTemplate(
   conversationId: string,
   agentId: string,
   body: SendTemplateBody
 ) {
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-    include: { inbox: true },
-  });
-  if (!conversation) throw new NotFoundError("Conversación no encontrada");
-
-  if (conversation.inbox.channelType !== "whatsapp") {
-    throw new AppError("Las plantillas solo aplican a conversaciones de WhatsApp", 422);
-  }
-
-  if (body.templateId === "demo_fail") {
-    throw new AppError(
-      "Meta rechazó el envío de la plantilla. Revisa el nombre, idioma o parámetros.",
-      502,
-      "META_TEMPLATE_FAILED"
-    );
-  }
-
-  const agent = await prisma.agent.findUnique({ where: { id: agentId } });
-  if (!agent) throw new NotFoundError("Agente no encontrado");
-
   return runWithConversationMessageLock(conversationId, async () => {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { inbox: true, contact: true },
+    });
+    if (!conversation) throw new NotFoundError("Conversación no encontrada");
+
+    if (conversation.inbox.channelType !== "whatsapp") {
+      throw new AppError("Las plantillas solo aplican a conversaciones de WhatsApp", 422);
+    }
+
+    if (conversation.contact.isBlocked) {
+      throw new AppError(
+        "Este contacto está bloqueado. Desbloquéalo para enviar mensajes.",
+        422,
+        "CONTACT_BLOCKED"
+      );
+    }
+
+    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    if (!agent) throw new NotFoundError("Agente no encontrado");
+
+    const templateName = body.templateName.trim();
+    const language = body.language.trim();
+    if (!templateName || !language) {
+      throw new AppError("Nombre e idioma de plantilla son obligatorios", 422);
+    }
+
+    const template = await findApprovedTemplate(conversation.inboxId, templateName, language);
+
+    const bodyParameters = body.bodyParameters ?? [];
+    const headerParameters = body.headerParameters ?? [];
+    const buttonUrlParameters = body.buttonUrlParameters ?? [];
+
+    assertTemplateParameters(template, {
+      bodyParameters,
+      headerParameters,
+      buttonUrlParameters,
+    });
+
+    const components: WhatsAppTemplateSendComponent[] = [];
+    if (headerParameters.length) {
+      components.push({
+        type: "header",
+        parameters: headerParameters.map((text) => ({ type: "text", text })),
+      });
+    }
+    if (bodyParameters.length) {
+      components.push({
+        type: "body",
+        parameters: bodyParameters.map((text) => ({ type: "text", text })),
+      });
+    }
+    for (const button of buttonUrlParameters) {
+      components.push({
+        type: "button",
+        sub_type: "url",
+        index: String(button.index),
+        parameters: [{ type: "text", text: button.text }],
+      });
+    }
+
+    const content = buildTemplatePreview(template, {
+      bodyParameters,
+      headerParameters,
+    });
+
+    const delivered = await deliverWhatsAppTemplate({
+      inboxId: conversation.inboxId,
+      recipientWaId: conversation.contact.waId,
+      recipientPhone: conversation.contact.phone,
+      name: template.name,
+      language: template.language,
+      components,
+    });
+
     const sortOrder = await nextMessageSortOrder(conversationId);
     const createdAt = new Date();
 
     const message = await prisma.message.create({
       data: {
         conversationId,
-        content: body.content,
+        content,
         senderType: "agent",
         senderAgentId: agentId,
         senderName: agent.name,
         isPrivate: false,
         contentType: "text",
+        externalId: delivered.externalId,
         status: "sent",
         sortOrder,
         createdAt,

@@ -31,18 +31,64 @@ interface MetaUploadMediaResponse {
   id?: string;
 }
 
+export type WhatsAppTemplateComponentParameter = {
+  type: "text";
+  text: string;
+};
+
+export type WhatsAppTemplateSendComponent =
+  | {
+      type: "header" | "body";
+      parameters: WhatsAppTemplateComponentParameter[];
+    }
+  | {
+      type: "button";
+      sub_type: "url";
+      index: string;
+      parameters: WhatsAppTemplateComponentParameter[];
+    };
+
 export type WhatsAppOutboundPayload = {
   /** Teléfono E.164 (dígitos). Preferido cuando existe. */
   to?: string;
   /** BSUID / parent BSUID cuando no hay teléfono (usernames Meta). */
   recipient?: string;
   context?: { message_id: string };
-  type: "text" | "image" | "document" | "audio" | "video";
+  type: "text" | "image" | "document" | "audio" | "video" | "template";
   text?: { body: string; preview_url?: boolean };
   image?: { id: string; caption?: string };
   document?: { id: string; filename?: string; caption?: string };
   audio?: { id: string };
   video?: { id: string; caption?: string };
+  template?: {
+    name: string;
+    language: { code: string };
+    components?: WhatsAppTemplateSendComponent[];
+  };
+};
+
+export type MetaMessageTemplateComponent = {
+  type?: string;
+  format?: string;
+  text?: string;
+  example?: {
+    body_text?: string[][];
+    header_text?: string[];
+  };
+  buttons?: Array<{
+    type?: string;
+    text?: string;
+    url?: string;
+    example?: string[];
+  }>;
+};
+
+export type MetaMessageTemplate = {
+  name: string;
+  language: string;
+  status: string;
+  category?: string;
+  components?: MetaMessageTemplateComponent[];
 };
 
 export class MetaApiClient {
@@ -189,6 +235,42 @@ export class MetaApiClient {
     }
 
     return messageId;
+  }
+
+  async listMessageTemplates(
+    businessAccountId: string,
+    accessToken: string
+  ): Promise<MetaMessageTemplate[]> {
+    const templates: MetaMessageTemplate[] = [];
+    let nextUrl: string | null = `${this.baseUrl}/${businessAccountId}/message_templates?fields=name,language,status,category,components&limit=100`;
+
+    while (nextUrl) {
+      const response = await fetch(nextUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      const body = (await response.json()) as {
+        data?: MetaMessageTemplate[];
+        paging?: { next?: string };
+        error?: MetaErrorResponse["error"];
+      };
+
+      if (!response.ok) {
+        const code = body.error?.code;
+        const detail = body.error?.message ?? `HTTP ${response.status}`;
+        throw new Error(code ? `(${code}) ${detail}` : detail);
+      }
+
+      for (const item of body.data ?? []) {
+        if (item?.name && item?.language) {
+          templates.push(item);
+        }
+      }
+
+      nextUrl = body.paging?.next ?? null;
+    }
+
+    return templates;
   }
 
   async uploadWhatsAppMedia(
