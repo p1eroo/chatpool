@@ -10,7 +10,7 @@ export function AppUpdateBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-x-0 bottom-0 z-[180] px-4 pb-4 pointer-events-none"
+      className="fixed inset-x-0 top-0 z-[9999] px-4 pt-3 pointer-events-none"
     >
       <div className="pointer-events-auto mx-auto flex w-full max-w-2xl items-start gap-3 rounded-xl border border-[var(--color-brand)]/30 bg-[var(--color-bg-secondary)]/95 backdrop-blur-md p-4 shadow-2xl shadow-black/20 animate-fade-in">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--color-brand)]/15 text-[var(--color-brand)]">

@@ -60,6 +60,10 @@ header "Frontend - dependencias y compilación"
 
 cd "$SCRIPT_DIR/frontend"
 
+BUILD_ID="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export VITE_APP_BUILD_ID="$BUILD_ID"
+info "Build ID frontend: ${BUILD_ID}"
+
 info "Instalando dependencias..."
 npm install 2>&1 | tail -1
 ok "Frontend dependencias instaladas"

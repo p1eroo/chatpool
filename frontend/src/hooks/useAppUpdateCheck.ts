@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { APP_BUILD_ID, fetchDeployedVersion } from "@/config/appVersion";
+import { APP_BUILD_ID, fetchDeployedBuildId } from "@/config/appVersion";
 
-const CHECK_INTERVAL_MS = 5 * 60 * 1000;
-const INITIAL_DELAY_MS = 45_000;
+const CHECK_INTERVAL_MS = 30_000;
 const DISMISS_STORAGE_KEY = "chatpool-update-dismissed-build";
 
 function readDismissedBuildId(): string | null {
@@ -31,11 +30,11 @@ export function useAppUpdateCheck() {
     checkingRef.current = true;
 
     try {
-      const remote = await fetchDeployedVersion();
-      if (!remote?.buildId || remote.buildId === APP_BUILD_ID) return;
-      if (readDismissedBuildId() === remote.buildId) return;
+      const remoteBuildId = await fetchDeployedBuildId();
+      if (!remoteBuildId || remoteBuildId === APP_BUILD_ID) return;
+      if (readDismissedBuildId() === remoteBuildId) return;
 
-      setRemoteBuildId(remote.buildId);
+      setRemoteBuildId(remoteBuildId);
       setUpdateAvailable(true);
     } finally {
       checkingRef.current = false;
@@ -45,28 +44,25 @@ export function useAppUpdateCheck() {
   useEffect(() => {
     if (import.meta.env.DEV) return;
 
-    const initialTimer = window.setTimeout(() => {
-      void checkForUpdate();
-    }, INITIAL_DELAY_MS);
+    void checkForUpdate();
 
     const interval = window.setInterval(() => {
       void checkForUpdate();
     }, CHECK_INTERVAL_MS);
 
-    const onVisibilityChange = () => {
+    const onVisible = () => {
       if (document.visibilityState === "visible") {
         void checkForUpdate();
       }
     };
 
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("focus", onVisibilityChange);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
 
     return () => {
-      window.clearTimeout(initialTimer);
       window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("focus", onVisibilityChange);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
     };
   }, [checkForUpdate]);
 

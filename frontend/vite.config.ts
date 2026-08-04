@@ -26,6 +26,19 @@ function appVersionPlugin(): Plugin {
     configResolved(config) {
       outDir = config.build.outDir;
     },
+    transformIndexHtml(html) {
+      if (buildId === "dev") return html;
+
+      const meta = `<meta name="chatpool-build-id" content="${buildId}" />`;
+      if (html.includes('name="chatpool-build-id"')) {
+        return html.replace(
+          /<meta\s+name=["']chatpool-build-id["']\s+content=["'][^"']*["']\s*\/?>/i,
+          meta
+        );
+      }
+
+      return html.replace("<head>", `<head>\n    ${meta}`);
+    },
     closeBundle() {
       if (buildId === "dev") return;
 
