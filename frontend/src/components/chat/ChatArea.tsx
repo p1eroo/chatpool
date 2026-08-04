@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { useHasPermission } from "@/hooks/useAgentPermissions";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { isAcceptedAttachmentFile } from "@/lib/attachmentUtils";
@@ -19,6 +20,7 @@ export function ChatArea() {
   const noteAboutMessage = useUIStore((s) => s.noteAboutMessage);
   const requestAttachFile = useUIStore((s) => s.requestAttachFile);
   const showToast = useUIStore((s) => s.showToast);
+  const canSendMessages = useHasPermission("sendMessages");
 
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
@@ -43,7 +45,10 @@ export function ChatArea() {
     });
 
   const canAcceptDrop =
-    Boolean(activeConversationId) && !isLoadingMessages && !whatsAppWindowClosed;
+    Boolean(activeConversationId) &&
+    !isLoadingMessages &&
+    !whatsAppWindowClosed &&
+    canSendMessages;
 
   const handleDragEnter = useCallback(
     (e: React.DragEvent) => {
@@ -111,8 +116,14 @@ export function ChatArea() {
       {activeConversationId && !isLoadingMessages &&
         (whatsAppWindowClosed ? (
           <WhatsAppReplyWindowBanner conversationId={activeConversationId} />
-        ) : (
+        ) : canSendMessages ? (
           <ChatComposer />
+        ) : (
+          <div className="shrink-0 border-t border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] px-4 py-3">
+            <p className="text-xs text-[var(--color-text-muted)] text-center">
+              No tienes permiso para enviar mensajes en esta bandeja.
+            </p>
+          </div>
         ))}
       <ImageLightbox />
 

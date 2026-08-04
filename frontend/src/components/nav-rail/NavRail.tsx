@@ -15,13 +15,10 @@ import { ProfileMenuPopover } from "@/components/nav-rail/ProfileMenuPopover";
 import { useConversationStore } from "@/store/conversationStore";
 import { useAuthStore } from "@/store/authStore";
 import { useThemeStore } from "@/store/themeStore";
-
-const navItems = [
-  { id: "inbox", icon: MessageSquare, label: "Bandeja", path: "/inbox" },
-  { id: "contacts", icon: Users, label: "Contactos", path: "/contacts" },
-  { id: "reports", icon: BarChart3, label: "Reportes", path: "/reports" },
-  { id: "settings", icon: Settings, label: "Ajustes", path: "/settings" },
-];
+import {
+  useAgentPermissions,
+  useCanAccessSettings,
+} from "@/hooks/useAgentPermissions";
 
 const sItem = "var(--sidebar-item)";
 const sHover = "var(--sidebar-hover)";
@@ -36,6 +33,25 @@ export function NavRail() {
   const [profileOpen, setProfileOpen] = useState(false);
   const profileAnchorRef = useRef<HTMLDivElement>(null);
   const currentAgent = useAuthStore((s) => s.getCurrentAgent());
+  const permissions = useAgentPermissions();
+  const canAccessSettings = useCanAccessSettings();
+
+  const navItems = useMemo(() => {
+    const items = [
+      { id: "inbox", icon: MessageSquare, label: "Bandeja", path: "/inbox" },
+      { id: "contacts", icon: Users, label: "Contactos", path: "/contacts" },
+    ];
+
+    if (permissions.viewReports) {
+      items.push({ id: "reports", icon: BarChart3, label: "Reportes", path: "/reports" });
+    }
+
+    if (canAccessSettings) {
+      items.push({ id: "settings", icon: Settings, label: "Ajustes", path: "/settings" });
+    }
+
+    return items;
+  }, [permissions.viewReports, canAccessSettings]);
 
   return (
     <aside

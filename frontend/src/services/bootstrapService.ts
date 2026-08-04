@@ -1,15 +1,18 @@
 import { env } from "@/config/env";
 import { agentApiService } from "@/services/agentApiService";
+import { authService } from "@/services/authService";
 import { conversationApiService } from "@/services/conversationApiService";
 import { inboxApiService } from "@/services/inboxApiService";
 import { labelApiService } from "@/services/labelApiService";
+import { roleApiService } from "@/services/roleApiService";
 import { getCurrentAgentId } from "@/lib/authSession";
 import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
-import { useAgentStore } from "@/store/agentStore";
+import { mergeAgentProfile, useAgentStore } from "@/store/agentStore";
 import { useConversationStore } from "@/store/conversationStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useLabelStore } from "@/store/labelStore";
+import { useRoleStore } from "@/store/roleStore";
 
 async function fetchInboxConversations(inboxId: string | null) {
   return conversationApiService.list({
@@ -36,17 +39,24 @@ export async function bootstrapAppData(): Promise<void> {
 
   useConversationStore.getState().setAppDataBootstrapped(false);
 
-  const [agents, inboxes, settings, labels] = await Promise.all([
+  const [agents, inboxes, settings, labels, roles, me] = await Promise.all([
     agentApiService.list(),
     inboxApiService.listInboxes(),
     inboxApiService.listSettings(),
     labelApiService.listAll(),
+    roleApiService.list(),
+    authService.getMe(),
   ]);
 
   useAgentStore.getState().setAgents(agents);
+  useRoleStore.getState().setRoles(roles);
   useInboxStore.getState().setInboxes(inboxes);
   useInboxSettingsStore.getState().setSettings(settings);
   useLabelStore.getState().setLabels(labels);
+
+  if (me) {
+    mergeAgentProfile(me);
+  }
 
   const agentId = getCurrentAgentId();
   const inboxIds = inboxes.map((inbox) => inbox.id);

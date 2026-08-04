@@ -32,6 +32,8 @@ function mockVerifyMetaConnection(
     apiKey: credentials.accessToken.trim(),
     status: "active",
     webhookUrl: settings.webhookUrl ?? buildInboxWebhookUrl("meta", inboxId),
+    webhookVerifyToken:
+      settings.webhookVerifyToken ?? `cp_${inboxId.slice(-8)}_mock`,
   });
 
   useIntegrationStore.getState().setConnected("meta", true);
@@ -61,7 +63,10 @@ function mockRegisterWebhook(
   const webhookUrl = buildInboxWebhookUrl(provider, inboxId);
   const verifyToken = `cp_${inboxId.slice(-8)}_${Date.now().toString(36)}`;
 
-  useInboxSettingsStore.getState().updateSettings(inboxId, { webhookUrl });
+  useInboxSettingsStore.getState().updateSettings(inboxId, {
+    webhookUrl,
+    webhookVerifyToken: verifyToken,
+  });
 
   return {
     webhookUrl,
@@ -88,6 +93,9 @@ export const integrationService = {
       ).map((account) => ({
         ...account,
         webhookUrl: account.webhookUrl ?? buildProviderWebhookUrl(account.provider),
+        webhookVerifyToken:
+          account.webhookVerifyToken ??
+          (account.provider === "meta" ? "chatpool_meta_verify" : undefined),
       }));
     }
     return apiRequest<IntegrationAccountDto[]>("/integrations/accounts");

@@ -100,7 +100,9 @@ PUBLIC_BASE_URL=https://xxxx.ngrok-free.app
 1. Crea bandeja WhatsApp en el frontend
 2. En detalle de bandeja → **Verificar y conectar con Meta**
 3. En Meta Developer Console → Webhook URL: `{WEBHOOK_BASE_URL}/meta/{inboxId}`
-4. Verify token: el que guarda la bandeja (`webhook_verify_token` en BD) o `chatpool_meta_verify` en webhook global
+4. Verify token:
+   - Webhook por bandeja (`/webhooks/meta/{inboxId}`): el de **Configuración → Bandejas → Integración**
+   - Webhook global (`/webhooks/meta`): el de **Configuración → Integraciones** (`META_WEBHOOK_VERIFY_TOKEN`, por defecto `chatpool_meta_verify`)
 
 ## Tablas creadas
 

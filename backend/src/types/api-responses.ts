@@ -104,6 +104,7 @@ export interface InboxSettings {
   provider: IntegrationProvider;
   providerResource: string;
   webhookUrl?: string;
+  webhookVerifyToken?: string;
   assignedAgentIds: string[];
   description?: string;
   whatsappProvider?: "meta-cloud";

@@ -1,6 +1,19 @@
 import type { FastifyInstance } from "fastify";
-import { listContacts } from "../../../application/contacts/contacts.service.js";
+import { z } from "zod";
+import {
+  deleteContact,
+  listContacts,
+  updateContact,
+} from "../../../application/contacts/contacts.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
+import { requirePermission } from "../plugins/require-permission.plugin.js";
+
+const updateContactSchema = z.object({
+  name: z.string().min(1).optional(),
+  phone: z.string().nullable().optional(),
+  email: z.string().optional(),
+  isBlocked: z.boolean().optional(),
+});
 
 export async function contactsRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authenticate);
@@ -14,4 +27,20 @@ export async function contactsRoutes(app: FastifyInstance) {
       })
     );
   });
+
+  app.patch("/contacts/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = updateContactSchema.parse(request.body);
+    return reply.send(await updateContact(id, body));
+  });
+
+  app.delete(
+    "/contacts/:id",
+    { preHandler: requirePermission("deleteConversations") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      await deleteContact(id);
+      return reply.status(204).send();
+    }
+  );
 }

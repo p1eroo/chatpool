@@ -91,12 +91,12 @@ export function getDefaultPermissions(role: AgentRole): AgentPermissions {
     manageInboxes: false,
     manageAgents: false,
     manageIntegrations: false,
-    viewReports: true,
+    viewReports: false,
     assignConversations: true,
     resolveConversations: true,
     deleteConversations: false,
     sendMessages: true,
-    manageLabels: false,
+    manageLabels: true,
     manageCannedResponses: true,
   };
 }

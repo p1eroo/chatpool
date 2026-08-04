@@ -99,20 +99,6 @@ export async function resolveInboxForMetaWebhook(inboxId?: string, phoneNumberId
   return null;
 }
 
-async function getDefaultAssigneeId(inboxId: string): Promise<string | null> {
-  const assignments = await prisma.inboxAgent.findMany({
-    where: { inboxId },
-    orderBy: { agentId: "asc" },
-    select: { agentId: true },
-  });
-
-  if (assignments.length === 1) {
-    return assignments[0].agentId;
-  }
-
-  return null;
-}
-
 type MetaStatusEvent = {
   id?: string;
   status?: string;
@@ -206,7 +192,6 @@ export async function processMetaWebhookPayload(
 
       if (change.field !== "messages") continue;
 
-      const defaultAssigneeId = await getDefaultAssigneeId(settings.inboxId);
       const accessToken = settings.accessToken?.trim() || null;
 
       processed += await processMetaMessageStatuses(value.statuses);
@@ -226,10 +211,12 @@ export async function processMetaWebhookPayload(
 
         if (!contact) continue;
 
+        if (contact.isBlocked) continue;
+
+        // Conversaciones nuevas entran sin asignar; la asignación es manual.
         const { conversation } = await findOrReopenConversationForContact({
           inboxId: settings.inboxId,
           contactId: contact.id,
-          defaultAssigneeId,
         });
 
         const existing = await prisma.message.findUnique({

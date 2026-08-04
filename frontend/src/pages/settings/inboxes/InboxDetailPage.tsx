@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Copy, ExternalLink, Plus } from "lucide-react";
+import { ArrowLeft, ExternalLink, Plus } from "lucide-react";
+import { CopyableValueRow } from "@/components/settings/CopyableValueRow";
 import { CreateLabelModal } from "@/components/settings/CreateLabelModal";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { MetaInboxIntegrationPanel } from "@/components/settings/MetaInboxIntegrationPanel";
@@ -66,6 +67,12 @@ export function InboxDetailPage() {
     if (!config.webhookUrl) return;
     void navigator.clipboard.writeText(config.webhookUrl);
     showToast("Webhook copiado");
+  };
+
+  const copyVerifyToken = () => {
+    if (!config.webhookVerifyToken) return;
+    void navigator.clipboard.writeText(config.webhookVerifyToken);
+    showToast("Verify token copiado");
   };
 
   const isMetaChannel = config.provider === "meta";
@@ -198,22 +205,21 @@ export function InboxDetailPage() {
             }
           />
           {config.webhookUrl && (
-            <div className="flex items-start justify-between gap-4 py-2.5">
-              <span className="text-[13px] text-[var(--color-text-muted)] shrink-0">Webhook</span>
-              <div className="flex items-center gap-2 min-w-0">
-                <code className="text-[11px] text-[var(--color-text-secondary)] break-all">
-                  {config.webhookUrl}
-                </code>
-                <button
-                  type="button"
-                  onClick={copyWebhook}
-                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors shrink-0"
-                  title="Copiar webhook"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
+            <CopyableValueRow
+              label="Webhook"
+              value={config.webhookUrl}
+              onCopy={copyWebhook}
+              hint="Callback URL por bandeja en Meta Developer Console"
+            />
+          )}
+
+          {config.webhookVerifyToken && (
+            <CopyableValueRow
+              label="Verify token"
+              value={config.webhookVerifyToken}
+              onCopy={copyVerifyToken}
+              hint="Úsalo junto a esta URL de webhook (no es el token global)"
+            />
           )}
 
           {isMetaChannel && (

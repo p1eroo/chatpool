@@ -11,6 +11,8 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default("http://localhost:5174"),
   PUBLIC_BASE_URL: z.string().default("http://localhost:3001"),
   WEBHOOK_BASE_URL: z.string().default("http://localhost:3001/webhooks"),
+  /** Verify token del webhook global GET /webhooks/meta (Meta Developer Console). */
+  META_WEBHOOK_VERIFY_TOKEN: z.string().min(8).default("chatpool_meta_verify"),
   META_GRAPH_VERSION: z.string().default("v21.0"),
   META_APP_SECRET: z.string().optional(),
   S3_ENDPOINT: z.string().optional(),

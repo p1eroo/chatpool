@@ -26,7 +26,7 @@ export function isImplementedChannelType(channel: string): channel is Implemente
 export function getProviderWebhookHelp(provider: IntegrationProvider): string | null {
   switch (provider) {
     case "meta":
-      return "Callback URL para Meta Cloud API. Verifica el token en el backend al recibir el challenge GET.";
+      return "Callback URL global de Meta. Si usas URL por bandeja, copia URL + verify token desde el detalle de esa bandeja.";
     case "email":
       return "Endpoint para recibir correos entrantes vía webhook o relay SMTP.";
     case "website":

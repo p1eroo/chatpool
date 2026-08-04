@@ -10,6 +10,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { useAgentPermissions } from "@/hooks/useAgentPermissions";
 import { useConversationStore } from "@/store/conversationStore";
 import { useLabelStore } from "@/store/labelStore";
 import { useAgentStore } from "@/store/agentStore";
@@ -79,6 +80,7 @@ export function ConversationContextMenu({
     left: 0,
   });
 
+  const permissions = useAgentPermissions();
   const resolveConversation = useConversationStore((s) => s.resolveConversation);
   const reopenConversation = useConversationStore((s) => s.reopenConversation);
   const markAsUnread = useConversationStore((s) => s.markAsUnread);
@@ -180,47 +182,60 @@ export function ConversationContextMenu({
 
       <div className="my-1 h-px bg-[var(--color-border-primary)]" />
 
-      <MenuItem
-        icon={Check}
-        label="Marcar como resuelto"
-        disabled={conversation.status === "resolved"}
-        onClick={() => runAction(() => resolveConversation(conversation.id))}
-      />
+      {permissions.resolveConversations && (
+        <>
+          <MenuItem
+            icon={Check}
+            label="Marcar como resuelto"
+            disabled={conversation.status === "resolved"}
+            onClick={() => runAction(() => resolveConversation(conversation.id))}
+          />
 
-      <MenuItem
-        icon={RotateCcw}
-        label="Reabrir conversación"
-        disabled={conversation.status === "open"}
-        onClick={() => runAction(() => reopenConversation(conversation.id))}
-      />
+          <MenuItem
+            icon={RotateCcw}
+            label="Reabrir conversación"
+            disabled={conversation.status === "open"}
+            onClick={() => runAction(() => reopenConversation(conversation.id))}
+          />
+        </>
+      )}
 
-      <div className="my-1 h-px bg-[var(--color-border-primary)]" />
+      {(permissions.manageLabels || permissions.assignConversations) && (
+        <div className="my-1 h-px bg-[var(--color-border-primary)]" />
+      )}
 
-      <MenuItem
-        ref={labelItemRef}
-        icon={Tag}
-        label="Asignar etiqueta"
-        hasSubmenu
-        onMouseEnter={() => setActiveSubmenu("labels")}
-      />
-      <MenuItem
-        ref={agentItemRef}
-        icon={UserPlus}
-        label="Asignar un agente"
-        hasSubmenu
-        onMouseEnter={() => setActiveSubmenu("agents")}
-      />
+      {permissions.manageLabels && (
+        <MenuItem
+          ref={labelItemRef}
+          icon={Tag}
+          label="Asignar etiqueta"
+          hasSubmenu
+          onMouseEnter={() => setActiveSubmenu("labels")}
+        />
+      )}
+      {permissions.assignConversations && (
+        <MenuItem
+          ref={agentItemRef}
+          icon={UserPlus}
+          label="Asignar un agente"
+          hasSubmenu
+          onMouseEnter={() => setActiveSubmenu("agents")}
+        />
+      )}
 
-      <div className="my-1 h-px bg-[var(--color-border-primary)]" />
+      {permissions.deleteConversations && (
+        <>
+          <div className="my-1 h-px bg-[var(--color-border-primary)]" />
+          <MenuItem
+            icon={Trash2}
+            label="Eliminar conversación"
+            destructive
+            onClick={() => runAction(() => deleteConversation(conversation.id))}
+          />
+        </>
+      )}
 
-      <MenuItem
-        icon={Trash2}
-        label="Eliminar conversación"
-        destructive
-        onClick={() => runAction(() => deleteConversation(conversation.id))}
-      />
-
-      {activeSubmenu === "labels" && (
+      {activeSubmenu === "labels" && permissions.manageLabels && (
         <div className={submenuClassName} style={submenuStyle}>
           {inboxLabels.map((label) => {
             const isSelected = conversation.labels.some((l) => l.id === label.id);
@@ -244,7 +259,7 @@ export function ConversationContextMenu({
         </div>
       )}
 
-      {activeSubmenu === "agents" && (
+      {activeSubmenu === "agents" && permissions.assignConversations && (
         <div className={cn(submenuClassName, "min-w-[220px] max-h-[320px]")} style={submenuStyle}>
           <button
             type="button"

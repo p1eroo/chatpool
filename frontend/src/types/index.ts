@@ -37,6 +37,8 @@ export interface AgentProfile {
   avatar: string;
   status: AgentStatus;
   roleId: string;
+  roleName?: string;
+  permissions?: AgentPermissions;
   active?: boolean;
 }
 
@@ -64,6 +66,8 @@ export interface InboxSettings {
   provider: IntegrationProvider;
   providerResource: string;
   webhookUrl?: string;
+  /** Verify token para el challenge GET de Meta (webhook por bandeja). */
+  webhookVerifyToken?: string;
   assignedAgentIds: string[];
   description?: string;
   whatsappProvider?: "meta-cloud";
@@ -79,6 +83,8 @@ export interface IntegrationAccount {
   description: string;
   connected: boolean;
   webhookUrl?: string;
+  /** Verify token del webhook global /webhooks/meta. */
+  webhookVerifyToken?: string;
 }
 
 export interface Contact {

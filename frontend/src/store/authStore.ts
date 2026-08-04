@@ -1,8 +1,8 @@
 import { create } from "zustand";
-import { apiRequest, getAccessToken, setAccessToken, setUnauthorizedHandler, type UnauthorizedReason } from "@/api/client";
+import { apiRequest, getAccessToken, setAccessToken, setForbiddenHandler, setUnauthorizedHandler, type UnauthorizedReason } from "@/api/client";
 import { env } from "@/config/env";
 import { authService } from "@/services/authService";
-import { useAgentStore } from "@/store/agentStore";
+import { mergeAgentProfile, useAgentStore } from "@/store/agentStore";
 import { useUIStore } from "@/store/uiStore";
 import type { Agent, AgentProfile } from "@/types";
 
@@ -58,6 +58,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!response) return false;
 
     setAccessToken(response.accessToken);
+    mergeAgentProfile(response.agent);
     persistAuth(true, response.agent.id);
     set({ isAuthenticated: true, agentId: response.agent.id, rememberMe });
     return true;
@@ -110,6 +111,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return false;
     }
 
+    mergeAgentProfile(profile);
     persistAuth(true, profile.id);
     set({ isAuthenticated: true, agentId: profile.id });
     return true;
@@ -132,5 +134,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 export function registerAuthUnauthorizedHandler() {
   setUnauthorizedHandler((reason, message) => {
     useAuthStore.getState().forceLogout(reason, message);
+  });
+
+  setForbiddenHandler((message) => {
+    useUIStore.getState().showToast(message);
   });
 }

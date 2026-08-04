@@ -2,6 +2,10 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppDataBootstrap } from "@/components/auth/AppDataBootstrap";
 import { AuthSessionProvider } from "@/components/auth/AuthSessionProvider";
 import { ProtectedRoute, PublicAuthRoute } from "@/components/auth/ProtectedRoute";
+import {
+  RequirePermission,
+  RequireSettingsAccess,
+} from "@/components/auth/RequirePermission";
 import { useAuthStore } from "@/store/authStore";
 import { AppLayout } from "@/layouts/AppLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
@@ -49,16 +53,26 @@ export default function App() {
             <Route path="/" element={<Navigate to="/inbox" replace />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/contacts" element={<ContactsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
+            <Route element={<RequirePermission anyOf={["viewReports"]} />}>
+              <Route path="/reports" element={<ReportsPage />} />
+            </Route>
             <Route path="/profile" element={<ProfileSettingsPage />} />
-            <Route path="/settings" element={<SettingsLayout />}>
-              <Route index element={<SettingsIndexRedirect />} />
-              <Route path="inboxes" element={<InboxesListPage />} />
-              <Route path="inboxes/new" element={<CreateInboxWizardPage />} />
-              <Route path="inboxes/:inboxId" element={<InboxDetailPage />} />
-              <Route path="agents" element={<AgentsSettingsPage />} />
-              <Route path="roles" element={<RolesSettingsPage />} />
-              <Route path="integrations" element={<IntegrationsSettingsPage />} />
+            <Route path="/settings" element={<RequireSettingsAccess />}>
+              <Route element={<SettingsLayout />}>
+                <Route index element={<SettingsIndexRedirect />} />
+                <Route element={<RequirePermission anyOf={["manageInboxes"]} />}>
+                  <Route path="inboxes" element={<InboxesListPage />} />
+                  <Route path="inboxes/new" element={<CreateInboxWizardPage />} />
+                  <Route path="inboxes/:inboxId" element={<InboxDetailPage />} />
+                </Route>
+                <Route element={<RequirePermission anyOf={["manageAgents"]} />}>
+                  <Route path="agents" element={<AgentsSettingsPage />} />
+                  <Route path="roles" element={<RolesSettingsPage />} />
+                </Route>
+                <Route element={<RequirePermission anyOf={["manageIntegrations"]} />}>
+                  <Route path="integrations" element={<IntegrationsSettingsPage />} />
+                </Route>
+              </Route>
             </Route>
           </Route>
         </Route>

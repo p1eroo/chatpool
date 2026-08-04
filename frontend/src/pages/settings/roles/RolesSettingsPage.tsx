@@ -3,8 +3,11 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { CreateRoleModal } from "@/components/settings/CreateRoleModal";
 import { RoleSettingsModal } from "@/components/settings/RoleSettingsModal";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { isApiError } from "@/api/errors";
+import { roleApiService } from "@/services/roleApiService";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/store/agentStore";
+import { useAuthStore } from "@/store/authStore";
 import { useRoleStore } from "@/store/roleStore";
 import { useUIStore } from "@/store/uiStore";
 import type { AgentPermissions, Role } from "@/types";
@@ -12,13 +15,14 @@ import type { AgentPermissions, Role } from "@/types";
 export function RolesSettingsPage() {
   const showToast = useUIStore((s) => s.showToast);
   const roles = useRoleStore((s) => s.roles);
-  const addRole = useRoleStore((s) => s.addRole);
-  const updateRole = useRoleStore((s) => s.updateRole);
-  const removeRole = useRoleStore((s) => s.removeRole);
+  const upsertRole = useRoleStore((s) => s.upsertRole);
+  const removeRoleLocal = useRoleStore((s) => s.removeRoleLocal);
   const agents = useAgentStore((s) => s.agents);
+  const agentId = useAuthStore((s) => s.agentId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsRole, setSettingsRole] = useState<Role | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const agentCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -28,25 +32,69 @@ export function RolesSettingsPage() {
     return counts;
   }, [roles, agents]);
 
-  const handleCreate = (name: string) => {
-    const created = addRole(name);
-    if (!created) return false;
-    showToast(`Rol "${created.name}" creado`);
-    setSettingsRole(created);
-    return true;
+  const refreshCurrentAgentPermissions = async (role: Role) => {
+    if (!agentId) return;
+    const current = useAgentStore.getState().getAgentById(agentId);
+    if (!current || current.roleId !== role.id) return;
+
+    useAgentStore.getState().setAgents(
+      useAgentStore.getState().agents.map((agent) =>
+        agent.id === agentId
+          ? { ...agent, permissions: role.permissions, roleName: role.name }
+          : agent
+      )
+    );
   };
 
-  const handleSaveRole = (id: string, data: { name: string; permissions: AgentPermissions }) => {
-    updateRole(id, data);
-    showToast("Rol actualizado");
+  const handleCreate = async (name: string) => {
+    try {
+      setSaving(true);
+      const created = await roleApiService.create(name);
+      upsertRole(created);
+      showToast(`Rol "${created.name}" creado`);
+      setSettingsRole(created);
+      return true;
+    } catch (error) {
+      showToast(isApiError(error) ? error.message : "No se pudo crear el rol");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleRemoveRole = (id: string) => {
+  const handleSaveRole = async (
+    id: string,
+    data: { name: string; permissions: AgentPermissions }
+  ) => {
+    try {
+      setSaving(true);
+      const updated = await roleApiService.update(id, data);
+      upsertRole(updated);
+      await refreshCurrentAgentPermissions(updated);
+      showToast("Rol actualizado");
+    } catch (error) {
+      showToast(isApiError(error) ? error.message : "No se pudo actualizar el rol");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveRole = async (id: string) => {
     const count = agentCounts[id] ?? 0;
     if (count > 0) return false;
-    const ok = removeRole(id);
-    if (ok) showToast("Rol eliminado");
-    return ok;
+
+    try {
+      setSaving(true);
+      await roleApiService.remove(id);
+      removeRoleLocal(id);
+      showToast("Rol eliminado");
+      return true;
+    } catch (error) {
+      showToast(isApiError(error) ? error.message : "No se pudo eliminar el rol");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -58,7 +106,8 @@ export function RolesSettingsPage() {
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="h-8 px-3 text-xs font-medium bg-[var(--color-brand)] text-white rounded-lg hover:bg-[var(--color-brand-light)] transition-colors flex items-center gap-1.5"
+            disabled={saving}
+            className="h-8 px-3 text-xs font-medium bg-[var(--color-brand)] text-white rounded-lg hover:bg-[var(--color-brand-light)] transition-colors flex items-center gap-1.5 disabled:opacity-60"
           >
             <Plus className="w-3.5 h-3.5" />
             Nuevo rol
@@ -102,8 +151,8 @@ export function RolesSettingsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleRemoveRole(role.id)}
-                  disabled={role.isSystem || (agentCounts[role.id] ?? 0) > 0}
+                  onClick={() => void handleRemoveRole(role.id)}
+                  disabled={role.isSystem || (agentCounts[role.id] ?? 0) > 0 || saving}
                   className={cn(
                     "w-8 h-8 flex items-center justify-center rounded-lg border transition-colors",
                     role.isSystem || (agentCounts[role.id] ?? 0) > 0

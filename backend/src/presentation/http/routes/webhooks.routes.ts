@@ -4,20 +4,17 @@ import {
   resolveInboxForMetaWebhook,
   verifyMetaChallenge,
 } from "../../../application/webhooks/meta-webhook.service.js";
+import { env } from "../../../config/env.js";
 import { prisma } from "../../../infrastructure/database/prisma.client.js";
 import { metaChallengeQuerySchema } from "../schemas/index.js";
 
-async function getVerifyToken(inboxId?: string): Promise<string | null> {
-  if (inboxId) {
-    const settings = await prisma.inboxSettings.findUnique({ where: { inboxId } });
-    return settings?.webhookVerifyToken ?? null;
-  }
+function globalMetaVerifyToken(): string {
+  return env.META_WEBHOOK_VERIFY_TOKEN;
+}
 
-  const metaAccount = await prisma.integrationAccount.findUnique({
-    where: { provider: "meta" },
-  });
-
-  return metaAccount?.webhookUrl ? "chatpool_meta_verify" : null;
+async function getInboxVerifyToken(inboxId: string): Promise<string | null> {
+  const settings = await prisma.inboxSettings.findUnique({ where: { inboxId } });
+  return settings?.webhookVerifyToken ?? null;
 }
 
 export async function webhookRoutes(app: FastifyInstance) {
@@ -27,7 +24,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       mode: query["hub.mode"],
       verifyToken: query["hub.verify_token"],
       challenge: query["hub.challenge"],
-      expectedToken: "chatpool_meta_verify",
+      expectedToken: globalMetaVerifyToken(),
     });
 
     if (!challenge) {
@@ -66,7 +63,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       mode: query["hub.mode"],
       verifyToken: query["hub.verify_token"],
       challenge: query["hub.challenge"],
-      expectedToken: settings?.webhookVerifyToken ?? (await getVerifyToken(inboxId)),
+      expectedToken: settings?.webhookVerifyToken ?? (await getInboxVerifyToken(inboxId)),
     });
 
     if (!challenge) {

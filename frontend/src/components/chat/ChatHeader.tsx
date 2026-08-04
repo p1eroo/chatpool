@@ -13,6 +13,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import type { Conversation } from "@/types";
+import { useAgentPermissions } from "@/hooks/useAgentPermissions";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,7 @@ interface ChatHeaderProps {
 }
 
 export function ChatHeader({ conversation }: ChatHeaderProps) {
+  const permissions = useAgentPermissions();
   const resolveConversation = useConversationStore((s) => s.resolveConversation);
   const reopenConversation = useConversationStore((s) => s.reopenConversation);
   const blockContact = useConversationStore((s) => s.blockContact);
@@ -64,10 +66,10 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
 
   const isResolved = conversation.status === "resolved";
 
-  const handleBlock = () => {
-    blockContact(conversation.id);
+  const handleBlock = async () => {
+    const ok = await blockContact(conversation.id);
     setMenuOpen(false);
-    showToast(`${contact.name} ha sido bloqueado`);
+    showToast(ok ? `${contact.name} ha sido bloqueado` : "No se pudo bloquear el contacto");
   };
 
   return (
@@ -103,33 +105,34 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
       </div>
 
       <div className="flex items-center gap-1">
-        {isResolved ? (
-          <button
-            onClick={async () => {
-              const ok = await reopenConversation(conversation.id);
-              if (!ok) showToast("No se pudo reabrir la conversación");
-            }}
-            className="h-8 px-2.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors flex items-center gap-1.5 border border-[var(--color-border-primary)]"
-            title="Reabrir conversación"
-          >
-            Reabrir
-            <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-          </button>
-        ) : (
-          <button
-            onClick={async () => {
-              const ok = await resolveConversation(conversation.id);
-              showToast(
-                ok ? "Conversación resuelta" : "No se pudo resolver la conversación"
-              );
-            }}
-            className="h-8 px-2.5 text-xs font-medium text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors flex items-center gap-1.5"
-            title="Resolver conversación"
-          >
-            <CheckCircle className="w-3.5 h-3.5" />
-            Resolver
-          </button>
-        )}
+        {permissions.resolveConversations &&
+          (isResolved ? (
+            <button
+              onClick={async () => {
+                const ok = await reopenConversation(conversation.id);
+                if (!ok) showToast("No se pudo reabrir la conversación");
+              }}
+              className="h-8 px-2.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors flex items-center gap-1.5 border border-[var(--color-border-primary)]"
+              title="Reabrir conversación"
+            >
+              Reabrir
+              <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+            </button>
+          ) : (
+            <button
+              onClick={async () => {
+                const ok = await resolveConversation(conversation.id);
+                showToast(
+                  ok ? "Conversación resuelta" : "No se pudo resolver la conversación"
+                );
+              }}
+              className="h-8 px-2.5 text-xs font-medium text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors flex items-center gap-1.5"
+              title="Resolver conversación"
+            >
+              <CheckCircle className="w-3.5 h-3.5" />
+              Resolver
+            </button>
+          ))}
 
         <div className="relative" ref={menuRef}>
           <button

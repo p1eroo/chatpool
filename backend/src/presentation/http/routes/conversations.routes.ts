@@ -17,6 +17,8 @@ import {
   resolveMessageAttachment,
 } from "../../../application/media/message-attachment.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
+import { requirePermission } from "../plugins/require-permission.plugin.js";
+import { assertAgentPermission } from "../../../application/permissions/permissions.service.js";
 
 const sendMessageSchema = z.object({
   content: z.string().min(1),
@@ -103,7 +105,10 @@ export async function conversationsRoutes(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
-  app.post("/conversations/:id/messages", async (request, reply) => {
+  app.post(
+    "/conversations/:id/messages",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
     const { id } = request.params as { id: string };
     const user = request.user as { sub: string };
 
@@ -154,38 +159,62 @@ export async function conversationsRoutes(app: FastifyInstance) {
     return reply.status(201).send(await sendAgentMessage(id, user.sub, body));
   });
 
-  app.post("/conversations/:id/templates", async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const user = request.user as { sub: string };
-    const body = sendTemplateSchema.parse(request.body);
-    return reply.status(201).send(await sendWhatsAppTemplate(id, user.sub, body));
-  });
+  app.post(
+    "/conversations/:id/templates",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const user = request.user as { sub: string };
+      const body = sendTemplateSchema.parse(request.body);
+      return reply.status(201).send(await sendWhatsAppTemplate(id, user.sub, body));
+    }
+  );
 
   app.patch("/conversations/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const user = request.user as { sub: string };
     const body = updateConversationSchema.parse(request.body);
+
+    if (body.status !== undefined) {
+      await assertAgentPermission(user.sub, "resolveConversations");
+    }
+    if (body.assigneeId !== undefined) {
+      await assertAgentPermission(user.sub, "assignConversations");
+    }
+
     return reply.send(await updateConversation(id, body, user.sub));
   });
 
-  app.post("/conversations/:id/labels/:labelId/toggle", async (request, reply) => {
-    const { id, labelId } = request.params as { id: string; labelId: string };
-    const user = request.user as { sub: string };
-    return reply.send(await toggleConversationLabel(id, labelId, user.sub));
-  });
+  app.post(
+    "/conversations/:id/labels/:labelId/toggle",
+    { preHandler: requirePermission("manageLabels") },
+    async (request, reply) => {
+      const { id, labelId } = request.params as { id: string; labelId: string };
+      const user = request.user as { sub: string };
+      return reply.send(await toggleConversationLabel(id, labelId, user.sub));
+    }
+  );
 
-  app.delete("/conversations/:id", async (request, reply) => {
-    const { id } = request.params as { id: string };
-    await deleteConversation(id);
-    return reply.status(204).send();
-  });
+  app.delete(
+    "/conversations/:id",
+    { preHandler: requirePermission("deleteConversations") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      await deleteConversation(id);
+      return reply.status(204).send();
+    }
+  );
 
-  app.delete("/conversations/:conversationId/messages/:messageId", async (request, reply) => {
-    const { conversationId, messageId } = request.params as {
-      conversationId: string;
-      messageId: string;
-    };
-    await deleteMessage(conversationId, messageId);
-    return reply.status(204).send();
-  });
+  app.delete(
+    "/conversations/:conversationId/messages/:messageId",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { conversationId, messageId } = request.params as {
+        conversationId: string;
+        messageId: string;
+      };
+      await deleteMessage(conversationId, messageId);
+      return reply.status(204).send();
+    }
+  );
 }

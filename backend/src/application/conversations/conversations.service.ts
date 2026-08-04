@@ -140,6 +140,14 @@ export async function sendAgentMessage(
     });
     if (!conversation) throw new NotFoundError("Conversación no encontrada");
 
+    if (conversation.contact.isBlocked) {
+      throw new AppError(
+        "Este contacto está bloqueado. Desbloquéalo para enviar mensajes.",
+        422,
+        "CONTACT_BLOCKED"
+      );
+    }
+
     if (!body.isPrivate && conversation.inbox.channelType === "whatsapp") {
       const lastContactAt = await getLastContactMessageAt(conversationId);
       if (!isReplyWindowOpen(lastContactAt)) {
@@ -389,7 +397,6 @@ export async function updateConversation(
 export async function findOrReopenConversationForContact(params: {
   inboxId: string;
   contactId: string;
-  defaultAssigneeId: string | null;
 }) {
   const open = await prisma.conversation.findFirst({
     where: {
@@ -431,7 +438,7 @@ export async function findOrReopenConversationForContact(params: {
     data: {
       inboxId: params.inboxId,
       contactId: params.contactId,
-      assigneeId: params.defaultAssigneeId,
+      assigneeId: null,
       status: "open",
       priority: "none",
       unreadCount: 0,

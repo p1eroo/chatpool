@@ -24,6 +24,11 @@ export function IntegrationsSettingsPage() {
     showToast("Webhook copiado");
   };
 
+  const copyVerifyToken = (token: string) => {
+    void navigator.clipboard.writeText(token);
+    showToast("Verify token copiado");
+  };
+
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-[var(--color-text-secondary)]">
@@ -54,6 +59,7 @@ export function IntegrationsSettingsPage() {
             getInboxById={getInboxById}
             getByInboxId={getByInboxId}
             onCopyWebhook={copyWebhook}
+            onCopyVerifyToken={copyVerifyToken}
           />
         ))
       )}
@@ -66,11 +72,13 @@ function ProviderSection({
   getInboxById,
   getByInboxId,
   onCopyWebhook,
+  onCopyVerifyToken,
 }: {
   account: IntegrationAccountDto;
   getInboxById: ReturnType<typeof useInboxStore.getState>["getInboxById"];
   getByInboxId: ReturnType<typeof useInboxSettingsStore.getState>["getByInboxId"];
   onCopyWebhook: (url: string) => void;
+  onCopyVerifyToken: (token: string) => void;
 }) {
   const { data: linkedInboxes = [] } = useProviderInboxes(account.provider);
   const webhookHelp = getProviderWebhookHelp(account.provider);
@@ -94,25 +102,53 @@ function ProviderSection({
     >
       <div className="space-y-4">
         {account.webhookUrl && (
-          <div className="bg-[var(--color-bg-tertiary)] rounded-lg p-3">
-            <h4 className="text-[11px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
-              Webhook global
-            </h4>
-            <div className="flex items-center justify-between gap-2">
-              <code className="text-[12px] text-[var(--color-text-secondary)] truncate">
-                {account.webhookUrl}
-              </code>
-              <button
-                type="button"
-                onClick={() => onCopyWebhook(account.webhookUrl!)}
-                className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors shrink-0"
-                title="Copiar"
-              >
-                <Copy className="w-3.5 h-3.5" />
-              </button>
+          <div className="bg-[var(--color-bg-tertiary)] rounded-lg p-3 space-y-3">
+            <div>
+              <h4 className="text-[11px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
+                Webhook global
+              </h4>
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-[12px] text-[var(--color-text-secondary)] truncate">
+                  {account.webhookUrl}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => onCopyWebhook(account.webhookUrl!)}
+                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors shrink-0"
+                  title="Copiar webhook"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
+
+            {account.webhookVerifyToken && (
+              <div>
+                <h4 className="text-[11px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
+                  Verify token global
+                </h4>
+                <div className="flex items-center justify-between gap-2">
+                  <code className="text-[12px] text-[var(--color-text-secondary)] truncate">
+                    {account.webhookVerifyToken}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => onCopyVerifyToken(account.webhookVerifyToken!)}
+                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors shrink-0"
+                    title="Copiar verify token"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-[var(--color-text-muted)] mt-1.5">
+                  Solo para la URL global <code className="text-[10px]">/webhooks/meta</code>. Las
+                  bandejas usan su propio token en el detalle de la bandeja.
+                </p>
+              </div>
+            )}
+
             {webhookHelp ? (
-              <p className="text-[11px] text-[var(--color-text-muted)] mt-2">{webhookHelp}</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">{webhookHelp}</p>
             ) : null}
           </div>
         )}

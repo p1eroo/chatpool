@@ -5,6 +5,7 @@ import {
   buildProviderWebhookUrl,
   createWebhookVerifyToken,
 } from "../../infrastructure/webhooks/webhook-url.builder.js";
+import { env } from "../../config/env.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import {
   IMPLEMENTED_INTEGRATION_PROVIDERS,
@@ -24,6 +25,9 @@ export async function listIntegrationAccounts() {
     description: account.description,
     connected: account.connected,
     webhookUrl: account.webhookUrl ?? buildProviderWebhookUrl(account.provider),
+    // Token del endpoint global /webhooks/meta (no el de cada bandeja).
+    webhookVerifyToken:
+      account.provider === "meta" ? env.META_WEBHOOK_VERIFY_TOKEN : undefined,
   }));
 }
 

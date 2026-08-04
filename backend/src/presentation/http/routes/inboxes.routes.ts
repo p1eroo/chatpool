@@ -12,6 +12,7 @@ import {
   listLabelsForInbox,
 } from "../../../application/labels/labels.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
+import { requirePermission } from "../plugins/require-permission.plugin.js";
 
 const createInboxSchema = z.object({
   name: z.string().min(1),
@@ -59,7 +60,7 @@ export async function inboxesRoutes(app: FastifyInstance) {
     return reply.send(await getInboxById(id));
   });
 
-  app.post("/inboxes", async (request, reply) => {
+  app.post("/inboxes", { preHandler: requirePermission("manageInboxes") }, async (request, reply) => {
     const body = createInboxSchema.parse(request.body);
     return reply.status(201).send(await createInbox(body));
   });
@@ -69,9 +70,13 @@ export async function inboxesRoutes(app: FastifyInstance) {
     return reply.send(await listLabelsForInbox(inboxId));
   });
 
-  app.post("/inboxes/:inboxId/labels", async (request, reply) => {
-    const { inboxId } = request.params as { inboxId: string };
-    const body = createLabelSchema.parse(request.body);
-    return reply.status(201).send(await createLabelForInbox(inboxId, body));
-  });
+  app.post(
+    "/inboxes/:inboxId/labels",
+    { preHandler: requirePermission("manageLabels") },
+    async (request, reply) => {
+      const { inboxId } = request.params as { inboxId: string };
+      const body = createLabelSchema.parse(request.body);
+      return reply.status(201).send(await createLabelForInbox(inboxId, body));
+    }
+  );
 }

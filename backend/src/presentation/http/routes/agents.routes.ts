@@ -6,7 +6,10 @@ import {
   listAgents,
   updateAgent,
 } from "../../../application/agents/agents.service.js";
+import { ForbiddenError } from "../../../domain/errors.js";
+import { getPermissionsForAgent } from "../../../application/permissions/permissions.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
+import { requirePermission } from "../plugins/require-permission.plugin.js";
 
 const createAgentSchema = z.object({
   name: z.string().min(1),
@@ -29,24 +32,54 @@ const updateAgentSchema = z.object({
 export async function agentsRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authenticate);
 
+  // Lectura: cualquier agente autenticado (asignaciones, listados).
   app.get("/agents", async (_request, reply) => {
     return reply.send(await listAgents());
   });
 
-  app.post("/agents", async (request, reply) => {
+  app.post("/agents", { preHandler: requirePermission("manageAgents") }, async (request, reply) => {
     const body = createAgentSchema.parse(request.body);
     return reply.status(201).send(await createAgent(body));
   });
 
   app.patch("/agents/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = request.user as { sub: string };
     const body = updateAgentSchema.parse(request.body);
-    return reply.send(await updateAgent(id, body));
+    const isSelf = id === user.sub;
+    const canManageAgents = (await getPermissionsForAgent(user.sub)).manageAgents;
+
+    if (!isSelf && !canManageAgents) {
+      throw new ForbiddenError();
+    }
+    if (
+      isSelf &&
+      !canManageAgents &&
+      (body.roleId !== undefined || body.active !== undefined || body.username !== undefined)
+    ) {
+      throw new ForbiddenError();
+    }
+
+    const patch =
+      isSelf && !canManageAgents
+        ? {
+            name: body.name,
+            phone: body.phone,
+            password: body.password,
+            status: body.status,
+          }
+        : body;
+
+    return reply.send(await updateAgent(id, patch));
   });
 
-  app.delete("/agents/:id", async (request, reply) => {
-    const { id } = request.params as { id: string };
-    await deleteAgent(id);
-    return reply.status(204).send();
-  });
+  app.delete(
+    "/agents/:id",
+    { preHandler: requirePermission("manageAgents") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      await deleteAgent(id);
+      return reply.status(204).send();
+    }
+  );
 }

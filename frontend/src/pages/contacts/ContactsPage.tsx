@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useConversationStore } from "@/store/conversationStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { whatsappTemplates } from "@/data/mock";
-import { useContacts } from "@/hooks/useContacts";
+import { useContacts, useDeleteContact, useUpdateContact } from "@/hooks/useContacts";
+import { useHasPermission } from "@/hooks/useAgentPermissions";
 import { useContactHistoryMessages } from "@/hooks/useContactHistoryMessages";
 import { getContactMessagePreview } from "@/lib/contactMessagePreview";
 import { useUIStore } from "@/store/uiStore";
@@ -311,7 +312,10 @@ export function ContactsPage() {
       {selectedContact ? (
         <div className="flex min-w-0 min-h-0 overflow-hidden">
           <div className="flex-1 min-w-0 overflow-y-auto flex justify-center">
-            <ContactDetail contact={selectedContact} />
+            <ContactDetail
+              contact={selectedContact}
+              onDeleted={() => setSelectedContactId(null)}
+            />
           </div>
           <ContactSidePanel
             contact={selectedContact}
@@ -342,7 +346,18 @@ export function ContactsPage() {
   );
 }
 
-function ContactDetail({ contact }: { contact: Contact }) {
+function ContactDetail({
+  contact,
+  onDeleted,
+}: {
+  contact: Contact;
+  onDeleted?: () => void;
+}) {
+  const showToast = useUIStore((s) => s.showToast);
+  const canDelete = useHasPermission("deleteConversations");
+  const updateContact = useUpdateContact();
+  const deleteContact = useDeleteContact();
+
   const { firstName, lastName } = splitName(contact.name);
   const [form, setForm] = useState({
     firstName,
@@ -351,6 +366,7 @@ function ContactDetail({ contact }: { contact: Contact }) {
     city: "",
     company: "",
   });
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     const split = splitName(contact.name);
@@ -361,7 +377,60 @@ function ContactDetail({ contact }: { contact: Contact }) {
       city: "",
       company: "",
     });
+    setConfirmDelete(false);
   }, [contact.id, contact.name, contact.phone]);
+
+  const fullName = [form.firstName.trim(), form.lastName.trim()].filter(Boolean).join(" ");
+  const busy = updateContact.isPending || deleteContact.isPending;
+
+  const handleUpdate = async () => {
+    if (!fullName) {
+      showToast("El nombre es obligatorio");
+      return;
+    }
+
+    try {
+      await updateContact.mutateAsync({
+        contactId: contact.id,
+        patch: {
+          name: fullName,
+          phone: form.phone.trim() || null,
+        },
+      });
+      showToast("Contacto actualizado");
+    } catch {
+      showToast("No se pudo actualizar el contacto");
+    }
+  };
+
+  const handleToggleBlock = async () => {
+    const nextBlocked = !contact.isBlocked;
+    try {
+      await updateContact.mutateAsync({
+        contactId: contact.id,
+        patch: { isBlocked: nextBlocked },
+      });
+      showToast(nextBlocked ? "Contacto bloqueado" : "Contacto desbloqueado");
+    } catch {
+      showToast("No se pudo cambiar el bloqueo del contacto");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+
+    try {
+      await deleteContact.mutateAsync(contact.id);
+      showToast("Contacto eliminado");
+      onDeleted?.();
+    } catch {
+      showToast("No se pudo eliminar el contacto");
+      setConfirmDelete(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-[640px] px-6 py-6 animate-fade-in">
@@ -381,6 +450,11 @@ function ContactDetail({ contact }: { contact: Contact }) {
           <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">
             {contact.name}
           </h2>
+          {contact.isBlocked && (
+            <span className="mt-2 text-[10px] font-medium text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
+              Bloqueado
+            </span>
+          )}
           {contact.phone && (
             <p className="text-xs text-[var(--color-text-muted)] mt-1 flex items-center gap-1.5">
               <User className="w-3 h-3" />
@@ -389,9 +463,14 @@ function ContactDetail({ contact }: { contact: Contact }) {
           )}
           <p className="text-xs text-[var(--color-text-muted)] mt-1 flex items-center gap-1.5">
             <Activity className="w-3 h-3" />
-            Creado hace 4 meses · Última actividad hace 3 horas
+            {contact.lastSeen
+              ? `Última actividad ${formatTime(contact.lastSeen)}`
+              : "Sin actividad reciente"}
           </p>
-          <button className="mt-3 text-xs px-3 py-1 rounded-full border border-dashed border-[var(--color-border-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:border-[var(--color-brand)] transition-colors flex items-center gap-1">
+          <button
+            type="button"
+            className="mt-3 text-xs px-3 py-1 rounded-full border border-dashed border-[var(--color-border-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-brand)] hover:border-[var(--color-brand)] transition-colors flex items-center gap-1"
+          >
             <Tag className="w-3 h-3" />
             etiqueta
           </button>
@@ -440,33 +519,77 @@ function ContactDetail({ contact }: { contact: Contact }) {
           </div>
         </section>
 
-        <button className="h-9 px-4 text-sm font-medium rounded-lg bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)] transition-colors">
-          Actualizar contacto
+        <button
+          type="button"
+          onClick={() => void handleUpdate()}
+          disabled={busy || !fullName}
+          className="h-9 px-4 text-sm font-medium rounded-lg bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)] transition-colors disabled:opacity-60"
+        >
+          {updateContact.isPending ? "Guardando…" : "Actualizar contacto"}
         </button>
 
         <section className="pt-4 border-t border-[var(--color-border-primary)] space-y-6">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">
-              Eliminar contacto
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] mb-3">
-              Eliminar permanentemente este contacto. Esta acción es irreversible.
-            </p>
-            <button className="h-9 px-4 text-sm font-medium rounded-lg border border-[var(--color-danger)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-colors">
-              Eliminar contacto
-            </button>
-          </div>
+          {canDelete && (
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">
+                Eliminar contacto
+              </h3>
+              <p className="text-xs text-[var(--color-text-muted)] mb-3">
+                Eliminar permanentemente este contacto y sus conversaciones. Esta acción es
+                irreversible.
+              </p>
+              {confirmDelete && (
+                <p className="text-xs text-[var(--color-danger)] mb-2">
+                  Confirma otra vez para eliminar {contact.name} y todo su historial.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={busy}
+                className="h-9 px-4 text-sm font-medium rounded-lg border border-[var(--color-danger)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-colors disabled:opacity-60"
+              >
+                {deleteContact.isPending
+                  ? "Eliminando…"
+                  : confirmDelete
+                    ? "Confirmar eliminación"
+                    : "Eliminar contacto"}
+              </button>
+              {confirmDelete && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={busy}
+                  className="ml-2 h-9 px-3 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                >
+                  Cancelar
+                </button>
+              )}
+            </div>
+          )}
 
           <div>
             <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">
-              Bloquear contacto
+              {contact.isBlocked ? "Desbloquear contacto" : "Bloquear contacto"}
             </h3>
             <p className="text-xs text-[var(--color-text-muted)] mb-3">
-              Impide que este contacto te escriba o reciba mensajes tuyos.
+              {contact.isBlocked
+                ? "Vuelve a permitir mensajes entrantes y salientes con este contacto."
+                : "Impide mensajes entrantes y salientes con este contacto."}
             </p>
-            <button className="h-9 px-4 text-sm font-medium rounded-lg border border-[var(--color-border-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void handleToggleBlock()}
+              disabled={busy}
+              className={cn(
+                "h-9 px-4 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 disabled:opacity-60",
+                contact.isBlocked
+                  ? "border-[var(--color-brand)] text-[var(--color-brand)] hover:bg-[var(--color-brand)]/10"
+                  : "border-[var(--color-border-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+              )}
+            >
               <Ban className="w-4 h-4" />
-              Bloquear contacto
+              {contact.isBlocked ? "Desbloquear contacto" : "Bloquear contacto"}
             </button>
           </div>
         </section>

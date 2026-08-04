@@ -15,6 +15,12 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+export class ForbiddenError extends AppError {
+  constructor(message = "No tienes permiso para esta acción", code = "FORBIDDEN") {
+    super(message, 403, code);
+  }
+}
+
 export class SessionRevokedError extends UnauthorizedError {
   constructor() {
     super(

@@ -1,5 +1,8 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
-import { buildInboxWebhookUrl } from "../../infrastructure/webhooks/webhook-url.builder.js";
+import {
+  buildInboxWebhookUrl,
+  createWebhookVerifyToken,
+} from "../../infrastructure/webhooks/webhook-url.builder.js";
 import { mapInbox, mapInboxSettings } from "../mappers.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import type { CreateInboxBody } from "../../types/api-responses.js";
@@ -21,6 +24,18 @@ export async function listInboxSettings() {
   const settings = await prisma.inboxSettings.findMany({
     include: { inbox: { include: { inboxAgents: true } } },
   });
+
+  // Asegura verify token en bandejas Meta antiguas que aún no lo tienen.
+  for (const item of settings) {
+    if (item.provider === "meta" && !item.webhookVerifyToken) {
+      const token = createWebhookVerifyToken(item.inboxId);
+      await prisma.inboxSettings.update({
+        where: { inboxId: item.inboxId },
+        data: { webhookVerifyToken: token },
+      });
+      item.webhookVerifyToken = token;
+    }
+  }
 
   return settings.map((item) =>
     mapInboxSettings({
@@ -89,11 +104,13 @@ export async function createInbox(input: CreateInboxBody) {
 
   if (inbox.settings && provider === "meta") {
     const finalWebhook = buildInboxWebhookUrl("meta", inbox.id);
+    const verifyToken = createWebhookVerifyToken(inbox.id);
     await prisma.inboxSettings.update({
       where: { inboxId: inbox.id },
-      data: { webhookUrl: finalWebhook },
+      data: { webhookUrl: finalWebhook, webhookVerifyToken: verifyToken },
     });
     inbox.settings.webhookUrl = finalWebhook;
+    inbox.settings.webhookVerifyToken = verifyToken;
   }
 
   return {

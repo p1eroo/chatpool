@@ -3,6 +3,26 @@ import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { verifyPassword } from "../../infrastructure/security/password.service.js";
 import { toAgentProfile } from "../../infrastructure/webhooks/webhook-url.builder.js";
 import { UnauthorizedError } from "../../domain/errors.js";
+import { normalizePermissions } from "../../shared/permissions.js";
+
+function toAuthAgentProfile(agent: {
+  id: string;
+  name: string;
+  username: string;
+  phone: string | null;
+  email: string | null;
+  avatar: string;
+  status: string;
+  roleId: string;
+  active: boolean;
+  role: { name: string; permissions: unknown };
+}) {
+  return {
+    ...toAgentProfile(agent),
+    roleName: agent.role.name,
+    permissions: normalizePermissions(agent.role.permissions),
+  };
+}
 
 export async function loginAgent(username: string, password: string) {
   const agent = await prisma.agent.findFirst({
@@ -10,6 +30,7 @@ export async function loginAgent(username: string, password: string) {
       username: { equals: username.trim(), mode: "insensitive" },
       active: true,
     },
+    include: { role: true },
   });
 
   if (!agent) {
@@ -21,13 +42,16 @@ export async function loginAgent(username: string, password: string) {
     throw new UnauthorizedError("Usuario o contraseña incorrectos");
   }
 
-  return toAgentProfile(agent);
+  return toAuthAgentProfile(agent);
 }
 
 export async function getAgentById(agentId: string) {
-  const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    include: { role: true },
+  });
   if (!agent || !agent.active) return null;
-  return toAgentProfile(agent);
+  return toAuthAgentProfile(agent);
 }
 
 /** Nueva sesión: invalida cualquier login previo en otro equipo. */

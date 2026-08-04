@@ -11,7 +11,7 @@ interface RoleSettingsModalProps {
   agentCount: number;
   onClose: () => void;
   onSave: (id: string, data: { name: string; permissions: AgentPermissions }) => void;
-  onRemove: (id: string) => boolean;
+  onRemove: (id: string) => boolean | Promise<boolean>;
 }
 
 export function RoleSettingsModal({
@@ -52,8 +52,8 @@ export function RoleSettingsModal({
     onClose();
   };
 
-  const handleRemove = () => {
-    const ok = onRemove(role.id);
+  const handleRemove = async () => {
+    const ok = await onRemove(role.id);
     if (!ok) {
       setRemoveError(
         role.isSystem

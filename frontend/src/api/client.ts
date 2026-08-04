@@ -7,11 +7,16 @@ const AUTH_TOKEN_KEY = "chatpool-access-token";
 export type UnauthorizedReason = "SESSION_REVOKED" | "SESSION_EXPIRED" | "UNAUTHORIZED";
 
 let onUnauthorized: ((reason: UnauthorizedReason, message: string) => void) | null = null;
+let onForbidden: ((message: string) => void) | null = null;
 
 export function setUnauthorizedHandler(
   handler: (reason: UnauthorizedReason, message: string) => void
 ) {
   onUnauthorized = handler;
+}
+
+export function setForbiddenHandler(handler: (message: string) => void) {
+  onForbidden = handler;
 }
 
 export function getAccessToken(): string | null {
@@ -38,6 +43,23 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
 function resolveUnauthorizedReason(code?: string): UnauthorizedReason {
   if (code === "SESSION_REVOKED") return "SESSION_REVOKED";
   return "UNAUTHORIZED";
+}
+
+function notifyHttpError(
+  status: number,
+  errorBody: ApiErrorBody,
+  auth: boolean,
+  notifyUnauthorized: boolean
+) {
+  if (status === 401 && auth && notifyUnauthorized && !env.useMock) {
+    const reason = resolveUnauthorizedReason(errorBody.code);
+    onUnauthorized?.(reason, errorBody.message);
+    return;
+  }
+
+  if (status === 403 && !env.useMock) {
+    onForbidden?.(errorBody.message || "No tienes permiso para esta acción");
+  }
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -69,11 +91,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       // ignore invalid JSON
     }
 
-    if (response.status === 401 && auth && notifyUnauthorized && !env.useMock) {
-      const reason = resolveUnauthorizedReason(errorBody.code);
-      onUnauthorized?.(reason, errorBody.message);
-    }
-
+    notifyHttpError(response.status, errorBody, auth, notifyUnauthorized);
     throw new ApiError(response.status, errorBody);
   }
 
@@ -115,11 +133,7 @@ export async function apiUpload<T>(
       // ignore invalid JSON
     }
 
-    if (response.status === 401 && auth && notifyUnauthorized && !env.useMock) {
-      const reason = resolveUnauthorizedReason(errorBody.code);
-      onUnauthorized?.(reason, errorBody.message);
-    }
-
+    notifyHttpError(response.status, errorBody, auth, notifyUnauthorized);
     throw new ApiError(response.status, errorBody);
   }
 

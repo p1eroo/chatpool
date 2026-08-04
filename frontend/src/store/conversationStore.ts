@@ -23,6 +23,7 @@ import {
 } from "@/lib/conversationSort";
 import { isApiError } from "@/api/errors";
 import { conversationApiService } from "@/services/conversationApiService";
+import { contactApiService } from "@/services/contactApiService";
 import { useUIStore } from "@/store/uiStore";
 
 export type AssigneeFilter = "mine" | "unassigned" | "all";
@@ -95,7 +96,7 @@ interface ConversationState {
   toggleConversationLabel: (id: string, labelId: string) => Promise<boolean>;
   deleteConversation: (id: string) => void;
   deleteMessage: (conversationId: string, messageId: string) => void;
-  blockContact: (conversationId: string) => void;
+  blockContact: (conversationId: string) => Promise<boolean>;
   getFilteredConversations: () => Conversation[];
   getActiveConversation: () => Conversation | null;
   getActiveMessages: () => Message[];
@@ -1196,14 +1197,36 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
   },
 
-  blockContact: (conversationId) => {
+  blockContact: async (conversationId) => {
+    const conversation = get().conversations.find((c) => c.id === conversationId);
+    if (!conversation) return false;
+
+    const contactId = conversation.contact.id;
+    const previous = conversation.contact.isBlocked === true;
+
     set((state) => ({
       conversations: state.conversations.map((c) =>
-        c.id === conversationId
+        c.contact.id === contactId
           ? { ...c, contact: { ...c.contact, isBlocked: true } }
           : c
       ),
     }));
+
+    if (env.useMock) return true;
+
+    try {
+      await contactApiService.update(contactId, { isBlocked: true });
+      return true;
+    } catch {
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.contact.id === contactId
+            ? { ...c, contact: { ...c.contact, isBlocked: previous } }
+            : c
+        ),
+      }));
+      return false;
+    }
   },
 
   getFilteredConversations: () => {

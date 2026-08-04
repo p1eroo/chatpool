@@ -9,9 +9,11 @@ import {
   verifyMetaBodySchema,
 } from "../schemas/index.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
+import { requirePermission } from "../plugins/require-permission.plugin.js";
 
 export async function integrationRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authenticate);
+  app.addHook("preHandler", requirePermission("manageIntegrations"));
 
   app.get("/integrations/accounts", async (_request, reply) => {
     const accounts = await listIntegrationAccounts();

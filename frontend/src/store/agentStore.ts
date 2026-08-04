@@ -11,7 +11,7 @@ import { getInitials } from "@/lib/agentPermissions";
 import { normalizeAgentPhone } from "@/lib/agentPhone";
 import { agentApiService, PROTECTED_AGENT_USERNAME } from "@/services/agentApiService";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
-import { SYSTEM_ROLE_IDS } from "@/store/roleStore";
+import { SYSTEM_ROLE_IDS, useRoleStore } from "@/store/roleStore";
 import type { Agent } from "@/types";
 
 const STORAGE_KEY = "chatpool-agents";
@@ -29,6 +29,8 @@ type LegacyAgent = Agent & {
   password?: string;
 };
 
+type AgentProfileLike = Partial<Agent> & { id: string };
+
 function normalizeAgent(agent: LegacyAgent): Agent {
   const roleId =
     agent.roleId ??
@@ -44,6 +46,8 @@ function normalizeAgent(agent: LegacyAgent): Agent {
     avatar: agent.avatar,
     status: agent.status,
     roleId,
+    roleName: agent.roleName,
+    permissions: agent.permissions,
     active: agent.active ?? true,
   };
 }
@@ -219,8 +223,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           active: nextPatch.active,
           status: nextPatch.status,
         });
+        const role = useRoleStore.getState().getRoleById(updated.roleId);
+        const merged = {
+          ...updated,
+          roleName: role?.name ?? updated.roleName,
+          permissions: role?.permissions ?? updated.permissions,
+        };
         set({
-          agents: get().agents.map((agent) => (agent.id === id ? updated : agent)),
+          agents: get().agents.map((agent) => (agent.id === id ? merged : agent)),
         });
         return true;
       } catch {
@@ -280,6 +290,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   countByRoleId: (roleId) =>
     get().agents.filter((agent) => agent.roleId === roleId).length,
 }));
+
+/** Fusiona el perfil de /auth/me o login (incluye permissions) en el store. */
+export function mergeAgentProfile(profile: AgentProfileLike): void {
+  const { agents, setAgents } = useAgentStore.getState();
+  const existing = agents.find((agent) => agent.id === profile.id);
+
+  if (!existing) {
+    setAgents([...agents, normalizeAgent(profile as LegacyAgent)]);
+    return;
+  }
+
+  setAgents(
+    agents.map((agent) =>
+      agent.id === profile.id
+        ? normalizeAgent({ ...agent, ...profile })
+        : agent
+    )
+  );
+}
 
 export function getAgentDisplayPhone(agent: Agent): string {
   return agent.phone || "—";

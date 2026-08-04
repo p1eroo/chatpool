@@ -230,6 +230,7 @@ export function mapInboxSettings(settings: {
   provider: string;
   providerResource: string;
   webhookUrl: string | null;
+  webhookVerifyToken?: string | null;
   description: string | null;
   whatsappProvider: string | null;
   phoneNumberId: string | null;
@@ -243,6 +244,7 @@ export function mapInboxSettings(settings: {
     provider: settings.provider as InboxSettings["provider"],
     providerResource: settings.providerResource,
     webhookUrl: settings.webhookUrl ?? undefined,
+    webhookVerifyToken: settings.webhookVerifyToken ?? undefined,
     description: settings.description ?? undefined,
     whatsappProvider: (settings.whatsappProvider as InboxSettings["whatsappProvider"]) ?? undefined,
     phoneNumberId: settings.phoneNumberId ?? undefined,
