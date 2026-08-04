@@ -5,12 +5,13 @@ import { cn } from "@/lib/utils";
 interface CreateRoleModalProps {
   open: boolean;
   onClose: () => void;
-  onCreate: (name: string) => boolean;
+  onCreate: (name: string) => boolean | Promise<boolean>;
 }
 
 export function CreateRoleModal({ open, onClose, onCreate }: CreateRoleModalProps) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const reset = () => {
     setName("");
@@ -18,18 +19,26 @@ export function CreateRoleModal({ open, onClose, onCreate }: CreateRoleModalProp
   };
 
   const handleClose = () => {
+    if (submitting) return;
     reset();
     onClose();
   };
 
-  const handleSubmit = () => {
-    const ok = onCreate(name);
-    if (!ok) {
-      setError("Revisa el nombre o si el rol ya existe.");
-      return;
+  const handleSubmit = async () => {
+    if (!name.trim() || submitting) return;
+
+    setSubmitting(true);
+    try {
+      const ok = await onCreate(name.trim());
+      if (!ok) {
+        setError("Revisa el nombre o si el rol ya existe.");
+        return;
+      }
+      reset();
+      onClose();
+    } finally {
+      setSubmitting(false);
     }
-    reset();
-    onClose();
   };
 
   return (
@@ -49,16 +58,16 @@ export function CreateRoleModal({ open, onClose, onCreate }: CreateRoleModalProp
           </button>
           <button
             type="button"
-            onClick={handleSubmit}
-            disabled={!name.trim()}
+            onClick={() => void handleSubmit()}
+            disabled={!name.trim() || submitting}
             className={cn(
               "h-9 px-4 text-sm font-medium rounded-lg transition-colors",
-              name.trim()
+              name.trim() && !submitting
                 ? "bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)]"
                 : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] cursor-not-allowed"
             )}
           >
-            Crear rol
+            {submitting ? "Creando…" : "Crear rol"}
           </button>
         </div>
       }
