@@ -22,8 +22,7 @@ export function AppUpdateBanner() {
             Nueva versión disponible
           </p>
           <p className="mt-1 text-[13px] leading-snug text-[var(--color-text-secondary)]">
-            Chatpool se actualizó en el servidor. Recarga la aplicación para usar la última versión
-            y evitar errores con datos desactualizados.
+            Chatpool se actualizó. Recarga para usar la última versión y evitar errores.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
