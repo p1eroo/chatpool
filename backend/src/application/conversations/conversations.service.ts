@@ -37,6 +37,14 @@ import { nextMessageSortOrder } from "./message-sort-order.js";
 
 const conversationInclude = conversationRealtimeInclude;
 
+/** Asigna la conversación al agente que responde, si aún no tiene assignee. */
+function shouldAutoAssignOnReply(
+  assigneeId: string | null,
+  isPrivate: boolean | undefined
+): boolean {
+  return !isPrivate && !assigneeId;
+}
+
 async function resolveReplyTarget(conversationId: string, replyToMessageId?: string) {
   if (!replyToMessageId) return null;
 
@@ -237,9 +245,15 @@ export async function sendAgentMessage(
       include: messageInclude,
     });
 
+    const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, body.isPrivate);
+    const previousAssigneeId = conversation.assigneeId;
+
     const conversationForEmit = await prisma.conversation.update({
       where: { id: conversationId },
-      data: { lastMessageAt: createdAt },
+      data: {
+        lastMessageAt: createdAt,
+        ...(autoAssign ? { assigneeId: agentId } : {}),
+      },
       include: conversationInclude,
     });
 
@@ -248,7 +262,21 @@ export async function sendAgentMessage(
       conversation: conversationForEmit,
     });
 
-    return mapMessage(message);
+    return {
+      message: mapMessage(message),
+      autoAssign,
+      previousAssigneeId,
+    };
+  }).then(async (result) => {
+    if (result.autoAssign) {
+      await recordConversationAssigneeActivity({
+        conversationId,
+        previousAssigneeId: result.previousAssigneeId,
+        nextAssigneeId: agentId,
+        actorAgentId: agentId,
+      });
+    }
+    return result.message;
   });
 }
 
@@ -258,7 +286,7 @@ export async function sendAgentMessageWithFile(
   params: {
     content: string;
     isPrivate?: boolean;
-    contentType: "image" | "file" | "audio";
+    contentType: "image" | "file" | "audio" | "sticker";
     buffer: Buffer;
     originalName: string;
     mimeType: string;
@@ -408,9 +436,15 @@ export async function sendWhatsAppTemplate(
       include: messageInclude,
     });
 
+    const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, false);
+    const previousAssigneeId = conversation.assigneeId;
+
     const conversationForEmit = await prisma.conversation.update({
       where: { id: conversationId },
-      data: { lastMessageAt: createdAt },
+      data: {
+        lastMessageAt: createdAt,
+        ...(autoAssign ? { assigneeId: agentId } : {}),
+      },
       include: conversationInclude,
     });
 
@@ -419,7 +453,21 @@ export async function sendWhatsAppTemplate(
       conversation: conversationForEmit,
     });
 
-    return mapMessage(message);
+    return {
+      message: mapMessage(message),
+      autoAssign,
+      previousAssigneeId,
+    };
+  }).then(async (result) => {
+    if (result.autoAssign) {
+      await recordConversationAssigneeActivity({
+        conversationId,
+        previousAssigneeId: result.previousAssigneeId,
+        nextAssigneeId: agentId,
+        actorAgentId: agentId,
+      });
+    }
+    return result.message;
   });
 }
 

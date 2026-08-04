@@ -106,19 +106,7 @@ async function main() {
     where: { provider: { notIn: ["meta"] } },
   });
 
-  await prisma.cannedResponse.createMany({
-    data: [
-      {
-        title: "Saludo",
-        content: "¡Hola! Gracias por escribirnos. ¿En qué puedo ayudarte hoy?",
-      },
-      {
-        title: "Espera",
-        content: "Un momento por favor, estoy revisando tu solicitud.",
-      },
-    ],
-    skipDuplicates: true,
-  });
+  // Las respuestas predefinidas son por bandeja; se crean vacías al iniciar un buzón.
 
   console.log("Seed completado.");
   console.log("Superadmin: soporte");

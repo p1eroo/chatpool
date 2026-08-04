@@ -106,6 +106,16 @@ export async function deliverWhatsAppOutbound(params: {
       return { externalId, mediaExternalId };
     }
 
+    if (params.contentType === "sticker") {
+      const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
+        ...addressing,
+        context,
+        type: "sticker",
+        sticker: { id: mediaExternalId },
+      });
+      return { externalId, mediaExternalId };
+    }
+
     if (params.contentType === "audio") {
       const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
         ...addressing,

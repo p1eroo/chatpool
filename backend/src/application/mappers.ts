@@ -80,6 +80,8 @@ export function mapContact(contact: {
   name: string;
   email: string;
   phone: string | null;
+  city?: string | null;
+  company?: string | null;
   waId?: string | null;
   avatar: string | null;
   lastSeen: Date | null;
@@ -91,6 +93,8 @@ export function mapContact(contact: {
     name: contact.name,
     email: contact.email,
     phone: contact.phone ?? undefined,
+    city: contact.city ?? undefined,
+    company: contact.company ?? undefined,
     waId: contact.waId ?? undefined,
     avatar: contact.avatar ?? undefined,
     lastSeen: contact.lastSeen ?? undefined,
@@ -125,7 +129,12 @@ export function mapMessage(message: {
   const fileUrl = resolvePublicFileUrl(message.fileKey);
   const hasAttachment =
     message.contentType !== "text" &&
-    Boolean(message.fileKey || message.mediaExternalId || message.fileName);
+    Boolean(
+      message.fileKey ||
+        message.mediaExternalId ||
+        message.fileName ||
+        message.contentType === "sticker"
+    );
 
   return {
     id: message.id,

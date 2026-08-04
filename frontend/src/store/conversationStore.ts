@@ -24,6 +24,7 @@ import {
 import { isApiError } from "@/api/errors";
 import { conversationApiService } from "@/services/conversationApiService";
 import { contactApiService } from "@/services/contactApiService";
+import { stickerApiService } from "@/services/stickerApiService";
 import { useUIStore } from "@/store/uiStore";
 
 export type AssigneeFilter = "mine" | "unassigned" | "all";
@@ -61,6 +62,7 @@ interface ConversationState {
   applyRealtimeMessageUpdate: (message: Message, conversationId: string) => void;
   applyRealtimeConversation: (conversation: Conversation) => void;
   sendTemplateMessage: (conversationId: string, input: SendTemplateInput) => Promise<boolean>;
+  sendSavedSticker: (conversationId: string, stickerId: string) => Promise<boolean>;
   /** Solo selecciona el chat (panel + mensajes). Nunca marca leído. */
   selectConversation: (id: string | null) => void;
   /** Clic explícito del usuario: selecciona y marca leído si hay unread. */
@@ -402,6 +404,10 @@ function appendMessageToState(
   const appendedToEnd = updatedMessages[updatedMessages.length - 1]?.id === newMessage.id;
 
   const affectsSort = shouldMessageAffectConversationSort(newMessage);
+  const shouldAutoAssign =
+    !isPrivate &&
+    newMessage.senderType === "agent" &&
+    Boolean(newMessage.senderId);
 
   set((state) => ({
     messages: {
@@ -409,22 +415,28 @@ function appendMessageToState(
       [conversationId]: updatedMessages,
     },
     conversations: sortConversations(
-      state.conversations.map((c) =>
-        c.id === conversationId
-          ? {
-              ...c,
-              lastMessage: pickLatestPreviewMessage(
-                appendedToEnd ? newMessage : null,
-                c.lastMessage
-              ),
-              lastMessageAt:
-                affectsSort && appendedToEnd
-                  ? newMessage.createdAt
-                  : c.lastMessageAt,
-              updatedAt: new Date(),
-            }
-          : c
-      )
+      state.conversations.map((c) => {
+        if (c.id !== conversationId) return c;
+
+        const assignee =
+          shouldAutoAssign && !c.assignee && newMessage.senderId
+            ? useAgentStore.getState().getAgentById(newMessage.senderId) ?? c.assignee
+            : c.assignee;
+
+        return {
+          ...c,
+          assignee,
+          lastMessage: pickLatestPreviewMessage(
+            appendedToEnd ? newMessage : null,
+            c.lastMessage
+          ),
+          lastMessageAt:
+            affectsSort && appendedToEnd
+              ? newMessage.createdAt
+              : c.lastMessageAt,
+          updatedAt: new Date(),
+        };
+      })
     ),
   }));
 }
@@ -761,6 +773,26 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
   },
 
+  sendSavedSticker: async (conversationId, stickerId) => {
+    const conversation = get().conversations.find((item) => item.id === conversationId);
+    if (!conversation || conversation.channelType !== "whatsapp") return false;
+
+    try {
+      if (env.useMock) return false;
+      const replyToMessageId = useUIStore.getState().replyToMessage?.id;
+      const message = await stickerApiService.send(
+        conversationId,
+        stickerId,
+        replyToMessageId
+      );
+      appendMessageToState(set, get, conversationId, message, false);
+      useUIStore.getState().setReplyToMessage(null);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   selectConversation: (id) => {
     const agentId = getCurrentAgentId();
 
@@ -979,7 +1011,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
       if (
         uploadFile &&
-        (contentType === "image" || contentType === "file" || contentType === "audio")
+        (contentType === "image" ||
+          contentType === "file" ||
+          contentType === "audio" ||
+          contentType === "sticker")
       ) {
         void conversationApiService
           .sendMessageWithFile(

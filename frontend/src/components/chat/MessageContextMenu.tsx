@@ -3,13 +3,16 @@ import { createPortal } from "react-dom";
 import {
   CornerUpLeft,
   Copy,
+  SmilePlus,
   StickyNote,
   Trash2,
 } from "lucide-react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
+import { stickerApiService } from "@/services/stickerApiService";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
+import { ApiError } from "@/api/errors";
 
 interface MessageContextMenuProps {
   message: Message;
@@ -151,6 +154,29 @@ export function MessageContextMenu({
           })
         }
       />
+
+      {message.contentType === "sticker" && (
+        <MenuItem
+          icon={SmilePlus}
+          label="Guardar sticker"
+          onClick={() =>
+            runAction(() => {
+              void stickerApiService
+                .saveFromMessage(conversationId, message.id)
+                .then(() => showToast("Sticker guardado"))
+                .catch((error) => {
+                  const text =
+                    error instanceof ApiError
+                      ? error.message
+                      : error instanceof Error
+                        ? error.message
+                        : "No se pudo guardar el sticker";
+                  showToast(text);
+                });
+            })
+          }
+        />
+      )}
 
       <div className="my-1 h-px bg-[var(--color-border-primary)]" />
 

@@ -16,6 +16,8 @@ export type UpdateContactInput = {
   name?: string;
   phone?: string | null;
   email?: string;
+  city?: string | null;
+  company?: string | null;
   isBlocked?: boolean;
 };
 

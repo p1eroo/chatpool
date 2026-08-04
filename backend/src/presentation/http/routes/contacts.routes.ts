@@ -12,6 +12,8 @@ const updateContactSchema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().nullable().optional(),
   email: z.string().optional(),
+  city: z.string().nullable().optional(),
+  company: z.string().nullable().optional(),
   isBlocked: z.boolean().optional(),
 });
 

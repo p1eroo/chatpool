@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
 import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
 import { buildTemplatePreviewContent, templateNeedsParams } from "@/types/whatsappTemplate";
+import { WhatsAppFormattedText } from "@/lib/whatsappFormatting";
 
 interface WhatsAppTemplateParamFormProps {
   template: WhatsAppTemplate;
@@ -14,49 +14,6 @@ interface WhatsAppTemplateParamFormProps {
   onConfirm: () => void;
   confirmLabel?: string;
   busy?: boolean;
-}
-
-/** Formato básico de WhatsApp: *negrita*, _cursiva_, ~tachado~. */
-function renderWhatsAppFormatting(text: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  const regex = /(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    const inner = token.slice(1, -1);
-    if (token.startsWith("*")) {
-      parts.push(
-        <strong key={key++} className="font-semibold">
-          {inner}
-        </strong>
-      );
-    } else if (token.startsWith("_")) {
-      parts.push(
-        <em key={key++} className="italic">
-          {inner}
-        </em>
-      );
-    } else {
-      parts.push(
-        <span key={key++} className="line-through">
-          {inner}
-        </span>
-      );
-    }
-    lastIndex = match.index + token.length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts.length ? parts : [text];
 }
 
 export function WhatsAppTemplateParamForm({
@@ -106,14 +63,11 @@ export function WhatsAppTemplateParamForm({
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         <div className="rounded-2xl bg-[#005c4b]/25 border border-emerald-500/20 px-3.5 py-3">
           <p className="text-[11px] font-medium text-emerald-400/90 mb-2">WhatsApp</p>
-          <div className="text-sm text-[var(--color-text-primary)] whitespace-pre-wrap leading-relaxed break-words">
-            {preview.split("\n").map((line, index, arr) => (
-              <span key={index}>
-                {renderWhatsAppFormatting(line)}
-                {index < arr.length - 1 ? <br /> : null}
-              </span>
-            ))}
-          </div>
+          <WhatsAppFormattedText
+            as="div"
+            text={preview}
+            className="text-sm text-[var(--color-text-primary)] leading-relaxed"
+          />
           {!preview.trim() && (
             <p className="text-xs text-[var(--color-text-muted)] italic">Sin contenido de texto</p>
           )}

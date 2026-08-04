@@ -31,6 +31,8 @@ export interface Contact {
   name: string;
   email: string;
   phone?: string;
+  city?: string;
+  company?: string;
   /** Teléfono o BSUID/LID de Meta (clave interna WhatsApp). */
   waId?: string;
   avatar?: string;
@@ -55,7 +57,7 @@ export interface Message {
   isPrivate: boolean;
   attachedToMessageId?: string;
   replyTo?: MessageReply;
-  contentType: "text" | "image" | "file" | "audio";
+  contentType: "text" | "image" | "file" | "audio" | "sticker";
   fileName?: string;
   fileSize?: number;
   fileUrl?: string;
@@ -154,6 +156,15 @@ export interface SendMessageBody {
   fileKey?: string;
   mimeType?: string;
   replyToMessageId?: string;
+}
+
+export interface SavedSticker {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  fileUrl?: string;
+  createdAt: string;
 }
 
 export interface SendTemplateBody {

@@ -62,6 +62,7 @@ enum MessageContentType {
   image
   file
   audio
+  sticker
 }
 
 enum MessageStatus {
@@ -99,24 +100,42 @@ model Agent {
   inboxAgents           InboxAgent[]
   assignedConversations Conversation[] @relation("ConversationAssignee")
   messages              Message[]      @relation("AgentMessages")
+  savedStickers         SavedSticker[]
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
 
   @@map("agents")
 }
 
+model SavedSticker {
+  id              String   @id @default(cuid())
+  agentId         String   @map("agent_id")
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  fileKey         String   @map("file_key")
+  fileName        String   @map("file_name")
+  mimeType        String   @map("mime_type")
+  fileSize        Int      @map("file_size")
+  sourceMessageId String?  @map("source_message_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([agentId, sourceMessageId])
+  @@index([agentId, createdAt])
+  @@map("saved_stickers")
+}
+
 model Inbox {
-  id            String         @id @default(cuid())
-  name          String
-  channelType   ChannelType    @map("channel_type")
-  icon          String
-  settings      InboxSettings?
-  inboxAgents   InboxAgent[]
-  contacts      Contact[]
-  conversations Conversation[]
-  labels        Label[]
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
+  id              String           @id @default(cuid())
+  name            String
+  channelType     ChannelType      @map("channel_type")
+  icon            String
+  settings        InboxSettings?
+  inboxAgents     InboxAgent[]
+  contacts        Contact[]
+  conversations   Conversation[]
+  labels          Label[]
+  cannedResponses CannedResponse[]
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
 
   @@map("inboxes")
 }
@@ -171,6 +190,8 @@ model Contact {
   name          String
   email         String         @default("")
   phone         String?
+  city          String?
+  company       String?
   avatar        String?
   lastSeen      DateTime?      @map("last_seen")
   isBlocked     Boolean        @default(false) @map("is_blocked")
@@ -261,8 +282,11 @@ model ConversationLabel {
 
 model CannedResponse {
   id      String @id @default(cuid())
+  inboxId String @map("inbox_id")
+  inbox   Inbox  @relation(fields: [inboxId], references: [id], onDelete: Cascade)
   title   String
   content String
 
+  @@index([inboxId])
   @@map("canned_responses")
 }

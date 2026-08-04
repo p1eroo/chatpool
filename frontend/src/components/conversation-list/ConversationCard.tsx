@@ -1,6 +1,7 @@
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { cn, formatTime } from "@/lib/utils";
+import { stripWhatsAppFormatting } from "@/lib/whatsappFormatting";
 import type { Conversation } from "@/types";
 import {
   MessageCircle,
@@ -108,7 +109,9 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
                 )}
               >
                 {lastMessage
-                  ? (lastMessage.isPrivate ? "📝 Nota privada" : lastMessage.content)
+                  ? lastMessage.isPrivate
+                    ? "📝 Nota privada"
+                    : stripWhatsAppFormatting(lastMessage.content)
                   : "Sin mensajes"}
               </p>
             )}

@@ -93,6 +93,8 @@ export interface Contact {
   name: string;
   email: string;
   phone?: string;
+  city?: string;
+  company?: string;
   /** Teléfono o BSUID/LID de Meta. */
   waId?: string;
   avatar?: string;
@@ -117,7 +119,7 @@ export interface Message {
   isPrivate: boolean;
   attachedToMessageId?: string;
   replyTo?: MessageReply;
-  contentType: "text" | "image" | "file" | "audio";
+  contentType: "text" | "image" | "file" | "audio" | "sticker";
   audioUrl?: string;
   audioDuration?: number;
   fileName?: string;
@@ -130,6 +132,15 @@ export interface Message {
   status?: "sent" | "delivered" | "read" | "failed";
 }
 
+export interface SavedSticker {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  fileUrl?: string;
+  createdAt: string;
+}
+
 export interface Label {
   id: string;
   name: string;
@@ -139,6 +150,7 @@ export interface Label {
 
 export interface CannedResponse {
   id: string;
+  inboxId: string;
   title: string;
   content: string;
 }

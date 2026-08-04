@@ -12,10 +12,17 @@ import {
   toggleConversationLabel,
   updateConversation,
 } from "../../../application/conversations/conversations.service.js";
+import { startOutboundConversation } from "../../../application/conversations/start-outbound.service.js";
 import {
   attachmentResponseHeaders,
   resolveMessageAttachment,
 } from "../../../application/media/message-attachment.service.js";
+import {
+  deleteSavedSticker,
+  listSavedStickers,
+  saveStickerFromMessage,
+  sendSavedSticker,
+} from "../../../application/stickers/saved-stickers.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
 import { requirePermission } from "../plugins/require-permission.plugin.js";
 import { assertAgentPermission } from "../../../application/permissions/permissions.service.js";
@@ -23,7 +30,7 @@ import { assertAgentPermission } from "../../../application/permissions/permissi
 const sendMessageSchema = z.object({
   content: z.string().min(1),
   isPrivate: z.boolean().optional(),
-  contentType: z.enum(["text", "image", "file", "audio"]).optional(),
+  contentType: z.enum(["text", "image", "file", "audio", "sticker"]).optional(),
   replyToMessageId: z.string().optional(),
 });
 
@@ -44,13 +51,19 @@ const sendTemplateSchema = z.object({
     .optional(),
 });
 
+const startOutboundSchema = z.object({
+  inboxId: z.string().min(1),
+  phone: z.string().min(1),
+  name: z.string().optional(),
+});
+
 const updateConversationSchema = z.object({
   status: z.enum(["open", "resolved"]).optional(),
   assigneeId: z.string().nullable().optional(),
   unreadCount: z.number().int().min(0).optional(),
 });
 
-const attachmentContentTypeSchema = z.enum(["image", "file", "audio"]);
+const attachmentContentTypeSchema = z.enum(["image", "file", "audio", "sticker"]);
 
 export async function conversationsRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authenticate);
@@ -74,6 +87,23 @@ export async function conversationsRoutes(app: FastifyInstance) {
       })
     );
   });
+
+  app.post(
+    "/conversations/start",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const user = request.user as { sub: string };
+      const body = startOutboundSchema.parse(request.body);
+      return reply.status(201).send(
+        await startOutboundConversation({
+          agentId: user.sub,
+          inboxId: body.inboxId,
+          phone: body.phone,
+          name: body.name,
+        })
+      );
+    }
+  );
 
   app.get("/conversations/:id/messages", async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -126,7 +156,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     if (request.isMultipart()) {
       let content = "";
       let isPrivate = false;
-      let contentType: "image" | "file" | "audio" = "file";
+      let contentType: "image" | "file" | "audio" | "sticker" = "file";
       let replyToMessageId: string | undefined;
       let fileBuffer: Buffer | null = null;
       let fileName = "archivo";
@@ -178,6 +208,62 @@ export async function conversationsRoutes(app: FastifyInstance) {
       const user = request.user as { sub: string };
       const body = sendTemplateSchema.parse(request.body);
       return reply.status(201).send(await sendWhatsAppTemplate(id, user.sub, body));
+    }
+  );
+
+  app.get(
+    "/stickers",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const user = request.user as { sub: string };
+      return reply.send(await listSavedStickers(user.sub));
+    }
+  );
+
+  app.post(
+    "/conversations/:id/messages/:messageId/save-sticker",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { id, messageId } = request.params as { id: string; messageId: string };
+      const user = request.user as { sub: string };
+      return reply.status(201).send(
+        await saveStickerFromMessage({
+          agentId: user.sub,
+          conversationId: id,
+          messageId,
+        })
+      );
+    }
+  );
+
+  app.post(
+    "/conversations/:id/stickers/:stickerId/send",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { id, stickerId } = request.params as { id: string; stickerId: string };
+      const user = request.user as { sub: string };
+      const body = z
+        .object({ replyToMessageId: z.string().optional() })
+        .parse(request.body ?? {});
+      return reply.status(201).send(
+        await sendSavedSticker({
+          agentId: user.sub,
+          conversationId: id,
+          stickerId,
+          replyToMessageId: body.replyToMessageId,
+        })
+      );
+    }
+  );
+
+  app.delete(
+    "/stickers/:stickerId",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { stickerId } = request.params as { stickerId: string };
+      const user = request.user as { sub: string };
+      await deleteSavedSticker(user.sub, stickerId);
+      return reply.status(204).send();
     }
   );
 

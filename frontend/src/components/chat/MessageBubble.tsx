@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn, formatMessageTime } from "@/lib/utils";
+import { WhatsAppFormattedText } from "@/lib/whatsappFormatting";
 import type { Message, MessageReply } from "@/types";
 import { useUIStore } from "@/store/uiStore";
 import { Check, CheckCheck, Mic, MoreVertical, Pause, Play } from "lucide-react";
@@ -80,9 +81,10 @@ export function MessageBubble({
                 {formatMessageTime(message.createdAt)}
               </span>
             </div>
-            <p className="text-[13px] text-[var(--color-text-primary)] leading-relaxed">
-              {message.content}
-            </p>
+            <WhatsAppFormattedText
+              text={message.content}
+              className="text-[13px] text-[var(--color-text-primary)] leading-relaxed"
+            />
           </div>
         </div>
       </div>
@@ -117,14 +119,17 @@ export function MessageBubble({
             }}
             className={cn(
               "text-sm leading-relaxed min-w-0",
-              message.contentType === "file"
-                ? "p-1"
-                : message.contentType === "image"
-                  ? "p-1.5"
-                  : "px-3.5 py-2.5",
-              isAgent
-                ? "bg-[var(--color-bubble-out)] text-white rounded-2xl rounded-br-md"
-                : "bg-[var(--color-bubble-in)] text-[var(--color-text-primary)] rounded-2xl rounded-bl-md"
+              message.contentType === "sticker"
+                ? "p-0 bg-transparent"
+                : message.contentType === "file"
+                  ? "p-1"
+                  : message.contentType === "image"
+                    ? "p-1.5"
+                    : "px-3.5 py-2.5",
+              message.contentType !== "sticker" &&
+                (isAgent
+                  ? "bg-[var(--color-bubble-out)] text-white rounded-2xl rounded-br-md"
+                  : "bg-[var(--color-bubble-in)] text-[var(--color-text-primary)] rounded-2xl rounded-bl-md")
             )}
           >
             {message.replyTo && (
@@ -210,9 +215,29 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
           variant={isAgent ? "outgoing" : "incoming"}
         />
         {caption && (
-          <p className={cn("text-sm leading-relaxed px-0.5", isAgent ? "text-white" : "")}>
-            {caption}
-          </p>
+          <WhatsAppFormattedText
+            text={caption}
+            className={cn("text-sm leading-relaxed px-0.5", isAgent ? "text-white" : "")}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (message.contentType === "sticker") {
+    return (
+      <div className="select-none">
+        {message.fileUrl ? (
+          <img
+            src={message.fileUrl}
+            alt="Sticker"
+            className="w-[140px] h-[140px] object-contain drop-shadow-sm"
+            draggable={false}
+          />
+        ) : (
+          <div className="w-[140px] h-[140px] rounded-xl bg-[var(--color-bg-hover)] flex items-center justify-center text-xs text-[var(--color-text-muted)]">
+            Sticker
+          </div>
         )}
       </div>
     );
@@ -251,12 +276,16 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
             <span className="text-xs opacity-60">{fileName}</span>
           </div>
         )}
-        {caption && <p className="text-sm leading-relaxed">{caption}</p>}
+        {caption && (
+          <WhatsAppFormattedText text={caption} className="text-sm leading-relaxed" />
+        )}
       </div>
     );
   }
 
-  return <p>{message.content}</p>;
+  return (
+    <WhatsAppFormattedText text={message.content} className="leading-relaxed" />
+  );
 }
 
 function AudioMessageContent({ message, isAgent }: { message: Message; isAgent: boolean }) {
@@ -391,14 +420,13 @@ function QuotedReply({ reply, isAgent }: { reply: MessageReply; isAgent: boolean
       >
         {getReplyAuthorLabel(reply)}
       </p>
-      <p
+      <WhatsAppFormattedText
+        text={reply.content}
         className={cn(
           "text-xs leading-snug line-clamp-3",
           isAgent ? "text-white/70" : "text-[var(--color-text-secondary)]"
         )}
-      >
-        {reply.content}
-      </p>
+      />
     </button>
   );
 }

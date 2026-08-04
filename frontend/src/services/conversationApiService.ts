@@ -1,7 +1,7 @@
 import { apiRequest, apiUpload } from "@/api/client";
 import { parseConversation, parseMessage } from "@/lib/parseApiDates";
 import type { AssigneeFilter } from "@/store/conversationStore";
-import type { Conversation, Message } from "@/types";
+import type { Contact, Conversation, Message } from "@/types";
 
 export const conversationApiService = {
   async list(filters?: {
@@ -26,6 +26,34 @@ export const conversationApiService = {
   async getMessages(conversationId: string): Promise<Message[]> {
     const rows = await apiRequest<Message[]>(`/conversations/${conversationId}/messages`);
     return rows.map((row) => parseMessage(row as never));
+  },
+
+  async startOutbound(params: {
+    inboxId: string;
+    phone: string;
+    name?: string;
+  }): Promise<{ contact: Contact; conversation: Conversation; reopened: boolean }> {
+    const row = await apiRequest<{
+      contact: Contact;
+      conversation: Conversation;
+      reopened: boolean;
+    }>("/conversations/start", {
+      method: "POST",
+      body: params,
+    });
+
+    return {
+      contact: {
+        ...row.contact,
+        lastSeen: row.contact.lastSeen
+          ? row.contact.lastSeen instanceof Date
+            ? row.contact.lastSeen
+            : new Date(row.contact.lastSeen)
+          : undefined,
+      },
+      conversation: parseConversation(row.conversation as never),
+      reopened: row.reopened,
+    };
   },
 
   async markRead(conversationId: string, reason = "unknown"): Promise<void> {
@@ -61,7 +89,7 @@ export const conversationApiService = {
     file: File,
     content: string,
     isPrivate: boolean,
-    contentType: "image" | "file" | "audio",
+    contentType: "image" | "file" | "audio" | "sticker",
     replyToMessageId?: string
   ): Promise<Message> {
     const formData = new FormData();

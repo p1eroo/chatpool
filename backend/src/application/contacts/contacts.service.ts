@@ -42,6 +42,8 @@ export async function updateContact(
     name?: string;
     phone?: string | null;
     email?: string;
+    city?: string | null;
+    company?: string | null;
     isBlocked?: boolean;
   }
 ) {
@@ -52,6 +54,8 @@ export async function updateContact(
     name?: string;
     phone?: string | null;
     email?: string;
+    city?: string | null;
+    company?: string | null;
     isBlocked?: boolean;
   } = {};
 
@@ -68,6 +72,14 @@ export async function updateContact(
 
   if (input.email !== undefined) {
     data.email = input.email.trim();
+  }
+
+  if (input.city !== undefined) {
+    data.city = input.city?.trim() || null;
+  }
+
+  if (input.company !== undefined) {
+    data.company = input.company?.trim() || null;
   }
 
   if (input.isBlocked !== undefined) {

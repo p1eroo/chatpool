@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { Avatar, getAvatarColorClass, getAvatarInitials, isImageUrl } from "@/components/ui/Avatar";
@@ -6,14 +7,17 @@ import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { useAgentStore } from "@/store/agentStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useLabelStore } from "@/store/labelStore";
+import { useDeleteContact, useUpdateContact } from "@/hooks/useContacts";
+import { useHasPermission } from "@/hooks/useAgentPermissions";
 import {
   downloadMessageFile,
   getConversationFiles,
   getConversationImages,
 } from "@/lib/conversationAttachments";
 import { getFileTypeBadgeStyle, splitFileName } from "@/lib/fileUtils";
+import { APP_PHONE_PREFIX } from "@/lib/locale";
 import { cn, formatFileSize } from "@/lib/utils";
-import type { Message } from "@/types";
+import type { Contact, Message } from "@/types";
 import {
   PanelRightClose,
   Phone,
@@ -22,8 +26,19 @@ import {
   X,
   Check,
   ChevronDown,
+  Pencil,
+  Trash2,
+  Ban,
 } from "lucide-react";
 import type { Conversation, ConversationStatus } from "@/types";
+
+function splitName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/);
+  return {
+    firstName: parts[0] || "",
+    lastName: parts.slice(1).join(" "),
+  };
+}
 
 const EMPTY_MESSAGES: Message[] = [];
 
@@ -49,7 +64,11 @@ export function ContactDetails() {
     () => conversations.find((c) => c.id === activeConversationId) || null,
     [conversations, activeConversationId]
   );
-  const { contactSidebarOpen, setContactSidebarOpen } = useUIStore();
+  const { contactSidebarOpen, setContactSidebarOpen, showToast } = useUIStore();
+  const canDelete = useHasPermission("deleteConversations");
+  const deleteContact = useDeleteContact();
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   if (!contactSidebarOpen) {
     return (
@@ -84,15 +103,44 @@ export function ContactDetails() {
     );
   }
 
+  const handleDelete = async () => {
+    try {
+      await deleteContact.mutateAsync(conversation.contact.id);
+      showToast("Contacto eliminado");
+      setDeleteConfirmOpen(false);
+      setEditOpen(false);
+      setContactSidebarOpen(false);
+    } catch {
+      showToast("No se pudo eliminar el contacto");
+    }
+  };
+
   return (
     <aside className="w-[340px] bg-[var(--color-bg-secondary)] border-l border-[var(--color-border-primary)] flex flex-col shrink-0 h-screen overflow-y-auto animate-slide-in-right">
       <ContactHero
         conversation={conversation}
         onClose={() => setContactSidebarOpen(false)}
+        onEdit={() => setEditOpen(true)}
+        onDelete={() => setDeleteConfirmOpen(true)}
+        canDelete={canDelete}
       />
       <ContactSummary conversation={conversation} />
       <MediaSection conversationId={conversation.id} />
       <FilesSection conversationId={conversation.id} />
+      {editOpen && (
+        <EditContactDrawer
+          contact={conversation.contact}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
+      {deleteConfirmOpen && (
+        <DeleteContactDialog
+          contactName={conversation.contact.name}
+          busy={deleteContact.isPending}
+          onCancel={() => setDeleteConfirmOpen(false)}
+          onConfirm={() => void handleDelete()}
+        />
+      )}
     </aside>
   );
 }
@@ -100,9 +148,15 @@ export function ContactDetails() {
 function ContactHero({
   conversation,
   onClose,
+  onEdit,
+  onDelete,
+  canDelete,
 }: {
   conversation: Conversation;
   onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  canDelete: boolean;
 }) {
   const { contact } = conversation;
   const photoUrl = isImageUrl(contact.avatar) ? contact.avatar : null;
@@ -131,13 +185,34 @@ function ContactHero({
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/10" />
 
-      <button
-        onClick={onClose}
-        className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-black/35 text-white hover:bg-black/50 transition-colors backdrop-blur-sm"
-        title="Cerrar panel"
-      >
-        <X className="w-4 h-4" />
-      </button>
+      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-black/35 text-white hover:bg-black/50 transition-colors backdrop-blur-sm"
+          title="Editar contacto"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-black/35 text-white hover:bg-red-500/70 transition-colors backdrop-blur-sm"
+            title="Eliminar contacto"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-black/35 text-white hover:bg-black/50 transition-colors backdrop-blur-sm"
+          title="Cerrar panel"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
       <div className="absolute bottom-0 left-0 right-0 p-4">
         <h3 className="text-lg font-semibold text-white mb-1">{contact.name}</h3>
@@ -161,6 +236,293 @@ function ContactHero({
         </div>
       </div>
     </div>
+  );
+}
+
+function EditContactDrawer({
+  contact,
+  onClose,
+}: {
+  contact: Contact;
+  onClose: () => void;
+}) {
+  const showToast = useUIStore((s) => s.showToast);
+  const updateContact = useUpdateContact();
+  const { firstName, lastName } = splitName(contact.name);
+  const [form, setForm] = useState({
+    firstName,
+    lastName,
+    phone: contact.phone || "",
+    city: contact.city || "",
+    company: contact.company || "",
+  });
+
+  useEffect(() => {
+    const split = splitName(contact.name);
+    setForm({
+      firstName: split.firstName,
+      lastName: split.lastName,
+      phone: contact.phone || "",
+      city: contact.city || "",
+      company: contact.company || "",
+    });
+  }, [contact.id, contact.name, contact.phone, contact.city, contact.company]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const fullName = [form.firstName.trim(), form.lastName.trim()].filter(Boolean).join(" ");
+  const busy = updateContact.isPending;
+
+  const handleSave = async () => {
+    if (!fullName) {
+      showToast("El nombre es obligatorio");
+      return;
+    }
+    try {
+      await updateContact.mutateAsync({
+        contactId: contact.id,
+        patch: {
+          name: fullName,
+          phone: form.phone.trim() || null,
+          city: form.city.trim() || null,
+          company: form.company.trim() || null,
+        },
+      });
+      showToast("Contacto actualizado");
+      onClose();
+    } catch {
+      showToast("No se pudo actualizar el contacto");
+    }
+  };
+
+  const handleToggleBlock = async () => {
+    const nextBlocked = !contact.isBlocked;
+    try {
+      await updateContact.mutateAsync({
+        contactId: contact.id,
+        patch: { isBlocked: nextBlocked },
+      });
+      showToast(nextBlocked ? "Contacto bloqueado" : "Contacto desbloqueado");
+    } catch {
+      showToast("No se pudo cambiar el bloqueo del contacto");
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex justify-end">
+      <button
+        type="button"
+        aria-label="Cerrar"
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+      />
+      <div className="relative w-full max-w-[400px] h-full bg-[var(--color-bg-secondary)] border-l border-[var(--color-border-primary)] shadow-xl flex flex-col animate-slide-in-right">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-primary)] shrink-0">
+          <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+            Editar contacto
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5">
+          <div className="flex items-center gap-3">
+            <Avatar name={contact.name} size="lg" className="rounded-xl" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                {contact.name}
+              </p>
+              {contact.isBlocked && (
+                <span className="text-[10px] font-medium text-red-400">Bloqueado</span>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <ContactField
+                label="Nombre"
+                value={form.firstName}
+                onChange={(v) => setForm((f) => ({ ...f, firstName: v }))}
+                placeholder="Nombre"
+              />
+              <ContactField
+                label="Apellido"
+                value={form.lastName}
+                onChange={(v) => setForm((f) => ({ ...f, lastName: v }))}
+                placeholder="Apellido"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-[var(--color-text-muted)] mb-1.5">
+                Teléfono
+              </label>
+              <div className="flex gap-2">
+                <div className="flex items-center gap-1.5 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg px-2.5 shrink-0">
+                  <span className="text-xs text-[var(--color-text-secondary)]">
+                    {APP_PHONE_PREFIX}
+                  </span>
+                </div>
+                <input
+                  value={form.phone}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="Número"
+                  className="flex-1 h-9 px-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-brand)]"
+                />
+              </div>
+            </div>
+
+            <ContactField
+              label="Ciudad"
+              value={form.city}
+              onChange={(v) => setForm((f) => ({ ...f, city: v }))}
+              placeholder="Introduzca el nombre de la ciudad"
+            />
+            <ContactField
+              label="Empresa"
+              value={form.company}
+              onChange={(v) => setForm((f) => ({ ...f, company: v }))}
+              placeholder="Escriba el nombre de la empresa"
+            />
+          </div>
+
+          <div className="pt-2 border-t border-[var(--color-border-primary)]">
+            <p className="text-xs text-[var(--color-text-muted)] mb-3">
+              {contact.isBlocked
+                ? "Vuelve a permitir mensajes con este contacto."
+                : "Impide mensajes entrantes y salientes con este contacto."}
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleToggleBlock()}
+              disabled={busy}
+              className={cn(
+                "h-9 px-3 text-sm font-medium rounded-lg border transition-colors flex items-center gap-1.5 disabled:opacity-60",
+                contact.isBlocked
+                  ? "border-[var(--color-brand)] text-[var(--color-brand)] hover:bg-[var(--color-brand)]/10"
+                  : "border-[var(--color-border-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+              )}
+            >
+              <Ban className="w-4 h-4" />
+              {contact.isBlocked ? "Desbloquear" : "Bloquear"}
+            </button>
+          </div>
+        </div>
+
+        <div className="shrink-0 px-4 py-3 border-t border-[var(--color-border-primary)] flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="h-9 px-3 text-sm rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={busy || !fullName}
+            className="h-9 px-4 text-sm font-medium rounded-lg bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)] transition-colors disabled:opacity-60"
+          >
+            {busy ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ContactField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs text-[var(--color-text-muted)] mb-1.5">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full h-9 px-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-brand)]"
+      />
+    </div>
+  );
+}
+
+function DeleteContactDialog({
+  contactName,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  contactName: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Cerrar"
+        className="absolute inset-0 bg-black/50"
+        onClick={busy ? undefined : onCancel}
+      />
+      <div className="relative w-full max-w-sm rounded-xl bg-[var(--color-bg-secondary)] border border-[var(--color-border-primary)] shadow-xl p-5 space-y-4">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--color-text-primary)]">
+            Eliminar contacto
+          </h3>
+          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+            Se eliminará permanentemente{" "}
+            <span className="font-medium text-[var(--color-text-primary)]">{contactName}</span>{" "}
+            y sus conversaciones. Esta acción no se puede deshacer.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="h-9 px-3 text-sm rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="h-9 px-4 text-sm font-medium rounded-lg bg-[var(--color-danger)] text-white hover:opacity-90 transition-opacity disabled:opacity-60"
+          >
+            {busy ? "Eliminando…" : "Eliminar"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 

@@ -78,9 +78,8 @@ export function parseIncomingMetaMedia(
         mediaId: media.id,
       };
     }
-    case "image":
-    case "sticker": {
-      const media = payload.image ?? payload.sticker;
+    case "image": {
+      const media = payload.image;
       if (!media?.id) return null;
       const fileName = defaultFileName("image", media.mime_type ?? "image/jpeg", messageId);
       return {
@@ -88,6 +87,19 @@ export function parseIncomingMetaMedia(
         content: media.caption?.trim() || fileName,
         fileName,
         mimeType: media.mime_type ?? "image/jpeg",
+        mediaId: media.id,
+      };
+    }
+    case "sticker": {
+      const media = payload.sticker;
+      if (!media?.id) return null;
+      const mimeType = media.mime_type ?? "image/webp";
+      const fileName = defaultFileName("sticker", mimeType, messageId);
+      return {
+        contentType: "sticker",
+        content: "Sticker",
+        fileName,
+        mimeType,
         mediaId: media.id,
       };
     }

@@ -1,4 +1,5 @@
 import { formatVoiceTime } from "@/hooks/useVoiceRecorder";
+import { stripWhatsAppFormatting } from "@/lib/whatsappFormatting";
 import type { Message } from "@/types";
 
 export function getContactMessagePreview(message: Message): string {
@@ -12,10 +13,12 @@ export function getContactMessagePreview(message: Message): string {
       }
       return "Nota de voz";
     case "image":
-      return text || "Imagen";
+      return text ? stripWhatsAppFormatting(text) : "Imagen";
+    case "sticker":
+      return "Sticker";
     case "file":
-      return message.fileName?.trim() || text || "Archivo";
+      return message.fileName?.trim() || (text ? stripWhatsAppFormatting(text) : "Archivo");
     default:
-      return text || "Mensaje";
+      return text ? stripWhatsAppFormatting(text) : "Mensaje";
   }
 }

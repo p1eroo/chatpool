@@ -436,21 +436,25 @@ export type { CannedResponse };
 export const cannedResponses: CannedResponse[] = [
   {
     id: "cr-1",
+    inboxId: "inbox-1",
     title: "Saludo",
     content: "¡Hola! Gracias por escribirnos. ¿En qué puedo ayudarte hoy?",
   },
   {
     id: "cr-2",
+    inboxId: "inbox-1",
     title: "Espera",
     content: "Un momento por favor, estoy revisando tu solicitud.",
   },
   {
     id: "cr-3",
+    inboxId: "inbox-1",
     title: "Pedido",
     content: "Ya revisé tu pedido en el sistema. Te comparto el estado en breve.",
   },
   {
     id: "cr-4",
+    inboxId: "inbox-1",
     title: "Despedida",
     content: "Gracias por contactarnos. Quedamos atentos si necesitas algo más.",
   },
