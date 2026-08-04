@@ -48,6 +48,7 @@ export async function buildApp() {
 
   registerErrorHandler(app);
 
+  app.get("/", async () => ({ status: "ok", service: "Chatpool API" }));
   app.get("/health", async () => ({ status: "ok", service: "chatpool-api" }));
 
   await app.register(authRoutes);
