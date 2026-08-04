@@ -6,7 +6,7 @@ import {
   splitFileName,
   usesPaperclipIcon,
 } from "@/lib/fileUtils";
-import { downloadMessageAttachment } from "@/lib/messageAttachments";
+import { downloadFile } from "@/lib/messageAttachments";
 import { useUIStore } from "@/store/uiStore";
 
 interface FileAttachmentCardProps {
@@ -35,20 +35,10 @@ export function FileAttachmentCard({
   const showToast = useUIStore((s) => s.showToast);
 
   const handleDownload = async () => {
-    if (fileUrl) {
-      const link = document.createElement("a");
-      link.href = fileUrl;
-      link.download = fileName;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.click();
-      return;
-    }
-
-    if (!attachmentUrl) return;
+    if (!fileUrl && !attachmentUrl) return;
 
     try {
-      await downloadMessageAttachment({ attachmentUrl, fileName });
+      await downloadFile({ fileName, attachmentUrl, fileUrl });
     } catch (error) {
       const message =
         error instanceof Error && error.message

@@ -526,6 +526,7 @@ function FilesSection({ conversationId }: { conversationId: string }) {
 }
 
 function FileRow({ message }: { message: Message }) {
+  const showToast = useUIStore((s) => s.showToast);
   const fileName = message.fileName || message.content || "Archivo";
   const { extension } = splitFileName(fileName);
   const badge = getFileTypeBadgeStyle(extension, false);
@@ -557,7 +558,15 @@ function FileRow({ message }: { message: Message }) {
       <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
-          onClick={() => downloadMessageFile(message)}
+          onClick={() => {
+            void downloadMessageFile(message).catch((error) => {
+              showToast(
+                error instanceof Error && error.message
+                  ? error.message
+                  : "No se pudo descargar el archivo"
+              );
+            });
+          }}
           className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
           title="Descargar"
         >

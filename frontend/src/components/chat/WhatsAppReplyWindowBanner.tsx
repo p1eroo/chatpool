@@ -8,10 +8,7 @@ import { cn } from "@/lib/utils";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
-import {
-  buildTemplatePreviewContent,
-  templateNeedsParams,
-} from "@/types/whatsappTemplate";
+import { buildTemplatePreviewContent } from "@/types/whatsappTemplate";
 
 interface WhatsAppReplyWindowBannerProps {
   conversationId: string;
@@ -88,20 +85,6 @@ export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindo
   };
 
   const handleSelectTemplate = (template: WhatsAppTemplate) => {
-    if (!template.supported) {
-      showToast(template.unsupportedReason ?? "Plantilla no soportada");
-      return;
-    }
-
-    if (!templateNeedsParams(template)) {
-      void sendTemplate(template, {
-        bodyParameters: [],
-        headerParameters: [],
-        buttonUrlParameters: {},
-      });
-      return;
-    }
-
     setDraftTemplate(template);
     setBodyParameters(Array.from({ length: template.bodyParamCount }, () => ""));
     setHeaderParameters(Array.from({ length: template.headerParamCount }, () => ""));
@@ -151,11 +134,13 @@ export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindo
 
         {pickerOpen && (
           <div className="absolute bottom-full left-3 right-3 mb-2 z-30 bg-[var(--color-bg-secondary)] border border-[var(--color-border-primary)] rounded-xl shadow-xl overflow-hidden animate-fade-in">
-            <div className="px-4 py-2.5 border-b border-[var(--color-border-primary)]">
-              <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
-                Plantillas de WhatsApp
-              </p>
-            </div>
+            {!draftTemplate && (
+              <div className="px-4 py-2.5 border-b border-[var(--color-border-primary)]">
+                <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
+                  Plantillas de WhatsApp
+                </p>
+              </div>
+            )}
 
             {draftTemplate ? (
               <WhatsAppTemplateParamForm
@@ -180,7 +165,7 @@ export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindo
                     buttonUrlParameters,
                   })
                 }
-                confirmLabel={sending ? "Enviando…" : "Enviar plantilla"}
+                confirmLabel={sending ? "Enviando…" : "Enviar"}
                 busy={sending}
               />
             ) : (

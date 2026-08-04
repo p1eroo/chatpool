@@ -13,10 +13,7 @@ import { useWhatsAppTemplates } from "@/hooks/useWhatsAppTemplates";
 import { voiceFileFromBlob } from "@/lib/voiceRecording";
 import { formatVoiceTime, type VoiceRecordingResult } from "@/hooks/useVoiceRecorder";
 import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
-import {
-  buildTemplatePreviewContent,
-  templateNeedsParams,
-} from "@/types/whatsappTemplate";
+import { buildTemplatePreviewContent } from "@/types/whatsappTemplate";
 import {
   Smile,
   Paperclip,
@@ -63,10 +60,6 @@ export function ChatComposer() {
   const [content, setContent] = useState("");
   const [activePopover, setActivePopover] = useState<PopoverId>(null);
   const [templateSearch, setTemplateSearch] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState<WhatsAppTemplate | null>(null);
-  const [bodyParameters, setBodyParameters] = useState<string[]>([]);
-  const [headerParameters, setHeaderParameters] = useState<string[]>([]);
-  const [buttonUrlParameters, setButtonUrlParameters] = useState<Record<number, string>>({});
   const [draftTemplate, setDraftTemplate] = useState<WhatsAppTemplate | null>(null);
   const [draftBodyParameters, setDraftBodyParameters] = useState<string[]>([]);
   const [draftHeaderParameters, setDraftHeaderParameters] = useState<string[]>([]);
@@ -84,8 +77,6 @@ export function ChatComposer() {
 
   pendingAttachmentRef.current = pendingAttachment;
 
-  const isTemplateLocked = selectedTemplate !== null;
-
   useEffect(() => {
     if (replyToMessage || noteAboutMessage) {
       textareaRef.current?.focus();
@@ -96,10 +87,6 @@ export function ChatComposer() {
     setReplyToMessage(null);
     setNoteAboutMessage(null);
     setContent("");
-    setSelectedTemplate(null);
-    setBodyParameters([]);
-    setHeaderParameters([]);
-    setButtonUrlParameters({});
     setDraftTemplate(null);
     setTemplateSearch("");
     setActivePopover(null);
@@ -132,7 +119,6 @@ export function ChatComposer() {
     (file: File) => {
       if (!activeConversationId) return false;
       if (noteAboutMessage) return false;
-      if (isTemplateLocked) return false;
       if (!isAcceptedAttachmentFile(file)) return false;
 
       setPendingAttachment((prev) => {
@@ -143,7 +129,7 @@ export function ChatComposer() {
       textareaRef.current?.focus();
       return true;
     },
-    [activeConversationId, noteAboutMessage, isTemplateLocked]
+    [activeConversationId, noteAboutMessage]
   );
 
   const handlePaste = useCallback(
@@ -157,15 +143,11 @@ export function ChatComposer() {
         showToast("No puedes adjuntar archivos en una nota privada");
         return;
       }
-      if (isTemplateLocked) {
-        showToast("No puedes adjuntar archivos con una plantilla seleccionada");
-        return;
-      }
       if (!stageFile(file)) {
         showToast("Tipo de archivo no soportado");
       }
     },
-    [noteAboutMessage, isTemplateLocked, stageFile, showToast]
+    [noteAboutMessage, stageFile, showToast]
   );
 
   useEffect(() => {
@@ -205,62 +187,8 @@ export function ChatComposer() {
     });
   }, []);
 
-  const clearTemplate = useCallback(() => {
-    setSelectedTemplate(null);
-    setBodyParameters([]);
-    setHeaderParameters([]);
-    setButtonUrlParameters({});
-    setContent("");
-  }, []);
-
   const handleSend = useCallback(() => {
     if (!activeConversationId || sendingTemplate) return;
-
-    if (selectedTemplate) {
-      const paramsReady =
-        bodyParameters.every((value) => value.trim()) &&
-        headerParameters.every((value) => value.trim()) &&
-        selectedTemplate.buttonUrlParamIndexes.every((index) =>
-          buttonUrlParameters[index]?.trim()
-        );
-
-      if (!paramsReady) {
-        showToast("Completa todas las variables de la plantilla");
-        return;
-      }
-
-      const preview = buildTemplatePreviewContent(
-        selectedTemplate,
-        bodyParameters,
-        headerParameters
-      );
-
-      setSendingTemplate(true);
-      void sendTemplateMessage(activeConversationId, {
-        templateId: selectedTemplate.id,
-        templateName: selectedTemplate.name,
-        language: selectedTemplate.language,
-        content: preview,
-        bodyParameters,
-        headerParameters,
-        buttonUrlParameters: selectedTemplate.buttonUrlParamIndexes.map((index) => ({
-          index,
-          text: buttonUrlParameters[index] ?? "",
-        })),
-      })
-        .then((ok) => {
-          if (!ok) {
-            showToast("Meta rechazó la plantilla");
-            return;
-          }
-          clearTemplate();
-          setReplyToMessage(null);
-          setNoteAboutMessage(null);
-          showToast("Plantilla enviada correctamente");
-        })
-        .finally(() => setSendingTemplate(false));
-      return;
-    }
 
     const caption = content.trim();
     const attachment = pendingAttachment;
@@ -306,20 +234,60 @@ export function ChatComposer() {
     replyToMessage,
     pendingAttachment,
     sendMessage,
-    sendTemplateMessage,
-    selectedTemplate,
-    bodyParameters,
-    headerParameters,
-    buttonUrlParameters,
     sendingTemplate,
-    clearTemplate,
+    setReplyToMessage,
+    setNoteAboutMessage,
+  ]);
+
+  const sendDraftTemplate = useCallback(() => {
+    if (!activeConversationId || !draftTemplate || sendingTemplate) return;
+
+    const preview = buildTemplatePreviewContent(
+      draftTemplate,
+      draftBodyParameters,
+      draftHeaderParameters
+    );
+
+    setSendingTemplate(true);
+    void sendTemplateMessage(activeConversationId, {
+      templateId: draftTemplate.id,
+      templateName: draftTemplate.name,
+      language: draftTemplate.language,
+      content: preview,
+      bodyParameters: draftBodyParameters,
+      headerParameters: draftHeaderParameters,
+      buttonUrlParameters: draftTemplate.buttonUrlParamIndexes.map((index) => ({
+        index,
+        text: draftButtonUrlParameters[index] ?? "",
+      })),
+    })
+      .then((ok) => {
+        if (!ok) {
+          showToast("Meta rechazó la plantilla");
+          return;
+        }
+        setDraftTemplate(null);
+        setActivePopover(null);
+        setReplyToMessage(null);
+        setNoteAboutMessage(null);
+        showToast("Plantilla enviada correctamente");
+      })
+      .finally(() => setSendingTemplate(false));
+  }, [
+    activeConversationId,
+    draftTemplate,
+    draftBodyParameters,
+    draftHeaderParameters,
+    draftButtonUrlParameters,
+    sendingTemplate,
+    sendTemplateMessage,
     showToast,
     setReplyToMessage,
     setNoteAboutMessage,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey && !isTemplateLocked) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
@@ -351,7 +319,7 @@ export function ChatComposer() {
   );
 
   const startRecording = () => {
-    if (isTemplateLocked || !activeConversationId) return;
+    if (!activeConversationId) return;
     setActivePopover(null);
     setIsRecording(true);
   };
@@ -374,66 +342,19 @@ export function ChatComposer() {
     });
   };
 
-  const templateParamsReady =
-    !selectedTemplate ||
-    (bodyParameters.every((value) => value.trim()) &&
-      headerParameters.every((value) => value.trim()) &&
-      selectedTemplate.buttonUrlParamIndexes.every((index) => buttonUrlParameters[index]?.trim()));
-
-  const canSend =
-    !sendingTemplate &&
-    (selectedTemplate
-      ? templateParamsReady
-      : Boolean(content.trim() || pendingAttachment));
+  const canSend = !sendingTemplate && Boolean(content.trim() || pendingAttachment);
 
   const togglePopover = (id: PopoverId) => {
     setActivePopover((prev) => (prev === id ? null : id));
   };
 
   const applyCannedResponse = (text: string) => {
-    if (isTemplateLocked) return;
     setContent(text);
     setActivePopover(null);
     textareaRef.current?.focus();
   };
 
-  const applyTemplateSelection = (template: WhatsAppTemplate) => {
-    if (!template.supported) {
-      showToast(template.unsupportedReason ?? "Plantilla no soportada");
-      return;
-    }
-
-    const body = Array.from({ length: template.bodyParamCount }, () => "");
-    const header = Array.from({ length: template.headerParamCount }, () => "");
-    const buttons = Object.fromEntries(
-      template.buttonUrlParamIndexes.map((index) => [index, ""])
-    );
-
-    setSelectedTemplate(template);
-    setBodyParameters(body);
-    setHeaderParameters(header);
-    setButtonUrlParameters(buttons);
-    setContent(buildTemplatePreviewContent(template, body, header));
-    setDraftTemplate(null);
-    setActivePopover(null);
-    setPendingAttachment((prev) => {
-      if (prev?.url) URL.revokeObjectURL(prev.url);
-      return null;
-    });
-    textareaRef.current?.focus();
-  };
-
   const handlePickTemplate = (template: WhatsAppTemplate) => {
-    if (!template.supported) {
-      showToast(template.unsupportedReason ?? "Plantilla no soportada");
-      return;
-    }
-
-    if (!templateNeedsParams(template)) {
-      applyTemplateSelection(template);
-      return;
-    }
-
     setDraftTemplate(template);
     setDraftBodyParameters(Array.from({ length: template.bodyParamCount }, () => ""));
     setDraftHeaderParameters(Array.from({ length: template.headerParamCount }, () => ""));
@@ -504,86 +425,6 @@ export function ChatComposer() {
         </div>
       )}
 
-      {isTemplateLocked && selectedTemplate && (
-        <div className="mb-2 space-y-2">
-          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)]">
-            <MessageSquare className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="text-xs font-medium text-[var(--color-text-primary)] flex-1 truncate">
-              Plantilla: {selectedTemplate.name}
-              <span className="text-[var(--color-text-muted)] font-normal">
-                {" "}
-                · {selectedTemplate.language}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={clearTemplate}
-              className="w-6 h-6 flex items-center justify-center rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-              title="Quitar plantilla"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {templateNeedsParams(selectedTemplate) && (
-            <div className="space-y-2 px-1">
-              {selectedTemplate.headerParamCount > 0 &&
-                Array.from({ length: selectedTemplate.headerParamCount }, (_, index) => (
-                  <input
-                    key={`composer-header-${index}`}
-                    type="text"
-                    value={headerParameters[index] ?? ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setHeaderParameters((prev) => {
-                        const next = prev.map((item, i) => (i === index ? value : item));
-                        setContent(
-                          buildTemplatePreviewContent(selectedTemplate, bodyParameters, next)
-                        );
-                        return next;
-                      });
-                    }}
-                    placeholder={`Encabezado {{${index + 1}}}`}
-                    className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                  />
-                ))}
-              {selectedTemplate.bodyParamCount > 0 &&
-                Array.from({ length: selectedTemplate.bodyParamCount }, (_, index) => (
-                  <input
-                    key={`composer-body-${index}`}
-                    type="text"
-                    value={bodyParameters[index] ?? ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setBodyParameters((prev) => {
-                        const next = prev.map((item, i) => (i === index ? value : item));
-                        setContent(
-                          buildTemplatePreviewContent(selectedTemplate, next, headerParameters)
-                        );
-                        return next;
-                      });
-                    }}
-                    placeholder={`Variable {{${index + 1}}}`}
-                    className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                  />
-                ))}
-              {selectedTemplate.buttonUrlParamIndexes.map((index) => (
-                <input
-                  key={`composer-button-${index}`}
-                  type="text"
-                  value={buttonUrlParameters[index] ?? ""}
-                  onChange={(e) =>
-                    setButtonUrlParameters((prev) => ({ ...prev, [index]: e.target.value }))
-                  }
-                  placeholder={`Botón URL #${index + 1}`}
-                  className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {pendingAttachment && !isRecording && (
         <div className="mb-2 px-1">
           {pendingAttachment.file.type.startsWith("image/") ? (
@@ -624,7 +465,7 @@ export function ChatComposer() {
           <div className="flex items-center gap-0.5 pl-1 pb-1.5 shrink-0 relative">
             <ToolbarButton
               title="Emoji"
-              disabled={isTemplateLocked}
+              disabled={sendingTemplate}
               active={activePopover === "emoji"}
               onClick={() => togglePopover("emoji")}
             >
@@ -633,7 +474,7 @@ export function ChatComposer() {
 
             <ToolbarButton
               title="Adjuntar archivo"
-              disabled={toolbarDisabled || isTemplateLocked}
+              disabled={toolbarDisabled || sendingTemplate}
               onClick={() => fileInputRef.current?.click()}
             >
               <Paperclip className="w-4 h-4" />
@@ -642,7 +483,7 @@ export function ChatComposer() {
             {isWhatsApp && (
               <ToolbarButton
                 title="Plantillas de WhatsApp"
-                disabled={toolbarDisabled || isRecording}
+                disabled={toolbarDisabled || isRecording || sendingTemplate}
                 active={activePopover === "template"}
                 onClick={() => {
                   setDraftTemplate(null);
@@ -661,7 +502,11 @@ export function ChatComposer() {
             )}
 
             {activePopover === "template" && (
-              <ComposerPopover title="Plantillas de WhatsApp" wide align="left">
+              <ComposerPopover
+                title={draftTemplate ? undefined : "Plantillas de WhatsApp"}
+                wide
+                align="left"
+              >
                 {draftTemplate ? (
                   <WhatsAppTemplateParamForm
                     template={draftTemplate}
@@ -682,21 +527,9 @@ export function ChatComposer() {
                       setDraftButtonUrlParameters((prev) => ({ ...prev, [index]: value }))
                     }
                     onCancel={() => setDraftTemplate(null)}
-                    onConfirm={() => {
-                      setSelectedTemplate(draftTemplate);
-                      setBodyParameters(draftBodyParameters);
-                      setHeaderParameters(draftHeaderParameters);
-                      setButtonUrlParameters(draftButtonUrlParameters);
-                      setContent(
-                        buildTemplatePreviewContent(
-                          draftTemplate,
-                          draftBodyParameters,
-                          draftHeaderParameters
-                        )
-                      );
-                      setDraftTemplate(null);
-                      setActivePopover(null);
-                    }}
+                    onConfirm={sendDraftTemplate}
+                    confirmLabel={sendingTemplate ? "Enviando…" : "Enviar"}
+                    busy={sendingTemplate}
                   />
                 ) : (
                   <WhatsAppTemplateList
@@ -715,29 +548,21 @@ export function ChatComposer() {
           <textarea
             ref={textareaRef}
             value={content}
-            onChange={(e) => {
-              if (!isTemplateLocked) setContent(e.target.value);
-            }}
+            onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             onInput={handleInput}
             placeholder={
               noteAboutMessage ? "Escribe una nota privada..." : "Escribe un mensaje..."
             }
-            readOnly={isTemplateLocked}
             rows={1}
-            className={cn(
-              "flex-1 bg-transparent text-sm placeholder:text-[var(--color-text-muted)] resize-none outline-none px-2 py-2.5 max-h-[120px] min-w-0",
-              isTemplateLocked
-                ? "text-[var(--color-text-secondary)] cursor-default"
-                : "text-[var(--color-text-primary)]"
-            )}
+            className="flex-1 bg-transparent text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] resize-none outline-none px-2 py-2.5 max-h-[120px] min-w-0"
           />
 
           <div className="flex items-center gap-0.5 pr-1 pb-1.5 shrink-0 relative">
             <ToolbarButton
               title="Grabar audio"
-              disabled={toolbarDisabled || isTemplateLocked}
+              disabled={toolbarDisabled || sendingTemplate}
               onClick={startRecording}
             >
               <Mic className="w-4 h-4" />
@@ -745,7 +570,7 @@ export function ChatComposer() {
 
             <ToolbarButton
               title="Respuestas predefinidas"
-              disabled={toolbarDisabled || isTemplateLocked}
+              disabled={toolbarDisabled || sendingTemplate}
               active={activePopover === "canned"}
               onClick={() => togglePopover("canned")}
             >
@@ -816,7 +641,7 @@ function ComposerPopover({
   wide,
   align = "right",
 }: {
-  title: string;
+  title?: string;
   children: React.ReactNode;
   wide?: boolean;
   align?: "left" | "right";
@@ -825,15 +650,17 @@ function ComposerPopover({
     <div
       className={cn(
         "absolute bottom-full mb-2 z-30 bg-[var(--color-bg-secondary)] border border-[var(--color-border-primary)] rounded-xl shadow-xl overflow-hidden animate-fade-in",
-        wide ? "w-[340px]" : "w-[300px]",
+        wide ? "w-[360px]" : "w-[300px]",
         align === "left" ? "left-0" : "right-0"
       )}
     >
-      <div className="px-4 py-2.5 border-b border-[var(--color-border-primary)]">
-        <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
-          {title}
-        </p>
-      </div>
+      {title ? (
+        <div className="px-4 py-2.5 border-b border-[var(--color-border-primary)]">
+          <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
+            {title}
+          </p>
+        </div>
+      ) : null}
       {children}
     </div>
   );

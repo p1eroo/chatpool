@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
+import { downloadFile } from "@/lib/messageAttachments";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
 
@@ -33,6 +34,8 @@ export function ImageLightbox() {
 
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const showToast = useUIStore((s) => s.showToast);
 
   const imageMessages = useMemo(() => {
     if (!activeConversationId) return [];
@@ -100,10 +103,21 @@ export function ImageLightbox() {
   };
 
   const handleDownload = () => {
-    const link = document.createElement("a");
-    link.href = currentMessage.fileUrl!;
-    link.download = fileName;
-    link.click();
+    if (downloading) return;
+    setDownloading(true);
+    void downloadFile({
+      fileName,
+      attachmentUrl: currentMessage.attachmentUrl,
+      fileUrl: currentMessage.fileUrl,
+    })
+      .catch((error) => {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "No se pudo descargar la imagen";
+        showToast(message);
+      })
+      .finally(() => setDownloading(false));
   };
 
   return createPortal(
@@ -136,7 +150,11 @@ export function ImageLightbox() {
           >
             <RotateCw className="w-[18px] h-[18px]" />
           </ToolbarButton>
-          <ToolbarButton title="Descargar" onClick={handleDownload}>
+          <ToolbarButton
+            title={downloading ? "Descargando…" : "Descargar"}
+            onClick={handleDownload}
+            disabled={downloading}
+          >
             <Download className="w-[18px] h-[18px]" />
           </ToolbarButton>
           <ToolbarButton title="Cerrar" onClick={closeLightbox}>
@@ -193,18 +211,22 @@ function ToolbarButton({
   children,
   title,
   onClick,
+  disabled,
 }: {
   children: React.ReactNode;
   title: string;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "flex h-9 w-9 items-center justify-center rounded-lg text-white/85 transition-colors hover:bg-white/10 hover:text-white"
+        "flex h-9 w-9 items-center justify-center rounded-lg text-white/85 transition-colors hover:bg-white/10 hover:text-white",
+        disabled && "opacity-50 cursor-not-allowed hover:bg-transparent"
       )}
     >
       {children}

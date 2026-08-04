@@ -1,6 +1,19 @@
 import { env } from "@/config/env";
 import { getAccessToken } from "@/api/client";
 
+function triggerBlobDownload(blob: Blob, fileName: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Delay revoke so Chromium finishes the download handshake.
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+}
+
 export async function downloadMessageAttachment(params: {
   attachmentUrl: string;
   fileName: string;
@@ -27,13 +40,33 @@ export async function downloadMessageAttachment(params: {
     throw new Error(message);
   }
 
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = params.fileName;
-  link.click();
-  URL.revokeObjectURL(objectUrl);
+  triggerBlobDownload(await response.blob(), params.fileName);
+}
+
+/** Descarga forzada: API auth o blob (CDN cross-origin ignora el atributo download). */
+export async function downloadFile(params: {
+  fileName: string;
+  attachmentUrl?: string | null;
+  fileUrl?: string | null;
+}): Promise<void> {
+  if (params.attachmentUrl) {
+    await downloadMessageAttachment({
+      attachmentUrl: params.attachmentUrl,
+      fileName: params.fileName,
+    });
+    return;
+  }
+
+  if (!params.fileUrl) {
+    throw new Error("No hay archivo para descargar");
+  }
+
+  const response = await fetch(params.fileUrl);
+  if (!response.ok) {
+    throw new Error("No se pudo descargar el archivo");
+  }
+
+  triggerBlobDownload(await response.blob(), params.fileName);
 }
 
 export async function fetchMessageAttachmentBlob(attachmentUrl: string): Promise<string> {

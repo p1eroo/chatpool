@@ -69,9 +69,9 @@ export function WhatsAppTemplateList({
             <button
               key={template.id}
               type="button"
-              disabled={disabled || !template.supported}
+              disabled={disabled}
               onClick={() => onSelect(template)}
-              title={template.unsupportedReason}
+              title={template.unsupportedReason ?? "Ver vista previa"}
               className="w-full px-4 py-2.5 text-left hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2 mb-1">

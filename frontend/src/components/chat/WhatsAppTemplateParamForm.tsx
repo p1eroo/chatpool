@@ -1,5 +1,6 @@
+import type { ReactNode } from "react";
 import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
-import { buildTemplatePreviewContent } from "@/types/whatsappTemplate";
+import { buildTemplatePreviewContent, templateNeedsParams } from "@/types/whatsappTemplate";
 
 interface WhatsAppTemplateParamFormProps {
   template: WhatsAppTemplate;
@@ -15,6 +16,49 @@ interface WhatsAppTemplateParamFormProps {
   busy?: boolean;
 }
 
+/** Formato básico de WhatsApp: *negrita*, _cursiva_, ~tachado~. */
+function renderWhatsAppFormatting(text: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const regex = /(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    const inner = token.slice(1, -1);
+    if (token.startsWith("*")) {
+      parts.push(
+        <strong key={key++} className="font-semibold">
+          {inner}
+        </strong>
+      );
+    } else if (token.startsWith("_")) {
+      parts.push(
+        <em key={key++} className="italic">
+          {inner}
+        </em>
+      );
+    } else {
+      parts.push(
+        <span key={key++} className="line-through">
+          {inner}
+        </span>
+      );
+    }
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length ? parts : [text];
+}
+
 export function WhatsAppTemplateParamForm({
   template,
   bodyParameters,
@@ -25,10 +69,11 @@ export function WhatsAppTemplateParamForm({
   onButtonChange,
   onCancel,
   onConfirm,
-  confirmLabel = "Usar plantilla",
+  confirmLabel = "Enviar",
   busy,
 }: WhatsAppTemplateParamFormProps) {
   const preview = buildTemplatePreviewContent(template, bodyParameters, headerParameters);
+  const needsParams = templateNeedsParams(template);
 
   const canConfirm =
     !busy &&
@@ -38,80 +83,115 @@ export function WhatsAppTemplateParamForm({
     template.buttonUrlParamIndexes.every((index) => buttonUrlParameters[index]?.trim());
 
   return (
-    <div className="p-3 space-y-3">
-      <div>
-        <p className="text-sm font-medium text-[var(--color-text-primary)]">{template.name}</p>
-        <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
-          Idioma: {template.language}
+    <div className="flex flex-col max-h-[min(70vh,520px)]">
+      <div className="px-4 py-2.5 border-b border-[var(--color-border-primary)] shrink-0">
+        <p className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
+          Vista previa
         </p>
+        <div className="flex items-baseline gap-2 mt-1 min-w-0">
+          <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">
+            {template.name}
+          </p>
+          <span className="text-[10px] uppercase tracking-wide text-[var(--color-text-muted)] shrink-0">
+            {template.language}
+          </span>
+        </div>
+        {template.category && (
+          <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+            {template.category}
+          </p>
+        )}
       </div>
 
-      <p className="text-xs text-[var(--color-text-secondary)] whitespace-pre-wrap leading-relaxed rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-2">
-        {preview}
-      </p>
-
-      {template.headerParamCount > 0 && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-            Encabezado
-          </p>
-          {Array.from({ length: template.headerParamCount }, (_, index) => (
-            <input
-              key={`header-${index}`}
-              type="text"
-              value={headerParameters[index] ?? ""}
-              onChange={(e) => onHeaderChange(index, e.target.value)}
-              placeholder={`Variable {{${index + 1}}}`}
-              className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-            />
-          ))}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <div className="rounded-2xl bg-[#005c4b]/25 border border-emerald-500/20 px-3.5 py-3">
+          <p className="text-[11px] font-medium text-emerald-400/90 mb-2">WhatsApp</p>
+          <div className="text-sm text-[var(--color-text-primary)] whitespace-pre-wrap leading-relaxed break-words">
+            {preview.split("\n").map((line, index, arr) => (
+              <span key={index}>
+                {renderWhatsAppFormatting(line)}
+                {index < arr.length - 1 ? <br /> : null}
+              </span>
+            ))}
+          </div>
+          {!preview.trim() && (
+            <p className="text-xs text-[var(--color-text-muted)] italic">Sin contenido de texto</p>
+          )}
         </div>
-      )}
 
-      {template.bodyParamCount > 0 && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-            Cuerpo
+        {needsParams && (
+          <p className="text-[11px] text-[var(--color-text-muted)]">
+            Completa las variables para ver el mensaje final.
           </p>
-          {Array.from({ length: template.bodyParamCount }, (_, index) => (
-            <input
-              key={`body-${index}`}
-              type="text"
-              value={bodyParameters[index] ?? ""}
-              onChange={(e) => onBodyChange(index, e.target.value)}
-              placeholder={`Variable {{${index + 1}}}`}
-              className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-            />
-          ))}
-        </div>
-      )}
+        )}
 
-      {template.buttonUrlParamIndexes.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
-            Botones URL
-          </p>
-          {template.buttonUrlParamIndexes.map((index) => (
-            <input
-              key={`button-${index}`}
-              type="text"
-              value={buttonUrlParameters[index] ?? ""}
-              onChange={(e) => onButtonChange(index, e.target.value)}
-              placeholder={`Variable botón #${index + 1}`}
-              className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-            />
-          ))}
-        </div>
-      )}
+        {template.headerParamCount > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Encabezado
+            </p>
+            {Array.from({ length: template.headerParamCount }, (_, index) => (
+              <input
+                key={`header-${index}`}
+                type="text"
+                value={headerParameters[index] ?? ""}
+                onChange={(e) => onHeaderChange(index, e.target.value)}
+                placeholder={`Variable {{${index + 1}}}`}
+                className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
+              />
+            ))}
+          </div>
+        )}
 
-      <div className="flex items-center justify-end gap-2 pt-1">
+        {template.bodyParamCount > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Cuerpo
+            </p>
+            {Array.from({ length: template.bodyParamCount }, (_, index) => (
+              <input
+                key={`body-${index}`}
+                type="text"
+                value={bodyParameters[index] ?? ""}
+                onChange={(e) => onBodyChange(index, e.target.value)}
+                placeholder={`Variable {{${index + 1}}}`}
+                className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
+              />
+            ))}
+          </div>
+        )}
+
+        {template.buttonUrlParamIndexes.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              Botones URL
+            </p>
+            {template.buttonUrlParamIndexes.map((index) => (
+              <input
+                key={`button-${index}`}
+                type="text"
+                value={buttonUrlParameters[index] ?? ""}
+                onChange={(e) => onButtonChange(index, e.target.value)}
+                placeholder={`Variable botón #${index + 1}`}
+                className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
+              />
+            ))}
+          </div>
+        )}
+
+        {!template.supported && template.unsupportedReason && (
+          <p className="text-xs text-amber-400">{template.unsupportedReason}</p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-2 px-3 py-2.5 border-t border-[var(--color-border-primary)] shrink-0">
         <button
           type="button"
           onClick={onCancel}
           disabled={busy}
           className="h-8 px-3 text-xs rounded-lg border border-[var(--color-border-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
         >
-          Cancelar
+          Volver
         </button>
         <button
           type="button"

@@ -18,10 +18,7 @@ import { cn, formatTime } from "@/lib/utils";
 import { compareConversationsByRecentActivity } from "@/lib/conversationSort";
 import { APP_LOCALE, APP_PHONE_PREFIX } from "@/lib/locale";
 import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
-import {
-  buildTemplatePreviewContent,
-  templateNeedsParams,
-} from "@/types/whatsappTemplate";
+import { buildTemplatePreviewContent } from "@/types/whatsappTemplate";
 import {
   Search,
   MessageCircle,
@@ -633,12 +630,7 @@ function SendMessageComposer({
   onClose: () => void;
   onSend: (payload: ContactComposeSendPayload) => void | Promise<void>;
 }) {
-  const showToast = useUIStore((s) => s.showToast);
   const [message, setMessage] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState<WhatsAppTemplate | null>(null);
-  const [bodyParameters, setBodyParameters] = useState<string[]>([]);
-  const [headerParameters, setHeaderParameters] = useState<string[]>([]);
-  const [buttonUrlParameters, setButtonUrlParameters] = useState<Record<number, string>>({});
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
   const [draftTemplate, setDraftTemplate] = useState<WhatsAppTemplate | null>(null);
@@ -654,56 +646,56 @@ function SendMessageComposer({
     isWhatsApp ? inbox?.id : null
   );
 
-  const isTemplateLocked = selectedTemplate !== null;
-
   useEffect(() => {
     if (!isWhatsApp) {
-      setSelectedTemplate(null);
-      setBodyParameters([]);
-      setHeaderParameters([]);
-      setButtonUrlParameters({});
+      setDraftTemplate(null);
+      setTemplateOpen(false);
     }
   }, [isWhatsApp]);
 
-  const templateParamsReady =
-    !selectedTemplate ||
-    (bodyParameters.every((value) => value.trim()) &&
-      headerParameters.every((value) => value.trim()) &&
-      selectedTemplate.buttonUrlParamIndexes.every((index) => buttonUrlParameters[index]?.trim()));
-
   const handleSend = () => {
-    if (!inbox || sending) return;
-    if (selectedTemplate) {
-      if (!templateParamsReady) return;
-    } else if (!message.trim()) {
-      return;
-    }
+    if (!inbox || sending || !message.trim()) return;
 
-    const preview = selectedTemplate
-      ? buildTemplatePreviewContent(selectedTemplate, bodyParameters, headerParameters)
-      : message;
+    setSending(true);
+    void Promise.resolve(
+      onSend({
+        message,
+      })
+    ).finally(() => {
+      setSending(false);
+    });
+  };
+
+  const sendDraftTemplate = () => {
+    if (!inbox || !draftTemplate || sending) return;
+
+    const preview = buildTemplatePreviewContent(
+      draftTemplate,
+      draftBodyParameters,
+      draftHeaderParameters
+    );
 
     setSending(true);
     void Promise.resolve(
       onSend({
         message: preview,
-        template: selectedTemplate
-          ? {
-              id: selectedTemplate.id,
-              name: selectedTemplate.name,
-              language: selectedTemplate.language,
-              content: preview,
-              bodyParameters,
-              headerParameters,
-              buttonUrlParameters: selectedTemplate.buttonUrlParamIndexes.map((index) => ({
-                index,
-                text: buttonUrlParameters[index] ?? "",
-              })),
-            }
-          : undefined,
+        template: {
+          id: draftTemplate.id,
+          name: draftTemplate.name,
+          language: draftTemplate.language,
+          content: preview,
+          bodyParameters: draftBodyParameters,
+          headerParameters: draftHeaderParameters,
+          buttonUrlParameters: draftTemplate.buttonUrlParamIndexes.map((index) => ({
+            index,
+            text: draftButtonUrlParameters[index] ?? "",
+          })),
+        },
       })
     ).finally(() => {
       setSending(false);
+      setDraftTemplate(null);
+      setTemplateOpen(false);
     });
   };
 
@@ -715,22 +707,6 @@ function SendMessageComposer({
   };
 
   const handlePickTemplate = (template: WhatsAppTemplate) => {
-    if (!template.supported) {
-      showToast(template.unsupportedReason ?? "Plantilla no soportada");
-      return;
-    }
-
-    if (!templateNeedsParams(template)) {
-      setSelectedTemplate(template);
-      setBodyParameters([]);
-      setHeaderParameters([]);
-      setButtonUrlParameters({});
-      setMessage(buildTemplatePreviewContent(template, [], []));
-      setTemplateOpen(false);
-      setDraftTemplate(null);
-      return;
-    }
-
     setDraftTemplate(template);
     setDraftBodyParameters(Array.from({ length: template.bodyParamCount }, () => ""));
     setDraftHeaderParameters(Array.from({ length: template.headerParamCount }, () => ""));
@@ -765,89 +741,13 @@ function SendMessageComposer({
         )}
       </div>
 
-      {isTemplateLocked && selectedTemplate && (
-        <div className="px-4 pt-3 pb-1 shrink-0 space-y-2">
-          <span className="text-xs font-medium text-[var(--color-text-primary)]">
-            {selectedTemplate.name}
-            <span className="text-[var(--color-text-muted)] font-normal">
-              {" "}
-              · {selectedTemplate.language}
-            </span>
-          </span>
-          {templateNeedsParams(selectedTemplate) && (
-            <div className="space-y-2">
-              {selectedTemplate.headerParamCount > 0 &&
-                Array.from({ length: selectedTemplate.headerParamCount }, (_, index) => (
-                  <input
-                    key={`contact-header-${index}`}
-                    type="text"
-                    value={headerParameters[index] ?? ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setHeaderParameters((prev) => {
-                        const next = prev.map((item, i) => (i === index ? value : item));
-                        setMessage(
-                          buildTemplatePreviewContent(selectedTemplate, bodyParameters, next)
-                        );
-                        return next;
-                      });
-                    }}
-                    placeholder={`Encabezado {{${index + 1}}}`}
-                    className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                  />
-                ))}
-              {selectedTemplate.bodyParamCount > 0 &&
-                Array.from({ length: selectedTemplate.bodyParamCount }, (_, index) => (
-                  <input
-                    key={`contact-body-${index}`}
-                    type="text"
-                    value={bodyParameters[index] ?? ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setBodyParameters((prev) => {
-                        const next = prev.map((item, i) => (i === index ? value : item));
-                        setMessage(
-                          buildTemplatePreviewContent(selectedTemplate, next, headerParameters)
-                        );
-                        return next;
-                      });
-                    }}
-                    placeholder={`Variable {{${index + 1}}}`}
-                    className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                  />
-                ))}
-              {selectedTemplate.buttonUrlParamIndexes.map((index) => (
-                <input
-                  key={`contact-button-${index}`}
-                  type="text"
-                  value={buttonUrlParameters[index] ?? ""}
-                  onChange={(e) =>
-                    setButtonUrlParameters((prev) => ({ ...prev, [index]: e.target.value }))
-                  }
-                  placeholder={`Botón URL #${index + 1}`}
-                  className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)]"
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       <textarea
         value={message}
-        onChange={(e) => {
-          if (!isTemplateLocked) setMessage(e.target.value);
-        }}
+        onChange={(e) => setMessage(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Escribir..."
-        readOnly={isTemplateLocked}
-        className={cn(
-          "flex-1 min-h-[160px] w-full text-sm text-[var(--color-text-primary)] px-4 py-3 outline-none resize-none placeholder:text-[var(--color-text-muted)]",
-          isTemplateLocked
-            ? "bg-[var(--color-bg-tertiary)] cursor-default text-[var(--color-text-secondary)]"
-            : "bg-transparent"
-        )}
-        autoFocus={!isTemplateLocked}
+        className="flex-1 min-h-[160px] w-full text-sm text-[var(--color-text-primary)] px-4 py-3 outline-none resize-none placeholder:text-[var(--color-text-muted)] bg-transparent"
+        autoFocus
       />
 
       <div className="px-4 py-3 border-t border-[var(--color-border-primary)] flex flex-col gap-2 shrink-0">
@@ -886,21 +786,9 @@ function SendMessageComposer({
                         setDraftButtonUrlParameters((prev) => ({ ...prev, [index]: value }))
                       }
                       onCancel={() => setDraftTemplate(null)}
-                      onConfirm={() => {
-                        setSelectedTemplate(draftTemplate);
-                        setBodyParameters(draftBodyParameters);
-                        setHeaderParameters(draftHeaderParameters);
-                        setButtonUrlParameters(draftButtonUrlParameters);
-                        setMessage(
-                          buildTemplatePreviewContent(
-                            draftTemplate,
-                            draftBodyParameters,
-                            draftHeaderParameters
-                          )
-                        );
-                        setDraftTemplate(null);
-                        setTemplateOpen(false);
-                      }}
+                      onConfirm={sendDraftTemplate}
+                      confirmLabel={sending ? "Enviando…" : "Enviar"}
+                      busy={sending}
                     />
                   ) : (
                     <WhatsAppTemplateList
@@ -916,28 +804,12 @@ function SendMessageComposer({
               )}
             </div>
           )}
-          {selectedTemplate && (
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedTemplate(null);
-                setBodyParameters([]);
-                setHeaderParameters([]);
-                setButtonUrlParameters({});
-                setMessage("");
-              }}
-              className="h-8 px-2.5 text-xs rounded-lg border border-[var(--color-border-primary)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-            >
-              Quitar plantilla
-            </button>
-          )}
         </div>
 
         <div className="flex items-center gap-2 justify-end">
           <button
             onClick={() => {
               setMessage("");
-              setSelectedTemplate(null);
               onClose();
             }}
             className="h-8 px-3 text-xs font-medium rounded-lg border border-[var(--color-border-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
@@ -946,14 +818,10 @@ function SendMessageComposer({
           </button>
           <button
             onClick={handleSend}
-            disabled={
-              !inbox ||
-              sending ||
-              (selectedTemplate ? !templateParamsReady : !message.trim())
-            }
+            disabled={!inbox || sending || !message.trim()}
             className={cn(
               "h-8 px-3 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5",
-              !sending && (selectedTemplate ? templateParamsReady : message.trim())
+              !sending && message.trim()
                 ? "bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)]"
                 : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] cursor-not-allowed"
             )}

@@ -1,7 +1,8 @@
 import type { Message } from "@/types";
+import { downloadFile } from "@/lib/messageAttachments";
 
 function isVisibleAttachment(message: Message): boolean {
-  return !message.isPrivate && Boolean(message.fileUrl);
+  return !message.isPrivate && Boolean(message.fileUrl || message.attachmentUrl);
 }
 
 export function getConversationImages(messages: Message[]): Message[] {
@@ -18,12 +19,10 @@ export function getConversationFiles(messages: Message[]): Message[] {
   );
 }
 
-export function downloadMessageFile(message: Message): void {
-  if (!message.fileUrl) return;
-
-  const link = document.createElement("a");
-  link.href = message.fileUrl;
-  link.download = message.fileName || message.content || "archivo";
-  link.rel = "noopener";
-  link.click();
+export async function downloadMessageFile(message: Message): Promise<void> {
+  await downloadFile({
+    fileName: message.fileName || message.content || "archivo",
+    attachmentUrl: message.attachmentUrl,
+    fileUrl: message.fileUrl,
+  });
 }
