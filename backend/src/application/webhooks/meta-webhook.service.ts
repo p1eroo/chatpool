@@ -1,5 +1,9 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
-import { emitMessageCreated, emitMessageUpdated } from "../realtime/realtime.service.js";
+import {
+  conversationRealtimeInclude,
+  emitMessageCreated,
+  emitMessageUpdated,
+} from "../realtime/realtime.service.js";
 import { resolveMetaApiFailure } from "../../shared/meta-api-errors.js";
 import {
   downloadAndStoreMetaMedia,
@@ -11,7 +15,6 @@ import {
   upsertWhatsAppContact,
 } from "../contacts/whatsapp-contact-sync.service.js";
 import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
-import { touchConversationLastMessageAt } from "../conversations/conversation-last-message.js";
 import { runWithConversationMessageLock } from "../conversations/conversation-message-serializer.js";
 import { nextMessageSortOrder } from "../conversations/message-sort-order.js";
 import { parseMetaMessageTimestamp } from "../../shared/meta-message-time.js";
@@ -129,16 +132,55 @@ async function processMetaMessageStatuses(statuses: MetaStatusEvent[] | undefine
 
     if (!message || message.status === nextStatus) continue;
 
-    await prisma.message.update({
+    const updated = await prisma.message.update({
       where: { id: message.id },
       data: { status: nextStatus },
+      include: messageInclude,
     });
 
-    await emitMessageUpdated(message.conversationId, message.id);
+    await emitMessageUpdated(message.conversationId, message.id, updated);
     processed += 1;
   }
 
   return processed;
+}
+
+/** Descarga media de Meta fuera del camino crítico; el adjunto lazy ya cubre el click temprano. */
+function scheduleIncomingMediaHydration(params: {
+  messageId: string;
+  conversationId: string;
+  accessToken: string;
+  mediaId: string;
+  fileName: string;
+  mimeType: string;
+}) {
+  void (async () => {
+    try {
+      const stored = await downloadAndStoreMetaMedia({
+        conversationId: params.conversationId,
+        accessToken: params.accessToken,
+        mediaId: params.mediaId,
+        fileName: params.fileName,
+        mimeType: params.mimeType,
+      });
+
+      const updated = await prisma.message.update({
+        where: { id: params.messageId },
+        data: {
+          fileKey: stored.fileKey,
+          fileSize: stored.fileSize,
+          fileName: stored.fileName,
+          mimeType: stored.mimeType,
+        },
+        include: messageInclude,
+      });
+
+      await emitMessageUpdated(params.conversationId, updated.id, updated);
+    } catch (error) {
+      const failure = resolveMetaApiFailure(error);
+      console.error("No se pudo hidratar media de Meta:", failure.message);
+    }
+  })();
 }
 
 export interface MetaWebhookProcessedEvent {
@@ -241,38 +283,12 @@ export async function processMetaWebhookPayload(
         let content = parsed?.content ?? fallbackContent;
         let contentType = parsed?.contentType ?? "text";
         let fileName: string | null = null;
-        let fileSize: number | null = null;
-        let fileKey: string | null = null;
         let mimeType: string | null = null;
         let mediaExternalId: string | null = parsed?.mediaId || null;
+        const shouldHydrateMedia = Boolean(parsed?.mediaId && accessToken);
 
-        if (parsed?.mediaId && accessToken) {
-          try {
-            const stored = await downloadAndStoreMetaMedia({
-              conversationId: conversation.id,
-              accessToken,
-              mediaId: parsed.mediaId,
-              fileName: parsed.fileName,
-              mimeType: parsed.mimeType,
-            });
-            fileName = stored.fileName;
-            fileSize = stored.fileSize;
-            fileKey = stored.fileKey;
-            mimeType = stored.mimeType;
-            contentType = parsed.contentType;
-            if (!content || content === parsed.fileName) {
-              content = parsed.contentType === "audio" ? stored.fileName : stored.fileName;
-            }
-          } catch (error) {
-            const failure = resolveMetaApiFailure(error);
-            console.error("No se pudo descargar media de Meta:", failure.message);
-            content = parsed.fileName || fallbackContent;
-            contentType = parsed.contentType;
-            fileName = parsed.fileName;
-            mimeType = parsed.mimeType;
-          }
-        } else if (parsed && parsed.contentType !== "text") {
-          content = parsed.fileName || fallbackContent;
+        if (parsed && parsed.contentType !== "text") {
+          content = parsed.content || parsed.fileName || fallbackContent;
           contentType = parsed.contentType;
           fileName = parsed.fileName;
           mimeType = parsed.mimeType;
@@ -280,7 +296,7 @@ export async function processMetaWebhookPayload(
 
         const messageAt = parseMetaMessageTimestamp(message.timestamp);
 
-        const createdMessage = await runWithConversationMessageLock(
+        const { createdMessage, conversationForEmit } = await runWithConversationMessageLock(
           conversation.id,
           async () => {
             const sortOrder = await nextMessageSortOrder(conversation.id);
@@ -294,8 +310,8 @@ export async function processMetaWebhookPayload(
                 senderName: contactName,
                 contentType,
                 fileName,
-                fileSize,
-                fileKey,
+                fileSize: null,
+                fileKey: null,
                 mimeType,
                 mediaExternalId,
                 externalId: message.id,
@@ -307,20 +323,34 @@ export async function processMetaWebhookPayload(
               include: messageInclude,
             });
 
-            await prisma.conversation.update({
+            const conversationRow = await prisma.conversation.update({
               where: { id: conversation.id },
               data: {
                 unreadCount: { increment: 1 },
+                lastMessageAt: messageAt,
               },
+              include: conversationRealtimeInclude,
             });
 
-            await touchConversationLastMessageAt(conversation.id, messageAt);
-
-            return created;
+            return { createdMessage: created, conversationForEmit: conversationRow };
           }
         );
 
-        await emitMessageCreated(conversation.id, createdMessage.id);
+        await emitMessageCreated(conversation.id, createdMessage.id, {
+          message: createdMessage,
+          conversation: conversationForEmit,
+        });
+
+        if (shouldHydrateMedia && parsed?.mediaId && accessToken) {
+          scheduleIncomingMediaHydration({
+            messageId: createdMessage.id,
+            conversationId: conversation.id,
+            accessToken,
+            mediaId: parsed.mediaId,
+            fileName: parsed.fileName,
+            mimeType: parsed.mimeType,
+          });
+        }
 
         events.push({
           kind: "message",

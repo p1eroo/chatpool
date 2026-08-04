@@ -8,6 +8,7 @@ import type {
 } from "../../types/api-responses.js";
 import { getLastContactMessageAt, isReplyWindowOpen } from "../../shared/whatsapp-window.js";
 import {
+  conversationRealtimeInclude,
   emitConversationUpdated,
   emitMessageCreated,
 } from "../realtime/realtime.service.js";
@@ -24,24 +25,11 @@ import {
   recordConversationLabelActivity,
   recordConversationStatusActivity,
 } from "./conversation-activity.service.js";
-import { touchConversationLastMessageAt, refreshConversationLastMessageAt } from "./conversation-last-message.js";
+import { refreshConversationLastMessageAt } from "./conversation-last-message.js";
 import { runWithConversationMessageLock } from "./conversation-message-serializer.js";
 import { nextMessageSortOrder } from "./message-sort-order.js";
 
-const conversationPreviewMessages = {
-  where: { senderType: { not: "system" as const } },
-  orderBy: [{ sortOrder: "desc" as const }, { createdAt: "desc" as const }],
-  take: 1,
-  include: messageInclude,
-};
-
-const conversationInclude = {
-  contact: true,
-  assignee: true,
-  inbox: true,
-  labels: { include: { label: true } },
-  messages: conversationPreviewMessages,
-};
+const conversationInclude = conversationRealtimeInclude;
 
 async function resolveReplyTarget(conversationId: string, replyToMessageId?: string) {
   if (!replyToMessageId) return null;
@@ -164,21 +152,24 @@ export async function sendAgentMessage(
       );
     }
 
-    if (!body.isPrivate && conversation.inbox.channelType === "whatsapp") {
-      const lastContactAt = await getLastContactMessageAt(conversationId);
-      if (!isReplyWindowOpen(lastContactAt)) {
-        throw new AppError(
-          "La ventana de mensajes de 24 horas está cerrada. Envía una plantilla aprobada.",
-          422,
-          "WHATSAPP_WINDOW_CLOSED"
-        );
-      }
-    }
+    const needsWhatsAppWindow =
+      !body.isPrivate && conversation.inbox.channelType === "whatsapp";
 
-    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    const [lastContactAt, agent, replyTarget] = await Promise.all([
+      needsWhatsAppWindow ? getLastContactMessageAt(conversationId) : Promise.resolve(null),
+      prisma.agent.findUnique({ where: { id: agentId } }),
+      resolveReplyTarget(conversationId, body.replyToMessageId),
+    ]);
+
     if (!agent) throw new NotFoundError("Agente no encontrado");
 
-    const replyTarget = await resolveReplyTarget(conversationId, body.replyToMessageId);
+    if (needsWhatsAppWindow && !isReplyWindowOpen(lastContactAt)) {
+      throw new AppError(
+        "La ventana de mensajes de 24 horas está cerrada. Envía una plantilla aprobada.",
+        422,
+        "WHATSAPP_WINDOW_CLOSED"
+      );
+    }
 
     let externalId: string | null = null;
     let mediaExternalId: string | null = null;
@@ -240,9 +231,16 @@ export async function sendAgentMessage(
       include: messageInclude,
     });
 
-    await touchConversationLastMessageAt(conversationId, createdAt);
+    const conversationForEmit = await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: createdAt },
+      include: conversationInclude,
+    });
 
-    await emitMessageCreated(conversationId, message.id);
+    await emitMessageCreated(conversationId, message.id, {
+      message,
+      conversation: conversationForEmit,
+    });
 
     return mapMessage(message);
   });
@@ -349,9 +347,16 @@ export async function sendWhatsAppTemplate(
       include: messageInclude,
     });
 
-    await touchConversationLastMessageAt(conversationId, createdAt);
+    const conversationForEmit = await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: createdAt },
+      include: conversationInclude,
+    });
 
-    await emitMessageCreated(conversationId, message.id);
+    await emitMessageCreated(conversationId, message.id, {
+      message,
+      conversation: conversationForEmit,
+    });
 
     return mapMessage(message);
   });
@@ -432,54 +437,60 @@ export async function findOrReopenConversationForContact(params: {
   inboxId: string;
   contactId: string;
 }) {
-  const open = await prisma.conversation.findFirst({
-    where: {
-      inboxId: params.inboxId,
-      contactId: params.contactId,
-      status: "open",
-    },
-  });
+  const result = await prisma.$transaction(async (tx) => {
+    // Serializa webhooks concurrentes del mismo contacto (evita 2 "open").
+    await tx.$executeRaw`SELECT id FROM contacts WHERE id = ${params.contactId} FOR UPDATE`;
 
-  if (open) {
-    return { conversation: open, reopened: false };
-  }
-
-  const resolved = await prisma.conversation.findFirst({
-    where: {
-      inboxId: params.inboxId,
-      contactId: params.contactId,
-      status: "resolved",
-    },
-    orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-  });
-
-  if (resolved) {
-    const conversation = await prisma.conversation.update({
-      where: { id: resolved.id },
-      data: {
+    const open = await tx.conversation.findFirst({
+      where: {
+        inboxId: params.inboxId,
+        contactId: params.contactId,
         status: "open",
+      },
+      orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+    });
+
+    if (open) {
+      return { conversation: open, reopened: false as const };
+    }
+
+    const resolved = await tx.conversation.findFirst({
+      where: {
+        inboxId: params.inboxId,
+        contactId: params.contactId,
+        status: "resolved",
+      },
+      orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+    });
+
+    if (resolved) {
+      const conversation = await tx.conversation.update({
+        where: { id: resolved.id },
+        data: { status: "open" },
+      });
+      return { conversation, reopened: true as const };
+    }
+
+    const conversation = await tx.conversation.create({
+      data: {
+        inboxId: params.inboxId,
+        contactId: params.contactId,
+        assigneeId: null,
+        status: "open",
+        priority: "none",
+        unreadCount: 0,
       },
     });
 
-    await emitConversationUpdated(conversation.id);
-
-    await recordConversationAutoReopenedActivity(conversation.id);
-
-    return { conversation, reopened: true };
-  }
-
-  const conversation = await prisma.conversation.create({
-    data: {
-      inboxId: params.inboxId,
-      contactId: params.contactId,
-      assigneeId: null,
-      status: "open",
-      priority: "none",
-      unreadCount: 0,
-    },
+    return { conversation, reopened: false as const };
   });
 
-  return { conversation, reopened: false };
+  if (result.reopened) {
+    await emitConversationUpdated(result.conversation.id);
+    await recordConversationAutoReopenedActivity(result.conversation.id);
+  }
+
+  return { conversation: result.conversation, reopened: result.reopened };
 }
 
 export async function deleteConversation(conversationId: string) {

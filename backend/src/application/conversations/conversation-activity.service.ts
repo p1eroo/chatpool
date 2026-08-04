@@ -36,7 +36,7 @@ export async function createConversationActivityMessage(params: {
       include: messageInclude,
     });
 
-    await emitMessageCreated(params.conversationId, message.id);
+    await emitMessageCreated(params.conversationId, message.id, { message });
   });
 }
 

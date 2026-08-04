@@ -202,6 +202,7 @@ model Conversation {
   updatedAt   DateTime            @updatedAt @map("updated_at")
   lastMessageAt DateTime?         @map("last_message_at")
 
+  /// Una sola conversación open por contacto/bandeja (índice parcial en migración SQL).
   @@map("conversations")
 }
 
