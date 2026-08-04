@@ -18,6 +18,7 @@ import { findOrReopenConversationForContact } from "../conversations/conversatio
 import { runWithConversationMessageLock } from "../conversations/conversation-message-serializer.js";
 import { nextMessageSortOrder } from "../conversations/message-sort-order.js";
 import { parseMetaMessageTimestamp } from "../../shared/meta-message-time.js";
+import { sanitizeWhatsAppDisplayName } from "../../shared/whatsapp-contact.js";
 
 interface MetaMediaPayload {
   id?: string;
@@ -241,9 +242,12 @@ export async function processMetaWebhookPayload(
       for (const message of value.messages ?? []) {
         if (!message.from || !message.id) continue;
 
-        const contactName =
+        const contactName = sanitizeWhatsAppDisplayName(
           value.contacts?.find((c) => c.wa_id === message.from)?.profile?.name ??
-          message.from;
+            message.from ??
+            "",
+          message.from
+        );
 
         const contact = await upsertWhatsAppContact(settings.inboxId, {
           waId: message.from,

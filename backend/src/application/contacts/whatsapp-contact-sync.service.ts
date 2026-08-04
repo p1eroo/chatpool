@@ -4,6 +4,7 @@ import {
   normalizeWhatsAppWaId,
   resolveIncomingContactName,
   resolveWhatsAppContactName,
+  sanitizeWhatsAppDisplayName,
 } from "../../shared/whatsapp-contact.js";
 
 export interface SmbContactSyncEntry {
@@ -29,7 +30,7 @@ export async function upsertWhatsAppContact(
   const waId = normalizeWhatsAppWaId(params.waId);
   if (!waId) return null;
 
-  const incomingName = params.name.trim() || waId;
+  const incomingName = sanitizeWhatsAppDisplayName(params.name, waId);
 
   const existing = await prisma.contact.findUnique({
     where: {
@@ -45,27 +46,72 @@ export async function upsertWhatsAppContact(
       allowOverwrite: params.overwriteName ?? false,
     });
 
-    return prisma.contact.update({
-      where: { id: existing.id },
-      data: {
+    try {
+      return await prisma.contact.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          phone: waId,
+          ...(params.touchLastSeen ? { lastSeen: new Date() } : {}),
+        },
+      });
+    } catch (error) {
+      console.error("No se pudo actualizar contacto WhatsApp:", {
+        waId,
         name,
-        phone: waId,
-        ...(params.touchLastSeen ? { lastSeen: new Date() } : {}),
-      },
-    });
+        error: error instanceof Error ? error.message : error,
+      });
+      // Mejor devolver el existente que tumbar el webhook y perder el mensaje.
+      return existing;
+    }
   }
 
   const name = incomingName;
+  const avatar = contactAvatarInitials(name);
 
-  return prisma.contact.create({
-    data: {
-      inboxId,
-      name,
-      phone: waId,
+  try {
+    return await prisma.contact.create({
+      data: {
+        inboxId,
+        name,
+        phone: waId,
+        waId,
+        avatar,
+      },
+    });
+  } catch (error) {
+    console.error("No se pudo crear contacto WhatsApp, reintento con waId:", {
       waId,
-      avatar: contactAvatarInitials(name),
-    },
-  });
+      name,
+      avatar,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+
+  // Fallback: nombre = número (siempre ASCII seguro).
+  try {
+    return await prisma.contact.create({
+      data: {
+        inboxId,
+        name: waId,
+        phone: waId,
+        waId,
+        avatar: contactAvatarInitials(waId),
+      },
+    });
+  } catch (error) {
+    // Carrera: otro webhook lo creó entre medias.
+    const raced = await prisma.contact.findUnique({
+      where: { inboxId_waId: { inboxId, waId } },
+    });
+    if (raced) return raced;
+
+    console.error("Fallo definitivo creando contacto WhatsApp:", {
+      waId,
+      error: error instanceof Error ? error.message : error,
+    });
+    return null;
+  }
 }
 
 async function removeSyncedContact(inboxId: string, phoneNumber: string) {
@@ -122,8 +168,12 @@ export async function processSmbAppStateSync(
       waId,
     });
 
-    await upsertWhatsAppContact(inboxId, { waId, name, overwriteName: true });
-    processed += 1;
+    const contact = await upsertWhatsAppContact(inboxId, {
+      waId,
+      name,
+      overwriteName: true,
+    });
+    if (contact) processed += 1;
   }
 
   return processed;
