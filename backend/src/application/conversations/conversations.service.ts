@@ -361,6 +361,24 @@ export async function updateConversation(
   if (body.assigneeId !== undefined) data.assigneeId = body.assigneeId;
   if (body.unreadCount !== undefined) data.unreadCount = body.unreadCount;
 
+  if (body.assigneeId) {
+    const membership = await prisma.inboxAgent.findUnique({
+      where: {
+        inboxId_agentId: {
+          inboxId: conversation.inboxId,
+          agentId: body.assigneeId,
+        },
+      },
+    });
+    if (!membership) {
+      throw new AppError(
+        "El agente no tiene acceso a esta bandeja",
+        422,
+        "AGENT_NOT_IN_INBOX"
+      );
+    }
+  }
+
   if (Object.keys(data).length === 0) {
     throw new AppError("No hay campos para actualizar", 400, "INVALID_UPDATE");
   }

@@ -14,6 +14,7 @@ import { useAgentPermissions } from "@/hooks/useAgentPermissions";
 import { useConversationStore } from "@/store/conversationStore";
 import { useLabelStore } from "@/store/labelStore";
 import { useAgentStore } from "@/store/agentStore";
+import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
@@ -88,10 +89,18 @@ export function ConversationContextMenu({
   const reassignConversation = useConversationStore((s) => s.reassignConversation);
   const deleteConversation = useConversationStore((s) => s.deleteConversation);
   const allAgents = useAgentStore((s) => s.agents);
-  const agents = useMemo(
-    () => allAgents.filter((agent) => agent.active !== false),
-    [allAgents]
+  const assignedAgentIds = useInboxSettingsStore(
+    (s) => s.getByInboxId(conversation.inboxId)?.assignedAgentIds
   );
+  const agents = useMemo(() => {
+    const allowed = new Set(assignedAgentIds ?? []);
+    const currentAssigneeId = conversation.assignee?.id;
+    return allAgents.filter(
+      (agent) =>
+        agent.active !== false &&
+        (allowed.has(agent.id) || agent.id === currentAssigneeId)
+    );
+  }, [allAgents, assignedAgentIds, conversation.assignee?.id]);
   const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
   const inboxLabels = getLabelsForInbox(conversation.inboxId);
 

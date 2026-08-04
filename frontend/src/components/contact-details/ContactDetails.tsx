@@ -4,6 +4,7 @@ import { useUIStore } from "@/store/uiStore";
 import { Avatar, getAvatarColorClass, getAvatarInitials, isImageUrl } from "@/components/ui/Avatar";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { useAgentStore } from "@/store/agentStore";
+import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useLabelStore } from "@/store/labelStore";
 import {
   downloadMessageFile,
@@ -170,11 +171,19 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
   const toggleConversationLabel = useConversationStore((s) => s.toggleConversationLabel);
   const showToast = useUIStore((s) => s.showToast);
   const allAgents = useAgentStore((s) => s.agents);
-  const labels = useLabelStore((s) => s.labels);
-  const agents = useMemo(
-    () => allAgents.filter((agent) => agent.active !== false),
-    [allAgents]
+  const assignedAgentIds = useInboxSettingsStore(
+    (s) => s.getByInboxId(conversation.inboxId)?.assignedAgentIds
   );
+  const labels = useLabelStore((s) => s.labels);
+  const agents = useMemo(() => {
+    const allowed = new Set(assignedAgentIds ?? []);
+    const currentAssigneeId = conversation.assignee?.id;
+    return allAgents.filter(
+      (agent) =>
+        agent.active !== false &&
+        (allowed.has(agent.id) || agent.id === currentAssigneeId)
+    );
+  }, [allAgents, assignedAgentIds, conversation.assignee?.id]);
   const inboxLabels = useMemo(
     () => labels.filter((label) => label.inboxId === conversation.inboxId),
     [labels, conversation.inboxId]
