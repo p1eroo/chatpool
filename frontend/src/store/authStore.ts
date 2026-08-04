@@ -9,9 +9,6 @@ import type { Agent, AgentProfile } from "@/types";
 const AUTH_STORAGE_KEY = "chatpool-auth";
 const AUTH_AGENT_KEY = "chatpool-auth-agent";
 
-export const DEMO_USERNAME = "soporte";
-export const DEMO_PASSWORD = "37>MNa&-39";
-
 interface AuthState {
   isAuthenticated: boolean;
   agentId: string | null;
