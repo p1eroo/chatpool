@@ -5,7 +5,7 @@ export function pickLatestPreviewMessage(
   ...candidates: Array<Message | null | undefined>
 ): Message | null {
   const items = candidates.filter(
-    (item): item is Message => Boolean(item) && item.senderType !== "system"
+    (item): item is Message => item != null && item.senderType !== "system"
   );
   if (items.length === 0) return null;
 

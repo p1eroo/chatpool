@@ -3,7 +3,8 @@ import EmojiPicker, {
   Theme,
   type EmojiClickData,
 } from "emoji-picker-react";
-import es from "emoji-picker-react/dist/data/emojis-es";
+// Import JSON (not .ts) to avoid verbatimModuleSyntax errors in emoji-picker-react data files.
+import es from "emoji-picker-react/dist/data/emojis-es.json";
 import { useThemeStore } from "@/store/themeStore";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,7 @@ export function ComposerEmojiPicker({
         onEmojiClick={handleEmojiClick}
         theme={theme === "dark" ? Theme.DARK : Theme.LIGHT}
         emojiStyle={EmojiStyle.APPLE}
-        emojiData={es}
+        emojiData={es as never}
         lazyLoadEmojis
         width={360}
         height={420}

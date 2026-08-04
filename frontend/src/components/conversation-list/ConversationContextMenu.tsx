@@ -155,7 +155,7 @@ export function ConversationContextMenu({
     };
   }, [onClose]);
 
-  const runAction = (action: () => void | Promise<void>) => {
+  const runAction = (action: () => void | Promise<unknown>) => {
     void action();
     onClose();
   };

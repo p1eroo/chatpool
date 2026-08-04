@@ -7,6 +7,7 @@ import type {
   Contact,
   InboxSettings,
   IntegrationAccount,
+  IntegrationProvider,
 } from "@/types";
 
 export const agents: Agent[] = [

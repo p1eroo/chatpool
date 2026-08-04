@@ -22,10 +22,10 @@ export function ProfileSettingsPage() {
     setPhone(phoneToInputValue(currentAgent.phone || ""));
   }, [currentAgent]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!currentAgent || !name.trim()) return;
 
-    const ok = updateAgent(currentAgent.id, {
+    const ok = await updateAgent(currentAgent.id, {
       name: name.trim(),
       phone,
     });
