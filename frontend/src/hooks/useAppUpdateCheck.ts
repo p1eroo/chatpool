@@ -3,6 +3,7 @@ import {
   APP_BUILD_ID,
   APP_UPDATE_CHECK_EVENT,
   fetchDeployedBuildId,
+  tryClaimAppUpdateCheck,
 } from "@/config/appVersion";
 
 const DISMISS_STORAGE_KEY = "chatpool-update-dismissed-build";
@@ -28,8 +29,10 @@ export function useAppUpdateCheck() {
   const [remoteBuildId, setRemoteBuildId] = useState<string | null>(null);
   const checkingRef = useRef(false);
 
-  const checkForUpdate = useCallback(async () => {
+  const checkForUpdate = useCallback(async (options?: { force?: boolean }) => {
     if (import.meta.env.DEV || checkingRef.current) return;
+    if (!tryClaimAppUpdateCheck(options)) return;
+
     checkingRef.current = true;
 
     try {
@@ -47,7 +50,7 @@ export function useAppUpdateCheck() {
   useEffect(() => {
     if (import.meta.env.DEV) return;
 
-    void checkForUpdate();
+    void checkForUpdate({ force: true });
 
     const onVisible = () => {
       if (document.visibilityState === "visible") {
@@ -56,16 +59,15 @@ export function useAppUpdateCheck() {
     };
 
     const onRequested = () => {
-      void checkForUpdate();
+      // El throttle ya lo aplicó requestAppUpdateCheck antes de disparar el evento.
+      void checkForUpdate({ force: true });
     };
 
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
     window.addEventListener(APP_UPDATE_CHECK_EVENT, onRequested);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
       window.removeEventListener(APP_UPDATE_CHECK_EVENT, onRequested);
     };
   }, [checkForUpdate]);
