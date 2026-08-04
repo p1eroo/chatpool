@@ -1,5 +1,6 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import {
+  asciiFallbackDisplayName,
   contactAvatarInitials,
   normalizeWhatsAppWaId,
   resolveIncomingContactName,
@@ -17,32 +18,64 @@ export interface SmbContactSyncEntry {
   };
 }
 
+function prismaErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+async function createContactSafe(params: {
+  inboxId: string;
+  identityKey: string;
+  phone: string | null;
+  name: string;
+  avatar: string;
+}) {
+  return prisma.contact.create({
+    data: {
+      inboxId: params.inboxId,
+      name: params.name,
+      phone: params.phone,
+      waId: params.identityKey,
+      avatar: params.avatar,
+    },
+  });
+}
+
 export async function upsertWhatsAppContact(
   inboxId: string,
   params: {
+    /** Teléfono o BSUID/LID — clave en contacts.wa_id */
     waId: string;
     name: string;
+    /** Teléfono E.164 solo dígitos si se conoce */
+    phone?: string | null;
     touchLastSeen?: boolean;
-    /** Sync desde WhatsApp Business App: puede actualizar el nombre guardado. */
     overwriteName?: boolean;
   }
 ) {
-  const waId = normalizeWhatsAppWaId(params.waId);
-  if (!waId) return null;
+  const identityKey = params.waId.trim();
+  if (!identityKey) return null;
 
-  const incomingName = sanitizeWhatsAppDisplayName(params.name, waId);
+  const phone =
+    params.phone !== undefined && params.phone !== null
+      ? normalizeWhatsAppWaId(params.phone) || null
+      : isFinitePhone(identityKey)
+        ? identityKey
+        : null;
+
+  const incomingName = sanitizeWhatsAppDisplayName(params.name, phone || identityKey);
 
   const existing = await prisma.contact.findUnique({
     where: {
       inboxId_waId: {
         inboxId,
-        waId,
+        waId: identityKey,
       },
     },
   });
 
   if (existing) {
-    const name = resolveIncomingContactName(existing.name, incomingName, waId, {
+    const name = resolveIncomingContactName(existing.name, incomingName, identityKey, {
       allowOverwrite: params.overwriteName ?? false,
     });
 
@@ -51,67 +84,57 @@ export async function upsertWhatsAppContact(
         where: { id: existing.id },
         data: {
           name,
-          phone: waId,
+          phone: phone ?? existing.phone,
           ...(params.touchLastSeen ? { lastSeen: new Date() } : {}),
         },
       });
     } catch (error) {
-      console.error("No se pudo actualizar contacto WhatsApp:", {
-        waId,
-        name,
-        error: error instanceof Error ? error.message : error,
-      });
-      // Mejor devolver el existente que tumbar el webhook y perder el mensaje.
+      console.error(
+        `[contact.update] waId=${identityKey} name=${JSON.stringify(name)} err=${prismaErrorMessage(error)}`
+      );
       return existing;
     }
   }
 
-  const name = incomingName;
-  const avatar = contactAvatarInitials(name);
+  const attempts: Array<{ name: string; avatar: string }> = [
+    { name: incomingName, avatar: contactAvatarInitials(incomingName, phone || identityKey) },
+    {
+      name: asciiFallbackDisplayName(incomingName, phone || identityKey),
+      avatar: contactAvatarInitials(phone || identityKey, phone || identityKey),
+    },
+    {
+      name: phone || identityKey,
+      avatar: contactAvatarInitials(phone || identityKey, phone || identityKey),
+    },
+  ];
 
-  try {
-    return await prisma.contact.create({
-      data: {
+  for (const attempt of attempts) {
+    try {
+      return await createContactSafe({
         inboxId,
-        name,
-        phone: waId,
-        waId,
-        avatar,
-      },
-    });
-  } catch (error) {
-    console.error("No se pudo crear contacto WhatsApp, reintento con waId:", {
-      waId,
-      name,
-      avatar,
-      error: error instanceof Error ? error.message : error,
-    });
+        identityKey,
+        phone,
+        name: attempt.name,
+        avatar: attempt.avatar,
+      });
+    } catch (error) {
+      console.error(
+        `[contact.create] attempt name=${JSON.stringify(attempt.name)} avatar=${attempt.avatar} waId=${identityKey} err=${prismaErrorMessage(error)}`
+      );
+    }
   }
 
-  // Fallback: nombre = número (siempre ASCII seguro).
-  try {
-    return await prisma.contact.create({
-      data: {
-        inboxId,
-        name: waId,
-        phone: waId,
-        waId,
-        avatar: contactAvatarInitials(waId),
-      },
-    });
-  } catch (error) {
-    // Carrera: otro webhook lo creó entre medias.
-    const raced = await prisma.contact.findUnique({
-      where: { inboxId_waId: { inboxId, waId } },
-    });
-    if (raced) return raced;
+  const raced = await prisma.contact.findUnique({
+    where: { inboxId_waId: { inboxId, waId: identityKey } },
+  });
+  if (raced) return raced;
 
-    console.error("Fallo definitivo creando contacto WhatsApp:", {
-      waId,
-      error: error instanceof Error ? error.message : error,
-    });
-    return null;
-  }
+  console.error(`[contact.create] definitivo falló waId=${identityKey}`);
+  return null;
+}
+
+function isFinitePhone(value: string): boolean {
+  return /^\d{8,15}$/.test(value);
 }
 
 async function removeSyncedContact(inboxId: string, phoneNumber: string) {
@@ -170,6 +193,7 @@ export async function processSmbAppStateSync(
 
     const contact = await upsertWhatsAppContact(inboxId, {
       waId,
+      phone: waId,
       name,
       overwriteName: true,
     });
