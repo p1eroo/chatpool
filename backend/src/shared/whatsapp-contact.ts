@@ -24,6 +24,35 @@ export function normalizeWhatsAppIdentityKey(raw: string): string {
   return trimmed.replace(/\s+/g, "").slice(0, 128);
 }
 
+export type WhatsAppOutboundTarget =
+  | { kind: "phone"; to: string }
+  | { kind: "bsuid"; recipient: string };
+
+/**
+ * Destino de envío Cloud API:
+ * - teléfono → campo `to`
+ * - BSUID/LID → campo `recipient` (nunca digitos sueltos extraídos del BSUID)
+ */
+export function resolveWhatsAppOutboundTarget(params: {
+  waId?: string | null;
+  phone?: string | null;
+}): WhatsAppOutboundTarget {
+  const phoneCandidate = [params.phone, params.waId].find(
+    (value) => value && isWhatsAppPhoneSenderId(value)
+  );
+  if (phoneCandidate) {
+    return { kind: "phone", to: normalizeWhatsAppWaId(phoneCandidate) };
+  }
+
+  const identityRaw = (params.waId || params.phone || "").trim();
+  const identityKey = identityRaw ? normalizeWhatsAppIdentityKey(identityRaw) : "";
+  if (!identityKey) {
+    throw new Error("WHATSAPP_NO_RECIPIENT");
+  }
+
+  return { kind: "bsuid", recipient: identityKey };
+}
+
 /**
  * Limpia nombres de perfil de WhatsApp para Prisma/JSON/Postgres.
  * Conserva emojis válidos; elimina controles y surrogates rotos.

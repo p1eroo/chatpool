@@ -31,6 +31,8 @@ export interface Contact {
   name: string;
   email: string;
   phone?: string;
+  /** Teléfono o BSUID/LID de Meta (clave interna WhatsApp). */
+  waId?: string;
   avatar?: string;
   lastSeen?: Date | string;
   isBlocked?: boolean;

@@ -2,6 +2,8 @@ import { prisma } from "../../infrastructure/database/prisma.client.js";
 import {
   asciiFallbackDisplayName,
   contactAvatarInitials,
+  isWhatsAppPhoneSenderId,
+  normalizeWhatsAppIdentityKey,
   normalizeWhatsAppWaId,
   resolveIncomingContactName,
   resolveWhatsAppContactName,
@@ -44,28 +46,30 @@ async function createContactSafe(params: {
 export async function upsertWhatsAppContact(
   inboxId: string,
   params: {
-    /** Teléfono o BSUID/LID — clave en contacts.wa_id */
+    /** Teléfono o BSUID/LID — clave preferida en contacts.wa_id */
     waId: string;
     name: string;
     /** Teléfono E.164 solo dígitos si se conoce */
     phone?: string | null;
+    /** Otras claves (BSUID) para fusionar contactos creados sin teléfono */
+    alternateIdentityKeys?: string[];
     touchLastSeen?: boolean;
     overwriteName?: boolean;
   }
 ) {
-  const identityKey = params.waId.trim();
+  const identityKey = normalizeWhatsAppIdentityKey(params.waId);
   if (!identityKey) return null;
 
   const phone =
-    params.phone !== undefined && params.phone !== null
+    params.phone !== undefined && params.phone !== null && params.phone !== ""
       ? normalizeWhatsAppWaId(params.phone) || null
-      : isFinitePhone(identityKey)
+      : isWhatsAppPhoneSenderId(identityKey)
         ? identityKey
         : null;
 
   const incomingName = sanitizeWhatsAppDisplayName(params.name, phone || identityKey);
 
-  const existing = await prisma.contact.findUnique({
+  let existing = await prisma.contact.findUnique({
     where: {
       inboxId_waId: {
         inboxId,
@@ -73,6 +77,40 @@ export async function upsertWhatsAppContact(
       },
     },
   });
+
+  if (!existing && params.alternateIdentityKeys?.length) {
+    for (const alternate of params.alternateIdentityKeys) {
+      const altKey = normalizeWhatsAppIdentityKey(alternate);
+      if (!altKey || altKey === identityKey) continue;
+
+      existing = await prisma.contact.findUnique({
+        where: { inboxId_waId: { inboxId, waId: altKey } },
+      });
+      if (!existing) continue;
+
+      // Preferir teléfono como wa_id cuando Meta ya lo reveló.
+      if (phone && existing.waId !== identityKey) {
+        try {
+          return await prisma.contact.update({
+            where: { id: existing.id },
+            data: {
+              waId: identityKey,
+              phone,
+              name: resolveIncomingContactName(existing.name, incomingName, identityKey, {
+                allowOverwrite: params.overwriteName ?? false,
+              }),
+              ...(params.touchLastSeen ? { lastSeen: new Date() } : {}),
+            },
+          });
+        } catch (error) {
+          console.error(
+            `[contact.merge] no se pudo migrar waId ${existing.waId} → ${identityKey}: ${prismaErrorMessage(error)}`
+          );
+        }
+      }
+      break;
+    }
+  }
 
   if (existing) {
     const name = resolveIncomingContactName(existing.name, incomingName, identityKey, {
@@ -131,10 +169,6 @@ export async function upsertWhatsAppContact(
 
   console.error(`[contact.create] definitivo falló waId=${identityKey}`);
   return null;
-}
-
-function isFinitePhone(value: string): boolean {
-  return /^\d{8,15}$/.test(value);
 }
 
 async function removeSyncedContact(inboxId: string, phoneNumber: string) {
@@ -201,4 +235,26 @@ export async function processSmbAppStateSync(
   }
 
   return processed;
+}
+
+/** Cuando un status/webhook trae teléfono + BSUID, enriquece el contacto. */
+export async function enrichWhatsAppContactPhone(params: {
+  inboxId: string;
+  phone?: string | null;
+  userId?: string | null;
+  profileName?: string | null;
+}) {
+  const phone = params.phone && isWhatsAppPhoneSenderId(params.phone)
+    ? normalizeWhatsAppWaId(params.phone)
+    : null;
+  const userId = params.userId ? normalizeWhatsAppIdentityKey(params.userId) : null;
+  if (!phone && !userId) return;
+
+  await upsertWhatsAppContact(params.inboxId, {
+    waId: phone || userId!,
+    phone,
+    alternateIdentityKeys: userId && phone ? [userId] : undefined,
+    name: params.profileName || phone || userId || "WhatsApp",
+    touchLastSeen: false,
+  });
 }

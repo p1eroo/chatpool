@@ -80,6 +80,7 @@ export function mapContact(contact: {
   name: string;
   email: string;
   phone: string | null;
+  waId?: string | null;
   avatar: string | null;
   lastSeen: Date | null;
   isBlocked: boolean;
@@ -90,6 +91,7 @@ export function mapContact(contact: {
     name: contact.name,
     email: contact.email,
     phone: contact.phone ?? undefined,
+    waId: contact.waId ?? undefined,
     avatar: contact.avatar ?? undefined,
     lastSeen: contact.lastSeen ?? undefined,
     isBlocked: contact.isBlocked,

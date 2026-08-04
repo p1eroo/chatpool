@@ -11,6 +11,7 @@ import {
 } from "../media/meta-media.service.js";
 import { messageInclude } from "../mappers.js";
 import {
+  enrichWhatsAppContactPhone,
   processSmbAppStateSync,
   upsertWhatsAppContact,
 } from "../contacts/whatsapp-contact-sync.service.js";
@@ -69,6 +70,7 @@ interface MetaWebhookPayload {
           status?: string;
           timestamp?: string;
           recipient_id?: string;
+          recipient_user_id?: string;
         }>;
         state_sync?: Array<{
           type?: string;
@@ -118,6 +120,7 @@ type MetaStatusEvent = {
   status?: string;
   timestamp?: string;
   recipient_id?: string;
+  recipient_user_id?: string;
 };
 
 function mapMetaDeliveryStatus(status?: string): "sent" | "delivered" | "read" | "failed" | null {
@@ -127,7 +130,11 @@ function mapMetaDeliveryStatus(status?: string): "sent" | "delivered" | "read" |
   return null;
 }
 
-async function processMetaMessageStatuses(statuses: MetaStatusEvent[] | undefined): Promise<number> {
+async function processMetaMessageStatuses(
+  inboxId: string,
+  statuses: MetaStatusEvent[] | undefined,
+  contacts?: MetaWebhookContact[]
+): Promise<number> {
   let processed = 0;
 
   for (const statusEvent of statuses ?? []) {
@@ -151,6 +158,25 @@ async function processMetaMessageStatuses(statuses: MetaStatusEvent[] | undefine
 
     await emitMessageUpdated(message.conversationId, message.id, updated);
     processed += 1;
+  }
+
+  // Enriquecer teléfono si Meta lo revela en statuses (envíos a BSUID).
+  for (const contact of contacts ?? []) {
+    await enrichWhatsAppContactPhone({
+      inboxId,
+      phone: contact.wa_id,
+      userId: contact.user_id,
+      profileName: contact.profile?.name,
+    });
+  }
+
+  for (const statusEvent of statuses ?? []) {
+    if (!statusEvent.recipient_id && !statusEvent.recipient_user_id) continue;
+    await enrichWhatsAppContactPhone({
+      inboxId,
+      phone: statusEvent.recipient_id,
+      userId: statusEvent.recipient_user_id,
+    });
   }
 
   return processed;
@@ -247,7 +273,11 @@ export async function processMetaWebhookPayload(
 
       const accessToken = settings.accessToken?.trim() || null;
 
-      processed += await processMetaMessageStatuses(value.statuses);
+      processed += await processMetaMessageStatuses(
+        settings.inboxId,
+        value.statuses,
+        value.contacts
+      );
 
       for (const message of value.messages ?? []) {
         if (!message.id) continue;
@@ -278,9 +308,16 @@ export async function processMetaWebhookPayload(
             identity.phone || identity.identityKey
           );
 
+          const alternateIdentityKeys = [
+            message.from_user_id,
+            matchedContact?.user_id,
+            message.from && message.from !== identity.identityKey ? message.from : null,
+          ].filter((value): value is string => Boolean(value?.trim()));
+
           const contact = await upsertWhatsAppContact(settings.inboxId, {
             waId: identity.identityKey,
             phone: identity.phone,
+            alternateIdentityKeys,
             name: contactName,
             touchLastSeen: true,
           });

@@ -32,7 +32,10 @@ interface MetaUploadMediaResponse {
 }
 
 export type WhatsAppOutboundPayload = {
-  to: string;
+  /** Teléfono E.164 (dígitos). Preferido cuando existe. */
+  to?: string;
+  /** BSUID / parent BSUID cuando no hay teléfono (usernames Meta). */
+  recipient?: string;
   context?: { message_id: string };
   type: "text" | "image" | "document" | "audio" | "video";
   text?: { body: string; preview_url?: boolean };
@@ -154,6 +157,10 @@ export class MetaApiClient {
     accessToken: string,
     payload: WhatsAppOutboundPayload
   ): Promise<string> {
+    if (!payload.to && !payload.recipient) {
+      throw new Error("Falta destinatario WhatsApp (to o recipient)");
+    }
+
     const url = `${this.baseUrl}/${phoneNumberId}/messages`;
     const response = await fetch(url, {
       method: "POST",

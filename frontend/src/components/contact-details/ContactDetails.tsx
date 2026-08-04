@@ -231,12 +231,24 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
 
   return (
     <div className="px-4 py-4 border-b border-[var(--color-border-primary)] space-y-3">
-      {contact.phone && (
+      {contact.phone ? (
         <div className="flex items-center gap-2.5 text-[13px] text-[var(--color-text-secondary)]">
           <Phone className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
           <span>{contact.phone}</span>
         </div>
-      )}
+      ) : contact.waId ? (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 text-[13px] text-[var(--color-text-secondary)]">
+            <Phone className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
+            <span className="truncate" title={contact.waId}>
+              ID WhatsApp (sin número)
+            </span>
+          </div>
+          <p className="text-[11px] leading-snug text-[var(--color-text-muted)] pl-6">
+            Este contacto usa username de WhatsApp. Las respuestas van por ID de Meta; si fallan, pide que comparta su número.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-3 text-[13px]">
         <span className="text-[var(--color-text-muted)]">Canal</span>

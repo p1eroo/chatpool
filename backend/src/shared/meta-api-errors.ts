@@ -71,6 +71,14 @@ export function resolveMetaSendFailure(error: unknown): {
     };
   }
 
+  if (/\(131062\)|business-scoped user id|bsuid recipients are not supported/i.test(detail)) {
+    return {
+      code: "META_BSUID_UNSUPPORTED",
+      message:
+        "Meta no aceptó el envío por ID de usuario (username). El contacto debe compartir su número o escribir desde una cuenta con teléfono visible.",
+    };
+  }
+
   return {
     code: "META_SEND_FAILED",
     message: `No se pudo enviar el mensaje por WhatsApp: ${detail}`,

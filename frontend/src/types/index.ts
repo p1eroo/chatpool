@@ -93,6 +93,8 @@ export interface Contact {
   name: string;
   email: string;
   phone?: string;
+  /** Teléfono o BSUID/LID de Meta. */
+  waId?: string;
   avatar?: string;
   lastSeen?: Date;
   isBlocked?: boolean;

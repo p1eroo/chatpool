@@ -3,21 +3,7 @@ import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { metaApiClient } from "../../infrastructure/meta/meta-api.client.js";
 import { AppError } from "../../domain/errors.js";
 import { resolveMetaSendFailure } from "../../shared/meta-api-errors.js";
-
-function normalizeWhatsAppRecipient(
-  waId: string | null | undefined,
-  phone: string | null | undefined
-): string {
-  const raw = (waId || phone || "").replace(/\D/g, "");
-  if (!raw) {
-    throw new AppError(
-      "El contacto no tiene número de WhatsApp válido",
-      422,
-      "WHATSAPP_NO_RECIPIENT"
-    );
-  }
-  return raw;
-}
+import { resolveWhatsAppOutboundTarget } from "../../shared/whatsapp-contact.js";
 
 async function resolveInboxWhatsAppCredentials(inboxId: string) {
   const settings = await prisma.inboxSettings.findUnique({
@@ -44,6 +30,24 @@ function buildReplyContext(replyToExternalId?: string | null) {
   return { message_id: messageId };
 }
 
+function resolveRecipientOrThrow(
+  recipientWaId: string | null | undefined,
+  recipientPhone: string | null | undefined
+) {
+  try {
+    return resolveWhatsAppOutboundTarget({
+      waId: recipientWaId,
+      phone: recipientPhone,
+    });
+  } catch {
+    throw new AppError(
+      "Este contacto no tiene teléfono ni ID de WhatsApp válido para responder. Pide que escriba de nuevo o comparta su número.",
+      422,
+      "WHATSAPP_NO_RECIPIENT"
+    );
+  }
+}
+
 export async function deliverWhatsAppOutbound(params: {
   inboxId: string;
   recipientWaId: string | null;
@@ -56,13 +60,17 @@ export async function deliverWhatsAppOutbound(params: {
   replyToExternalId?: string | null;
 }): Promise<{ externalId: string; mediaExternalId?: string }> {
   const { phoneNumberId, accessToken } = await resolveInboxWhatsAppCredentials(params.inboxId);
-  const to = normalizeWhatsAppRecipient(params.recipientWaId, params.recipientPhone);
+  const target = resolveRecipientOrThrow(params.recipientWaId, params.recipientPhone);
   const context = buildReplyContext(params.replyToExternalId);
+  const addressing =
+    target.kind === "phone"
+      ? { to: target.to }
+      : { recipient: target.recipient };
 
   try {
     if (params.contentType === "text") {
       const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
-        to,
+        ...addressing,
         context,
         type: "text",
         text: { body: params.content, preview_url: false },
@@ -87,7 +95,7 @@ export async function deliverWhatsAppOutbound(params: {
 
     if (params.contentType === "image") {
       const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
-        to,
+        ...addressing,
         context,
         type: "image",
         image: { id: mediaExternalId, caption: captionOrUndefined },
@@ -97,7 +105,7 @@ export async function deliverWhatsAppOutbound(params: {
 
     if (params.contentType === "audio") {
       const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
-        to,
+        ...addressing,
         context,
         type: "audio",
         audio: { id: mediaExternalId },
@@ -106,7 +114,7 @@ export async function deliverWhatsAppOutbound(params: {
     }
 
     const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
-      to,
+      ...addressing,
       context,
       type: "document",
       document: {
