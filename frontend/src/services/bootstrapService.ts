@@ -1,3 +1,4 @@
+import { isApiError } from "@/api/errors";
 import { env } from "@/config/env";
 import { agentApiService } from "@/services/agentApiService";
 import { authService } from "@/services/authService";
@@ -13,6 +14,19 @@ import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useLabelStore } from "@/store/labelStore";
 import { useRoleStore } from "@/store/roleStore";
+import type { Role } from "@/types";
+
+async function fetchRolesForBootstrap(): Promise<Role[]> {
+  try {
+    return await roleApiService.list();
+  } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      console.warn("[bootstrap] GET /roles no disponible (API desactualizada); continuando sin lista de roles");
+      return [];
+    }
+    throw error;
+  }
+}
 
 async function fetchInboxConversations(inboxId: string | null) {
   return conversationApiService.list({
@@ -44,7 +58,7 @@ export async function bootstrapAppData(): Promise<void> {
     inboxApiService.listInboxes(),
     inboxApiService.listSettings(),
     labelApiService.listAll(),
-    roleApiService.list(),
+    fetchRolesForBootstrap(),
     authService.getMe(),
   ]);
 

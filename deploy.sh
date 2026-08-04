@@ -104,17 +104,45 @@ info "Compilando con memoria extendida..."
 NODE_OPTIONS="--max-old-space-size=4096" npm run build 2>&1 | tail -5
 ok "Backend compilado"
 
+ROLES_ROUTE="$SCRIPT_DIR/backend/dist/presentation/http/routes/roles.routes.js"
+if [ ! -f "$ROLES_ROUTE" ]; then
+  fail "Build incompleto: falta roles.routes.js (revisa git pull y npm run build)"
+  exit 1
+fi
+ok "Ruta /roles presente en dist"
+
 # ============================================================
 header "Reiniciando servicio"
 
+BACKEND_CWD="$SCRIPT_DIR/backend"
+PM2_CWD=""
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
-  pm2 restart "$PM2_APP"
-  ok "${PM2_APP} reiniciado"
+  PM2_CWD="$(pm2 jlist 2>/dev/null | node -e "
+    let data = '';
+    process.stdin.on('data', (c) => { data += c; });
+    process.stdin.on('end', () => {
+      try {
+        const apps = JSON.parse(data || '[]');
+        const app = apps.find((item) => item.name === process.argv[1]);
+        process.stdout.write(app?.pm2_env?.pm_cwd ?? '');
+      } catch { process.stdout.write(''); }
+    });
+  " "$PM2_APP")"
+fi
+
+if [ -n "$PM2_CWD" ] && [ "$PM2_CWD" != "$BACKEND_CWD" ]; then
+  warn "${PM2_APP} corría desde ${PM2_CWD}; recreando en ${BACKEND_CWD}"
+  pm2 delete "$PM2_APP" >/dev/null
+fi
+
+if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
+  pm2 restart "$PM2_APP" --update-env
+  ok "${PM2_APP} reiniciado (${BACKEND_CWD})"
 else
   warn "${PM2_APP} no existe en PM2; iniciando..."
-  pm2 start dist/index.js --name "$PM2_APP" --cwd "$SCRIPT_DIR/backend"
+  pm2 start dist/index.js --name "$PM2_APP" --cwd "$BACKEND_CWD"
   pm2 save
-  ok "${PM2_APP} iniciado"
+  ok "${PM2_APP} iniciado (${BACKEND_CWD})"
 fi
 
 # ============================================================
@@ -129,6 +157,17 @@ if curl -sf "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
 else
   warn "Backend no responde aún"
   info "Logs: pm2 logs ${PM2_APP}"
+fi
+
+ROLES_STATUS="$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/roles" 2>/dev/null || echo "000")"
+if [ "$ROLES_STATUS" = "401" ] || [ "$ROLES_STATUS" = "403" ]; then
+  ok "GET /roles registrado (HTTP ${ROLES_STATUS} sin token)"
+elif [ "$ROLES_STATUS" = "404" ]; then
+  fail "GET /roles devuelve 404: PM2 sigue sirviendo código viejo"
+  info "Revisa: pm2 describe ${PM2_APP}  |  ls -la ${BACKEND_CWD}/dist/presentation/http/routes/"
+  exit 1
+else
+  warn "GET /roles respondió HTTP ${ROLES_STATUS} (esperado 401 sin token)"
 fi
 
 # ============================================================

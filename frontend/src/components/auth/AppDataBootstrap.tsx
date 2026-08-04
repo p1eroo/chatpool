@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isApiError } from "@/api/errors";
 import { env } from "@/config/env";
 import { bootstrapAppData } from "@/services/bootstrapService";
 import { useAuthStore } from "@/store/authStore";
@@ -16,8 +17,12 @@ export function AppDataBootstrap({ children }: { children: React.ReactNode }) {
 
     setReady(false);
     void bootstrapAppData()
-      .catch(() => {
-        useAuthStore.getState().forceLogout("SESSION_EXPIRED");
+      .catch((error) => {
+        if (isApiError(error) && error.status === 401) {
+          useAuthStore.getState().forceLogout("SESSION_EXPIRED");
+        } else {
+          console.error("[bootstrap] Error cargando datos de la app", error);
+        }
       })
       .finally(() => setReady(true));
   }, [isAuthenticated]);
