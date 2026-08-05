@@ -2,7 +2,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { cn, formatTime } from "@/lib/utils";
 import { stripWhatsAppFormatting } from "@/lib/whatsappFormatting";
-import { LastMessageDeliveryIcon } from "@/components/conversation-list/LastMessageDeliveryIcon";
+import { LastMessageDirectionIcon } from "@/components/conversation-list/LastMessageDirectionIcon";
 import type { Conversation } from "@/types";
 import {
   MessageCircle,
@@ -110,7 +110,7 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
                 )}
               >
                 {lastMessage && !lastMessage.isPrivate && (
-                  <LastMessageDeliveryIcon message={lastMessage} />
+                  <LastMessageDirectionIcon message={lastMessage} />
                 )}
                 <span className="truncate">
                   {lastMessage
