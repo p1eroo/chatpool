@@ -2,6 +2,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { cn, formatTime } from "@/lib/utils";
 import { stripWhatsAppFormatting } from "@/lib/whatsappFormatting";
+import { LastMessageDeliveryIcon } from "@/components/conversation-list/LastMessageDeliveryIcon";
 import type { Conversation } from "@/types";
 import {
   MessageCircle,
@@ -102,17 +103,22 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
             ) : (
               <p
                 className={cn(
-                  "text-xs truncate flex-1",
+                  "text-xs truncate flex-1 flex items-center gap-1 min-w-0",
                   unreadCount > 0
                     ? "text-[var(--color-text-primary)] font-medium"
                     : "text-[var(--color-text-secondary)]"
                 )}
               >
-                {lastMessage
-                  ? lastMessage.isPrivate
-                    ? "📝 Nota privada"
-                    : stripWhatsAppFormatting(lastMessage.content)
-                  : "Sin mensajes"}
+                {lastMessage && !lastMessage.isPrivate && (
+                  <LastMessageDeliveryIcon message={lastMessage} />
+                )}
+                <span className="truncate">
+                  {lastMessage
+                    ? lastMessage.isPrivate
+                      ? "📝 Nota privada"
+                      : stripWhatsAppFormatting(lastMessage.content)
+                    : "Sin mensajes"}
+                </span>
               </p>
             )}
           </div>

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
-import { getClipboardAttachmentFile, isAcceptedAttachmentFile } from "@/lib/attachmentUtils";
+import { getClipboardAttachmentFile, mergePendingAttachments } from "@/lib/attachmentUtils";
+import { ComposerPendingAttachments, type ComposerPendingAttachment } from "@/components/chat/ComposerPendingAttachments";
 import { cn } from "@/lib/utils";
 import { VoiceRecorderBar } from "@/components/chat/VoiceRecorderBar";
 import { ComposerEmojiPicker } from "@/components/chat/ComposerEmojiPicker";
 import { CannedResponsesModal } from "@/components/chat/CannedResponsesModal";
 import { CannedSlashMenu } from "@/components/chat/CannedSlashMenu";
-import { FileAttachmentCard } from "@/components/chat/FileAttachmentCard";
 import { WhatsAppTemplateList } from "@/components/chat/WhatsAppTemplateList";
 import { WhatsAppTemplateParamForm } from "@/components/chat/WhatsAppTemplateParamForm";
 import { StickerPickerPopover } from "@/components/chat/StickerPickerPopover";
@@ -40,9 +40,14 @@ import {
   Plus,
 } from "lucide-react";
 
-interface PendingAttachment {
-  file: File;
-  url: string;
+interface PendingAttachment extends ComposerPendingAttachment {}
+
+function createPendingAttachment(file: File): PendingAttachment {
+  return {
+    id: `pending-file-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    file,
+    url: URL.createObjectURL(file),
+  };
 }
 
 type PopoverId = "emoji" | "template" | "sticker" | null;
@@ -85,7 +90,7 @@ export function ChatComposer() {
   );
   const [sendingTemplate, setSendingTemplate] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [slashCursor, setSlashCursor] = useState(0);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
@@ -96,9 +101,9 @@ export function ChatComposer() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
-  const pendingAttachmentRef = useRef<PendingAttachment | null>(null);
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
 
-  pendingAttachmentRef.current = pendingAttachment;
+  pendingAttachmentsRef.current = pendingAttachments;
 
   useEffect(() => {
     if (replyToMessage || noteAboutMessage) {
@@ -119,16 +124,13 @@ export function ChatComposer() {
     setSlashCursor(0);
     setSlashActiveIndex(0);
     setSlashMenuDismissed(false);
-    setPendingAttachment((prev) => {
-      if (prev?.url) URL.revokeObjectURL(prev.url);
-      return null;
-    });
+    revokePendingAttachments(pendingAttachmentsRef.current);
+    setPendingAttachments([]);
   }, [activeConversationId, setReplyToMessage, setNoteAboutMessage]);
 
   useEffect(() => {
     return () => {
-      const pending = pendingAttachmentRef.current;
-      if (pending?.url) URL.revokeObjectURL(pending.url);
+      revokePendingAttachments(pendingAttachmentsRef.current);
     };
   }, []);
 
@@ -144,21 +146,43 @@ export function ChatComposer() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const stageFile = useCallback(
-    (file: File) => {
-      if (!activeConversationId) return false;
-      if (noteAboutMessage) return false;
-      if (!isAcceptedAttachmentFile(file)) return false;
+  function revokePendingAttachments(items: PendingAttachment[]) {
+    for (const item of items) {
+      if (item.url) URL.revokeObjectURL(item.url);
+    }
+  }
 
-      setPendingAttachment((prev) => {
-        if (prev?.url) URL.revokeObjectURL(prev.url);
-        return { file, url: URL.createObjectURL(file) };
+  const stageFiles = useCallback(
+    (files: File[]) => {
+      if (!activeConversationId || files.length === 0) return false;
+      if (noteAboutMessage) return false;
+
+      const currentFiles = pendingAttachmentsRef.current.map((item) => item.file);
+      const result = mergePendingAttachments(currentFiles, files);
+
+      if (!result.ok) {
+        showToast(result.reason);
+        return false;
+      }
+
+      if (result.truncated) {
+        showToast(`Solo se adjuntaron ${result.files.length} imágenes (máximo por envío)`);
+      }
+
+      setPendingAttachments((prev) => {
+        revokePendingAttachments(prev);
+        return result.files.map(createPendingAttachment);
       });
       setActivePopover(null);
       textareaRef.current?.focus();
       return true;
     },
-    [activeConversationId, noteAboutMessage]
+    [activeConversationId, noteAboutMessage, showToast]
+  );
+
+  const stageFile = useCallback(
+    (file: File) => stageFiles([file]),
+    [stageFiles]
   );
 
   const handlePaste = useCallback(
@@ -251,21 +275,31 @@ export function ChatComposer() {
     if (!activeConversationId || sendingTemplate) return;
 
     const caption = content.trim();
-    const attachment = pendingAttachment;
+    const attachments = pendingAttachments;
 
-    if (attachment) {
-      const { file } = attachment;
-      const isImage = file.type.startsWith("image/");
+    if (attachments.length > 0) {
+      const replyId = replyToMessage?.id;
 
-      sendMessage(activeConversationId, caption || file.name, false, {
-        replyToMessageId: replyToMessage?.id,
-        contentType: isImage ? "image" : "file",
-        fileName: file.name,
-        fileSize: file.size,
-        file,
+      attachments.forEach((attachment, index) => {
+        const { file } = attachment;
+        const isImage = file.type.startsWith("image/");
+
+        sendMessage(
+          activeConversationId,
+          index === 0 ? caption || file.name : file.name,
+          false,
+          {
+            replyToMessageId: index === 0 ? replyId : undefined,
+            contentType: isImage ? "image" : "file",
+            fileName: file.name,
+            fileSize: file.size,
+            file,
+          }
+        );
       });
 
-      setPendingAttachment(null);
+      revokePendingAttachments(attachments);
+      setPendingAttachments([]);
       setContent("");
       setReplyToMessage(null);
       setNoteAboutMessage(null);
@@ -292,7 +326,7 @@ export function ChatComposer() {
     activeConversationId,
     noteAboutMessage,
     replyToMessage,
-    pendingAttachment,
+    pendingAttachments,
     sendMessage,
     sendingTemplate,
     setReplyToMessage,
@@ -483,24 +517,29 @@ export function ChatComposer() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
 
-    if (!stageFile(file)) {
+    if (!stageFiles(files)) {
       showToast("No se puede adjuntar este archivo");
     }
 
     e.target.value = "";
   };
 
-  const clearPendingAttachment = () => {
-    setPendingAttachment((prev) => {
-      if (prev?.url) URL.revokeObjectURL(prev.url);
-      return null;
+  const removePendingAttachment = (id: string) => {
+    setPendingAttachments((prev) => {
+      const removed = prev.find((item) => item.id === id);
+      if (removed?.url) URL.revokeObjectURL(removed.url);
+      return prev.filter((item) => item.id !== id);
     });
   };
 
-  const canSend = !sendingTemplate && Boolean(content.trim() || pendingAttachment);
+  const openAddImages = () => {
+    fileInputRef.current?.click();
+  };
+
+  const canSend = !sendingTemplate && Boolean(content.trim() || pendingAttachments.length > 0);
 
   const togglePopover = (id: PopoverId) => {
     setMoreOpen(false);
@@ -573,6 +612,7 @@ export function ChatComposer() {
         ref={fileInputRef}
         type="file"
         className="hidden"
+        multiple
         accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
         onChange={handleFileChange}
       />
@@ -665,33 +705,12 @@ export function ChatComposer() {
         </div>
       )}
 
-      {pendingAttachment && !isRecording && (
-        <div className="mb-2 px-1">
-          {pendingAttachment.file.type.startsWith("image/") ? (
-            <div className="relative inline-block">
-              <img
-                src={pendingAttachment.url}
-                alt={pendingAttachment.file.name}
-                className="max-h-32 max-w-[220px] rounded-xl border border-[var(--color-border-primary)] object-cover"
-              />
-              <button
-                type="button"
-                onClick={clearPendingAttachment}
-                className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
-                title="Quitar archivo"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <FileAttachmentCard
-              fileName={pendingAttachment.file.name}
-              fileSize={pendingAttachment.file.size}
-              variant="composer"
-              onRemove={clearPendingAttachment}
-            />
-          )}
-        </div>
+      {pendingAttachments.length > 0 && !isRecording && (
+        <ComposerPendingAttachments
+          attachments={pendingAttachments}
+          onRemove={removePendingAttachment}
+          onAddImages={openAddImages}
+        />
       )}
 
       {isRecording ? (
@@ -789,15 +808,24 @@ export function ChatComposer() {
                 type="button"
                 onClick={handleSend}
                 disabled={!canSend}
-                title="Enviar mensaje"
+                title={
+                  pendingAttachments.length > 1
+                    ? `Enviar ${pendingAttachments.length} imágenes`
+                    : "Enviar mensaje"
+                }
                 className={cn(
-                  "w-10 h-10 flex items-center justify-center rounded-xl text-white transition-all shrink-0",
+                  "relative w-10 h-10 flex items-center justify-center rounded-xl text-white transition-all shrink-0",
                   !canSend
                     ? "bg-[var(--color-brand)]/40 cursor-not-allowed"
                     : "bg-[var(--color-brand)] hover:bg-[var(--color-brand-light)] active:scale-95"
                 )}
               >
                 <Send className="w-5 h-5" />
+                {pendingAttachments.length > 1 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-[10px] font-bold leading-[18px] text-[var(--color-brand)] shadow-sm">
+                    {pendingAttachments.length}
+                  </span>
+                )}
               </button>
             </div>
 
