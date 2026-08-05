@@ -18,7 +18,8 @@ export function computeInboundQueueSortKey(
   const base = metaTimestampSortBase(metaTimestamp) ?? Math.floor(Date.now() / 1000);
   const cappedIndex = Math.min(Math.max(batchIndex, 0), 999);
   const seq = arrivalCounter++ % 1000;
-  return base * 1_000_000 + cappedIndex * 1_000 + seq;
+  // Solo orden en memoria (JS number); no se persiste en sort_order.
+  return base * 10_000 + cappedIndex * 10 + seq;
 }
 
 async function drainInboundQueue(key: string): Promise<void> {

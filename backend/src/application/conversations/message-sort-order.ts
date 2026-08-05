@@ -3,41 +3,25 @@ import { prisma } from "../../infrastructure/database/prisma.client.js";
 
 type PrismaClientLike = Pick<typeof prisma, "message">;
 
-const META_SORT_INDEX_CAP = 999;
-
+/** Segundos Unix de Meta (solo para ordenar la cola en memoria, no para DB). */
 export function metaTimestampSortBase(timestamp?: string): number | null {
   if (!timestamp) return null;
   const seconds = Number.parseInt(timestamp, 10);
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
-  return seconds * 1000;
+  return seconds;
 }
 
-/** Orden preferido por timestamp Meta + índice en batch; monótono respecto al chat. */
+/**
+ * sort_order en Postgres es INTEGER (max ~2.1e9); no cabe timestamp×1000.
+ * El orden en ráfaga lo garantiza la cola FIFO por contacto → max+1 basta.
+ */
 export async function computeInboundMessageSortOrder(
   conversationId: string,
-  metaTimestamp: string | undefined,
-  batchIndex: number,
+  _metaTimestamp?: string,
+  _batchIndex?: number,
   client: PrismaClientLike = prisma
 ): Promise<number> {
-  const cappedIndex = Math.min(Math.max(batchIndex, 0), META_SORT_INDEX_CAP);
-  const base = metaTimestampSortBase(metaTimestamp);
-
-  const result = await client.message.aggregate({
-    where: { conversationId },
-    _max: { sortOrder: true },
-  });
-  const currentMax = result._max.sortOrder ?? 0;
-
-  if (base == null) {
-    return currentMax + 1;
-  }
-
-  const preferred = base + cappedIndex;
-  if (preferred > currentMax) {
-    return preferred;
-  }
-
-  return currentMax + 1;
+  return nextMessageSortOrder(conversationId, client);
 }
 
 export async function nextMessageSortOrder(
