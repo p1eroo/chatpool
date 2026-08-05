@@ -7,6 +7,7 @@ import {
 } from "@/config/appVersion";
 
 const DISMISS_STORAGE_KEY = "chatpool-update-dismissed-build";
+export const APP_UPDATE_AUTO_RELOAD_SECONDS = 5;
 
 function readDismissedBuildId(): string | null {
   try {
@@ -16,18 +17,30 @@ function readDismissedBuildId(): string | null {
   }
 }
 
-function persistDismissedBuildId(buildId: string) {
-  try {
-    sessionStorage.setItem(DISMISS_STORAGE_KEY, buildId);
-  } catch {
-    // ignore quota / private mode
-  }
+function isMockUpdatePreview(): boolean {
+  if (!import.meta.env.DEV) return false;
+  return new URLSearchParams(window.location.search).has("mockUpdate");
 }
 
 export function useAppUpdateCheck() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [remoteBuildId, setRemoteBuildId] = useState<string | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [isMockPreview] = useState(isMockUpdatePreview);
   const checkingRef = useRef(false);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearCountdown = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+  }, []);
+
+  const reload = useCallback(() => {
+    clearCountdown();
+    window.location.reload();
+  }, [clearCountdown]);
 
   const checkForUpdate = useCallback(async (options?: { force?: boolean }) => {
     if (import.meta.env.DEV || checkingRef.current) return;
@@ -48,6 +61,12 @@ export function useAppUpdateCheck() {
   }, []);
 
   useEffect(() => {
+    if (isMockPreview) {
+      setRemoteBuildId("mock-preview");
+      setUpdateAvailable(true);
+      return;
+    }
+
     if (import.meta.env.DEV) return;
 
     void checkForUpdate({ force: true });
@@ -59,7 +78,6 @@ export function useAppUpdateCheck() {
     };
 
     const onRequested = () => {
-      // El throttle ya lo aplicó requestAppUpdateCheck antes de disparar el evento.
       void checkForUpdate({ force: true });
     };
 
@@ -70,18 +88,29 @@ export function useAppUpdateCheck() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener(APP_UPDATE_CHECK_EVENT, onRequested);
     };
-  }, [checkForUpdate]);
+  }, [checkForUpdate, isMockPreview]);
 
-  const dismiss = useCallback(() => {
-    if (remoteBuildId) {
-      persistDismissedBuildId(remoteBuildId);
+  useEffect(() => {
+    if (!updateAvailable) {
+      setSecondsRemaining(null);
+      clearCountdown();
+      return;
     }
-    setUpdateAvailable(false);
-  }, [remoteBuildId]);
 
-  const reload = useCallback(() => {
-    window.location.reload();
-  }, []);
+    let remaining = APP_UPDATE_AUTO_RELOAD_SECONDS;
+    setSecondsRemaining(remaining);
 
-  return { updateAvailable, dismiss, reload };
+    countdownRef.current = setInterval(() => {
+      remaining -= 1;
+      setSecondsRemaining(remaining);
+      if (remaining <= 0) {
+        clearCountdown();
+        window.location.reload();
+      }
+    }, 1000);
+
+    return clearCountdown;
+  }, [updateAvailable, clearCountdown]);
+
+  return { updateAvailable, reload, secondsRemaining, isMockPreview };
 }

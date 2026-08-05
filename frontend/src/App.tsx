@@ -24,7 +24,7 @@ import { RolesSettingsPage } from "@/pages/settings/roles/RolesSettingsPage";
 import { IntegrationsSettingsPage } from "@/pages/settings/integrations/IntegrationsSettingsPage";
 import { ProfileSettingsPage } from "@/pages/profile/ProfileSettingsPage";
 import { BrowserNotificationsBridge } from "@/components/notifications/BrowserNotificationsBridge";
-import { AppUpdateBanner } from "@/components/system/AppUpdateBanner";
+import { AppUpdateModal } from "@/components/system/AppUpdateModal";
 import { RealtimeProvider } from "@/providers/RealtimeProvider";
 
 function FallbackRedirect() {
@@ -38,7 +38,7 @@ export default function App() {
       <AuthSessionProvider>
         <RealtimeProvider>
         <BrowserNotificationsBridge />
-        <AppUpdateBanner />
+        <AppUpdateModal />
         <Routes>
         <Route element={<PublicAuthRoute />}>
           <Route path="/login" element={<LoginPage />} />
