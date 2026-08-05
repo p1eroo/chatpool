@@ -1,20 +1,28 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import {
   broadcastMessageCreated,
-  conversationRealtimeInclude,
   emitMessageUpdated,
 } from "../realtime/realtime.service.js";
+import {
+  conversationMessageEmitSelect,
+  mapConversationMessageEmit,
+  messageCreateInclude,
+} from "../realtime/conversation-realtime-emit.js";
 import { resolveMetaApiFailure } from "../../shared/meta-api-errors.js";
 import {
   downloadAndStoreMetaMedia,
   parseIncomingMetaMedia,
 } from "../media/meta-media.service.js";
-import { mapConversation, mapMessage, messageInclude } from "../mappers.js";
+import { mapMessage, messageInclude } from "../mappers.js";
 import {
   enrichWhatsAppContactPhone,
   processSmbAppStateSync,
   upsertWhatsAppContact,
 } from "../contacts/whatsapp-contact-sync.service.js";
+import {
+  getInboundContactContext,
+  setInboundContactContext,
+} from "../contacts/inbound-contact-context-cache.js";
 import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
 import {
   computeInboundQueueSortKey,
@@ -306,26 +314,53 @@ async function processInboundMetaMessage(params: {
 
   if (contact.isBlocked) return null;
 
-  const { conversation } = await findOrReopenConversationForContact({
-    inboxId: settings.inboxId,
-    contactId: contact.id,
-  });
+  const cachedContext = getInboundContactContext(settings.inboxId, identity.identityKey);
 
-  const existing = await prisma.message.findUnique({
-    where: { externalId: message.id },
-  });
+  const resolveConversation = async (): Promise<string> => {
+    if (cachedContext && cachedContext.contactId === contact.id) {
+      return cachedContext.conversationId;
+    }
+
+    const { conversation } = await findOrReopenConversationForContact({
+      inboxId: settings.inboxId,
+      contactId: contact.id,
+    });
+
+    const conversationBase = await prisma.conversation.findUnique({
+      where: { id: conversation.id },
+      select: conversationMessageEmitSelect,
+    });
+
+    if (conversationBase) {
+      setInboundContactContext({
+        inboxId: settings.inboxId,
+        identityKey: identity.identityKey,
+        contactId: contact.id,
+        contactName,
+        conversationId: conversation.id,
+        conversationBase,
+      });
+    }
+
+    return conversation.id;
+  };
+
+  const [conversationId, existing, replyTarget] = await Promise.all([
+    resolveConversation(),
+    prisma.message.findUnique({ where: { externalId: message.id } }),
+    message.context?.id
+      ? prisma.message.findUnique({
+          where: { externalId: message.context.id },
+          select: { id: true, conversationId: true },
+        })
+      : Promise.resolve(null),
+  ]);
 
   if (existing) return null;
 
   let replyToMessageId: string | null = null;
-  if (message.context?.id) {
-    const replied = await prisma.message.findUnique({
-      where: { externalId: message.context.id },
-      select: { id: true, conversationId: true },
-    });
-    if (replied?.conversationId === conversation.id) {
-      replyToMessageId = replied.id;
-    }
+  if (replyTarget?.conversationId === conversationId) {
+    replyToMessageId = replyTarget.id;
   }
 
   const parsed = parseIncomingMetaMedia(message.type, message.id, message);
@@ -347,17 +382,17 @@ async function processInboundMetaMessage(params: {
   const messageAt = parseMetaMessageTimestamp(message.timestamp);
 
   const { createdMessage } = await runWithConversationMessageLock(
-    conversation.id,
+    conversationId,
     async () => {
       const sortOrder = await computeInboundMessageSortOrder(
-        conversation.id,
+        conversationId,
         message.timestamp,
         batchIndex
       );
 
       const created = await prisma.message.create({
         data: {
-          conversationId: conversation.id,
+          conversationId,
           content,
           senderType: "contact",
           senderContactId: contact.id,
@@ -374,30 +409,33 @@ async function processInboundMetaMessage(params: {
           createdAt: messageAt,
           sortOrder,
         },
-        include: messageInclude,
+        include: messageCreateInclude(replyToMessageId),
       });
 
       const conversationRow = await prisma.conversation.update({
-        where: { id: conversation.id },
+        where: { id: conversationId },
         data: {
           unreadCount: { increment: 1 },
           lastMessageAt: messageAt,
         },
-        include: conversationRealtimeInclude,
+        select: conversationMessageEmitSelect,
       });
 
-      broadcastMessageCreated(mapMessage(created), mapConversation(conversationRow));
+      broadcastMessageCreated(
+        mapMessage(created),
+        mapConversationMessageEmit(conversationRow, created)
+      );
 
       return { createdMessage: created };
     }
   );
 
-  noteContactMessageAt(conversation.id, messageAt);
+  noteContactMessageAt(conversationId, messageAt);
 
   if (shouldHydrateMedia && parsed?.mediaId && accessToken) {
-    scheduleIncomingMediaHydration({
+      scheduleIncomingMediaHydration({
       messageId: createdMessage.id,
-      conversationId: conversation.id,
+      conversationId,
       accessToken,
       mediaId: parsed.mediaId,
       fileName: parsed.fileName,
@@ -410,7 +448,7 @@ async function processInboundMetaMessage(params: {
     contactName,
     contactPhone: identity.phone || identity.identityKey,
     contentPreview: content.slice(0, 120),
-    conversationId: conversation.id,
+    conversationId,
     messageId: createdMessage.id,
     inboxId: settings.inboxId,
     inboxName: settings.inbox.name,

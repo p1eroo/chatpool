@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
-import { stickerApiService } from "@/services/stickerApiService";
+import {
+  useDeleteSavedSticker,
+  useSavedStickers,
+} from "@/hooks/useSavedStickers";
 import { useUIStore } from "@/store/uiStore";
 import type { SavedSticker } from "@/types";
 import { ApiError } from "@/api/errors";
@@ -13,31 +15,16 @@ interface StickerPickerPopoverProps {
 
 export function StickerPickerPopover({ onSelect, disabled }: StickerPickerPopoverProps) {
   const showToast = useUIStore((s) => s.showToast);
-  const [stickers, setStickers] = useState<SavedSticker[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: stickers = [], isLoading, isError, error } = useSavedStickers();
+  const deleteSticker = useDeleteSavedSticker();
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setStickers(await stickerApiService.list());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudieron cargar los stickers");
-      setStickers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const showLoading = isLoading && stickers.length === 0;
+  const errorMessage =
+    isError && error instanceof Error ? error.message : "No se pudieron cargar los stickers";
 
   const handleDelete = async (stickerId: string) => {
     try {
-      await stickerApiService.remove(stickerId);
-      setStickers((prev) => prev.filter((item) => item.id !== stickerId));
+      await deleteSticker.mutateAsync(stickerId);
       showToast("Sticker eliminado");
     } catch (err) {
       showToast(
@@ -59,18 +46,18 @@ export function StickerPickerPopover({ onSelect, disabled }: StickerPickerPopove
       </div>
 
       <div className="max-h-64 overflow-y-auto p-2">
-        {loading && (
+        {showLoading && (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--color-text-muted)]">
             <Loader2 className="w-4 h-4 animate-spin" />
             Cargando…
           </div>
         )}
 
-        {!loading && error && (
-          <p className="px-2 py-6 text-sm text-center text-red-400">{error}</p>
+        {!showLoading && isError && (
+          <p className="px-2 py-6 text-sm text-center text-red-400">{errorMessage}</p>
         )}
 
-        {!loading && !error && stickers.length === 0 && (
+        {!showLoading && !isError && stickers.length === 0 && (
           <p className="px-2 py-6 text-sm text-center text-[var(--color-text-muted)] leading-relaxed">
             Aún no tienes stickers.
             <br />
@@ -78,7 +65,7 @@ export function StickerPickerPopover({ onSelect, disabled }: StickerPickerPopove
           </p>
         )}
 
-        {!loading && !error && stickers.length > 0 && (
+        {!showLoading && !isError && stickers.length > 0 && (
           <div className="grid grid-cols-3 gap-1.5">
             {stickers.map((sticker) => (
               <div key={sticker.id} className="relative group/sticker">

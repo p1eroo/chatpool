@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
-import { stickerApiService } from "@/services/stickerApiService";
+import { useSaveStickerFromMessage } from "@/hooks/useSavedStickers";
 import { cn } from "@/lib/utils";
 import { isForwardableMessage } from "@/lib/forwardMessages";
 import type { Message } from "@/types";
@@ -67,6 +67,7 @@ export function MessageContextMenu({
   const showToast = useUIStore((s) => s.showToast);
   const replyToMessage = useUIStore((s) => s.replyToMessage);
   const beginForwardSelection = useUIStore((s) => s.beginForwardSelection);
+  const saveSticker = useSaveStickerFromMessage();
 
   const canForward = isForwardableMessage(message);
 
@@ -180,8 +181,8 @@ export function MessageContextMenu({
           label="Guardar sticker"
           onClick={() =>
             runAction(() => {
-              void stickerApiService
-                .saveFromMessage(conversationId, message.id)
+              void saveSticker
+                .mutateAsync({ conversationId, messageId: message.id })
                 .then(() => showToast("Sticker guardado"))
                 .catch((error) => {
                   const text =

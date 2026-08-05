@@ -13,6 +13,13 @@ import {
   conversationRealtimeInclude,
   emitConversationUpdated,
 } from "../realtime/realtime.service.js";
+import {
+  agentNameSelect,
+  conversationMessageEmitSelect,
+  conversationSendContextSelect,
+  mapConversationMessageEmit,
+  messageCreateInclude,
+} from "../realtime/conversation-realtime-emit.js";
 import { uploadConversationMedia } from "../media/media-storage.service.js";
 import { normalizeAudioForWhatsApp } from "../media/audio-transcode.service.js";
 import {
@@ -33,7 +40,7 @@ import {
 } from "./conversation-activity.service.js";
 import { refreshConversationLastMessageAt } from "./conversation-last-message.js";
 import { runWithConversationMessageLock } from "./conversation-message-serializer.js";
-import { nextMessageSortOrder } from "./message-sort-order.js";
+import { reserveNextSortOrder } from "./message-sort-order.js";
 import {
   buildTemplateDeliveryPayload,
   scheduleWhatsAppMessageDelivery,
@@ -157,12 +164,7 @@ export async function sendAgentMessage(
 ) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    select: {
-      id: true,
-      assigneeId: true,
-      contact: { select: { isBlocked: true } },
-      inbox: { select: { channelType: true } },
-    },
+    select: conversationSendContextSelect,
   });
   if (!conversation) throw new NotFoundError("Conversación no encontrada");
 
@@ -178,18 +180,26 @@ export async function sendAgentMessage(
     !body.isPrivate && conversation.inbox.channelType === "whatsapp";
   const needsWhatsAppDelivery = needsWhatsAppWindow;
   const clientMessageId = body.clientMessageId?.trim() || null;
+  const willAutoAssign = shouldAutoAssignOnReply(conversation.assigneeId, body.isPrivate);
 
-  const [lastContactAt, agent, replyTarget, existingByClientId] = await Promise.all([
-    needsWhatsAppWindow ? getLastContactMessageAt(conversationId) : Promise.resolve(null),
-    prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, name: true } }),
-    resolveReplyTarget(conversationId, body.replyToMessageId),
-    clientMessageId
-      ? prisma.message.findFirst({
-          where: { conversationId, clientMessageId },
-          include: messageInclude,
-        })
-      : Promise.resolve(null),
-  ]);
+  const [lastContactAt, agent, replyTarget, existingByClientId, assigneeForEmit] =
+    await Promise.all([
+      needsWhatsAppWindow ? getLastContactMessageAt(conversationId) : Promise.resolve(null),
+      prisma.agent.findUnique({ where: { id: agentId }, select: agentNameSelect }),
+      resolveReplyTarget(conversationId, body.replyToMessageId),
+      clientMessageId
+        ? prisma.message.findFirst({
+            where: { conversationId, clientMessageId },
+            include: messageInclude,
+          })
+        : Promise.resolve(null),
+      willAutoAssign
+        ? prisma.agent.findUnique({
+            where: { id: agentId },
+            select: conversationMessageEmitSelect.assignee.select,
+          })
+        : Promise.resolve(null),
+    ]);
 
   if (!agent) throw new NotFoundError("Agente no encontrado");
 
@@ -209,7 +219,7 @@ export async function sendAgentMessage(
     return mapped;
   }
 
-  const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, body.isPrivate);
+  const autoAssign = willAutoAssign;
   const previousAssigneeId = conversation.assigneeId;
   const createdAt = new Date();
 
@@ -224,7 +234,7 @@ export async function sendAgentMessage(
       }
     }
 
-    const sortOrder = await nextMessageSortOrder(conversationId);
+    const sortOrder = await reserveNextSortOrder(conversationId);
 
     const message = await prisma.message.create({
       data: {
@@ -247,19 +257,24 @@ export async function sendAgentMessage(
         sortOrder,
         createdAt,
       },
-      include: messageInclude,
+      include: messageCreateInclude(replyTarget?.id),
     });
 
-    const conversationForEmit = await prisma.conversation.update({
+    const conversationRow = await prisma.conversation.update({
       where: { id: conversationId },
       data: {
         lastMessageAt: createdAt,
         ...(autoAssign ? { assigneeId: agentId } : {}),
       },
-      include: conversationInclude,
+      select: conversationMessageEmitSelect,
     });
 
-    broadcastMessageCreated(mapMessage(message), mapConversation(conversationForEmit));
+    broadcastMessageCreated(
+      mapMessage(message),
+      mapConversationMessageEmit(conversationRow, message, {
+        assigneeOverride: autoAssign ? assigneeForEmit : undefined,
+      })
+    );
 
     return {
       message,
@@ -376,13 +391,23 @@ export async function sendWhatsAppTemplate(
 
   const clientMessageId = body.clientMessageId?.trim() || null;
 
-  const [agent, template, existingByClientId] = await Promise.all([
-    prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, name: true } }),
+  const willAutoAssign = shouldAutoAssignOnReply(conversation.assigneeId, false);
+  const previousAssigneeId = conversation.assigneeId;
+  const createdAt = new Date();
+
+  const [agent, template, existingByClientId, assigneeForEmit] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentId }, select: agentNameSelect }),
     findApprovedTemplate(conversation.inboxId, templateName, language),
     clientMessageId
       ? prisma.message.findFirst({
           where: { conversationId, clientMessageId },
           include: messageInclude,
+        })
+      : Promise.resolve(null),
+    willAutoAssign
+      ? prisma.agent.findUnique({
+          where: { id: agentId },
+          select: conversationMessageEmitSelect.assignee.select,
         })
       : Promise.resolve(null),
   ]);
@@ -440,9 +465,7 @@ export async function sendWhatsAppTemplate(
     components: components.length ? components : undefined,
   });
 
-  const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, false);
-  const previousAssigneeId = conversation.assigneeId;
-  const createdAt = new Date();
+  const autoAssign = willAutoAssign;
 
   const result = await runWithConversationMessageLock(conversationId, async () => {
     if (clientMessageId) {
@@ -455,7 +478,7 @@ export async function sendWhatsAppTemplate(
       }
     }
 
-    const sortOrder = await nextMessageSortOrder(conversationId);
+    const sortOrder = await reserveNextSortOrder(conversationId);
 
     const message = await prisma.message.create({
       data: {
@@ -473,19 +496,24 @@ export async function sendWhatsAppTemplate(
         sortOrder,
         createdAt,
       },
-      include: messageInclude,
+      include: messageCreateInclude(),
     });
 
-    const conversationForEmit = await prisma.conversation.update({
+    const conversationRow = await prisma.conversation.update({
       where: { id: conversationId },
       data: {
         lastMessageAt: createdAt,
         ...(autoAssign ? { assigneeId: agentId } : {}),
       },
-      include: conversationInclude,
+      select: conversationMessageEmitSelect,
     });
 
-    broadcastMessageCreated(mapMessage(message), mapConversation(conversationForEmit));
+    broadcastMessageCreated(
+      mapMessage(message),
+      mapConversationMessageEmit(conversationRow, message, {
+        assigneeOverride: autoAssign ? assigneeForEmit : undefined,
+      })
+    );
 
     return {
       message,

@@ -132,6 +132,10 @@ function mergeConversationOnRealtimeMessage(
 
   return {
     ...incoming,
+    labels: incoming.labels?.length ? incoming.labels : existing.labels,
+    contact: incoming.contact ?? existing.contact,
+    assignee: incoming.assignee ?? existing.assignee,
+    channelType: incoming.channelType ?? existing.channelType,
     lastMessage,
     lastMessageAt: mergeConversationLastMessageAt(
       existing,
@@ -150,6 +154,10 @@ function mergeConversationOnRealtimeUpdate(
 ): Conversation {
   return {
     ...incoming,
+    labels: incoming.labels?.length ? incoming.labels : existing.labels,
+    contact: incoming.contact ?? existing.contact,
+    assignee: incoming.assignee ?? existing.assignee,
+    channelType: incoming.channelType ?? existing.channelType,
     lastMessage: pickLatestPreviewMessage(existing.lastMessage, incoming.lastMessage),
     lastMessageAt: mergeConversationLastMessageAt(existing, incoming),
     updatedAt: new Date(
@@ -763,6 +771,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           )
         : {
             ...conversation,
+            labels: conversation.labels ?? [],
             lastMessage: pickLatestPreviewMessage(conversation.lastMessage, message),
           };
 
