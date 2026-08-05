@@ -19,6 +19,7 @@ import { findOrReopenConversationForContact } from "../conversations/conversatio
 import { runWithConversationMessageLock } from "../conversations/conversation-message-serializer.js";
 import { nextMessageSortOrder } from "../conversations/message-sort-order.js";
 import { parseMetaMessageTimestamp } from "../../shared/meta-message-time.js";
+import { noteContactMessageAt } from "../../shared/whatsapp-window.js";
 import {
   resolveInboundWhatsAppIdentity,
   sanitizeWhatsAppDisplayName,
@@ -416,6 +417,8 @@ export async function processMetaWebhookPayload(
             message: createdMessage,
             conversation: conversationForEmit,
           });
+
+          noteContactMessageAt(conversation.id, messageAt);
 
           if (shouldHydrateMedia && parsed?.mediaId && accessToken) {
             scheduleIncomingMediaHydration({

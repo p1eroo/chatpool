@@ -17,6 +17,45 @@ async function getInboxVerifyToken(inboxId: string): Promise<string | null> {
   return settings?.webhookVerifyToken ?? null;
 }
 
+function logMetaWebhookResult(
+  request: { log: FastifyInstance["log"] },
+  inboxId: string | undefined,
+  result: Awaited<ReturnType<typeof processMetaWebhookPayload>>
+) {
+  for (const event of result.events) {
+    if (event.kind === "message") {
+      request.log.info(
+        event,
+        `Mensaje entrante: ${event.contactName} → "${event.contentPreview}" [${event.inboxName}]`
+      );
+    } else if (event.kind === "contact_sync") {
+      request.log.info(
+        event,
+        `Sync de contactos WhatsApp: ${event.syncedContacts} contacto(s) [${event.inboxName}]`
+      );
+    }
+  }
+
+  request.log.info(
+    { inboxId: inboxId ?? "global", processed: result.processed, events: result.events },
+    "Meta webhook procesado"
+  );
+}
+
+function scheduleMetaWebhookProcessing(
+  request: { log: FastifyInstance["log"]; body: unknown },
+  inboxId?: string
+): void {
+  void processMetaWebhookPayload(request.body as never, inboxId)
+    .then((result) => logMetaWebhookResult(request, inboxId, result))
+    .catch((error) => {
+      request.log.error(
+        { inboxId: inboxId ?? "global", err: error },
+        "Meta webhook processing failed"
+      );
+    });
+}
+
 export async function webhookRoutes(app: FastifyInstance) {
   app.get("/webhooks/meta", async (request, reply) => {
     const query = metaChallengeQuerySchema.parse(request.query);
@@ -36,22 +75,8 @@ export async function webhookRoutes(app: FastifyInstance) {
 
   app.post("/webhooks/meta", async (request, reply) => {
     request.log.info({ inboxId: "global" }, "Meta webhook POST recibido");
-    const result = await processMetaWebhookPayload(request.body as never);
-    for (const event of result.events) {
-      if (event.kind === "message") {
-        request.log.info(
-          event,
-          `Mensaje entrante: ${event.contactName} → "${event.contentPreview}" [${event.inboxName}]`
-        );
-      } else if (event.kind === "contact_sync") {
-        request.log.info(
-          event,
-          `Sync de contactos WhatsApp: ${event.syncedContacts} contacto(s) [${event.inboxName}]`
-        );
-      }
-    }
-    request.log.info({ processed: result.processed, events: result.events }, "Meta webhook procesado");
-    return reply.send({ success: true, processed: result.processed });
+    scheduleMetaWebhookProcessing(request);
+    return reply.send({ success: true, accepted: true });
   });
 
   app.get("/webhooks/meta/:inboxId", async (request, reply) => {
@@ -76,21 +101,7 @@ export async function webhookRoutes(app: FastifyInstance) {
   app.post("/webhooks/meta/:inboxId", async (request, reply) => {
     const { inboxId } = request.params as { inboxId: string };
     request.log.info({ inboxId }, "Meta webhook POST recibido");
-    const result = await processMetaWebhookPayload(request.body as never, inboxId);
-    for (const event of result.events) {
-      if (event.kind === "message") {
-        request.log.info(
-          event,
-          `Mensaje entrante: ${event.contactName} → "${event.contentPreview}" [${event.inboxName}]`
-        );
-      } else if (event.kind === "contact_sync") {
-        request.log.info(
-          event,
-          `Sync de contactos WhatsApp: ${event.syncedContacts} contacto(s) [${event.inboxName}]`
-        );
-      }
-    }
-    request.log.info({ inboxId, processed: result.processed, events: result.events }, "Meta webhook procesado");
-    return reply.send({ success: true, processed: result.processed });
+    scheduleMetaWebhookProcessing(request, inboxId);
+    return reply.send({ success: true, accepted: true });
   });
 }

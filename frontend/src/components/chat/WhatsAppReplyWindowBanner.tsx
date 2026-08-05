@@ -71,14 +71,13 @@ export function WhatsAppReplyWindowBanner({ conversationId }: WhatsAppReplyWindo
       });
 
       if (!ok) {
-        showToast("Meta rechazó la plantilla. El aviso permanece activo.");
+        showToast("No se pudo iniciar el envío de la plantilla.");
         return;
       }
 
       setPickerOpen(false);
       setSearch("");
       resetDraft();
-      showToast("Plantilla enviada correctamente");
     } finally {
       setSending(false);
     }

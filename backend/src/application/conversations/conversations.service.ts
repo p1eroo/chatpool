@@ -9,9 +9,9 @@ import type {
 } from "../../types/api-responses.js";
 import { getLastContactMessageAt, isReplyWindowOpen } from "../../shared/whatsapp-window.js";
 import {
+  broadcastMessageCreated,
   conversationRealtimeInclude,
   emitConversationUpdated,
-  emitMessageCreated,
 } from "../realtime/realtime.service.js";
 import { uploadConversationMedia } from "../media/media-storage.service.js";
 import { normalizeAudioForWhatsApp } from "../media/audio-transcode.service.js";
@@ -155,68 +155,76 @@ export async function sendAgentMessage(
   body: SendMessageBody,
   _options?: { mediaBuffer?: Buffer }
 ) {
-  type SendResult = {
-    message: ReturnType<typeof mapMessage>;
-    autoAssign: boolean;
-    previousAssigneeId: string | null;
-    scheduleDelivery: boolean;
-  };
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: {
+      id: true,
+      assigneeId: true,
+      contact: { select: { isBlocked: true } },
+      inbox: { select: { channelType: true } },
+    },
+  });
+  if (!conversation) throw new NotFoundError("Conversación no encontrada");
 
-  const result = await runWithConversationMessageLock(conversationId, async (): Promise<SendResult> => {
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-      include: { assignee: true, inbox: true, contact: true },
-    });
-    if (!conversation) throw new NotFoundError("Conversación no encontrada");
+  if (conversation.contact.isBlocked) {
+    throw new AppError(
+      "Este contacto está bloqueado. Desbloquéalo para enviar mensajes.",
+      422,
+      "CONTACT_BLOCKED"
+    );
+  }
 
-    if (conversation.contact.isBlocked) {
-      throw new AppError(
-        "Este contacto está bloqueado. Desbloquéalo para enviar mensajes.",
-        422,
-        "CONTACT_BLOCKED"
-      );
+  const needsWhatsAppWindow =
+    !body.isPrivate && conversation.inbox.channelType === "whatsapp";
+  const needsWhatsAppDelivery = needsWhatsAppWindow;
+  const clientMessageId = body.clientMessageId?.trim() || null;
+
+  const [lastContactAt, agent, replyTarget, existingByClientId] = await Promise.all([
+    needsWhatsAppWindow ? getLastContactMessageAt(conversationId) : Promise.resolve(null),
+    prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, name: true } }),
+    resolveReplyTarget(conversationId, body.replyToMessageId),
+    clientMessageId
+      ? prisma.message.findFirst({
+          where: { conversationId, clientMessageId },
+          include: messageInclude,
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (!agent) throw new NotFoundError("Agente no encontrado");
+
+  if (needsWhatsAppWindow && !isReplyWindowOpen(lastContactAt)) {
+    throw new AppError(
+      "La ventana de mensajes de 24 horas está cerrada. Envía una plantilla aprobada.",
+      422,
+      "WHATSAPP_WINDOW_CLOSED"
+    );
+  }
+
+  if (existingByClientId) {
+    const mapped = mapMessage(existingByClientId);
+    if (existingByClientId.status === "pending") {
+      scheduleWhatsAppMessageDelivery(conversationId, mapped.id);
     }
+    return mapped;
+  }
 
-    const needsWhatsAppWindow =
-      !body.isPrivate && conversation.inbox.channelType === "whatsapp";
+  const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, body.isPrivate);
+  const previousAssigneeId = conversation.assigneeId;
+  const createdAt = new Date();
 
-    const [lastContactAt, agent, replyTarget] = await Promise.all([
-      needsWhatsAppWindow ? getLastContactMessageAt(conversationId) : Promise.resolve(null),
-      prisma.agent.findUnique({ where: { id: agentId } }),
-      resolveReplyTarget(conversationId, body.replyToMessageId),
-    ]);
-
-    if (!agent) throw new NotFoundError("Agente no encontrado");
-
-    if (needsWhatsAppWindow && !isReplyWindowOpen(lastContactAt)) {
-      throw new AppError(
-        "La ventana de mensajes de 24 horas está cerrada. Envía una plantilla aprobada.",
-        422,
-        "WHATSAPP_WINDOW_CLOSED"
-      );
-    }
-
-    const clientMessageId = body.clientMessageId?.trim() || null;
+  const result = await runWithConversationMessageLock(conversationId, async () => {
     if (clientMessageId) {
-      const existing = await prisma.message.findFirst({
+      const raced = await prisma.message.findFirst({
         where: { conversationId, clientMessageId },
         include: messageInclude,
       });
-      if (existing) {
-        return {
-          message: mapMessage(existing),
-          autoAssign: false,
-          previousAssigneeId: conversation.assigneeId,
-          scheduleDelivery: existing.status === "pending",
-        };
+      if (raced) {
+        return { message: raced, scheduleDelivery: raced.status === "pending" };
       }
     }
 
-    const needsWhatsAppDelivery =
-      !body.isPrivate && conversation.inbox.channelType === "whatsapp";
-
     const sortOrder = await nextMessageSortOrder(conversationId);
-    const createdAt = new Date();
 
     const message = await prisma.message.create({
       data: {
@@ -242,9 +250,6 @@ export async function sendAgentMessage(
       include: messageInclude,
     });
 
-    const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, body.isPrivate);
-    const previousAssigneeId = conversation.assigneeId;
-
     const conversationForEmit = await prisma.conversation.update({
       where: { id: conversationId },
       data: {
@@ -254,15 +259,10 @@ export async function sendAgentMessage(
       include: conversationInclude,
     });
 
-    await emitMessageCreated(conversationId, message.id, {
-      message,
-      conversation: conversationForEmit,
-    });
+    broadcastMessageCreated(mapMessage(message), mapConversation(conversationForEmit));
 
     return {
-      message: mapMessage(message),
-      autoAssign,
-      previousAssigneeId,
+      message,
       scheduleDelivery: needsWhatsAppDelivery,
     };
   });
@@ -271,16 +271,16 @@ export async function sendAgentMessage(
     scheduleWhatsAppMessageDelivery(conversationId, result.message.id);
   }
 
-  if (result.autoAssign) {
+  if (autoAssign) {
     void recordConversationAssigneeActivity({
       conversationId,
-      previousAssigneeId: result.previousAssigneeId,
+      previousAssigneeId,
       nextAssigneeId: agentId,
       actorAgentId: agentId,
     });
   }
 
-  return result.message;
+  return mapMessage(result.message);
 }
 
 export async function sendAgentMessageWithFile(
@@ -344,106 +344,118 @@ export async function sendWhatsAppTemplate(
   agentId: string,
   body: SendTemplateBody
 ) {
-  type TemplateSendResult = {
-    message: ReturnType<typeof mapMessage>;
-    autoAssign: boolean;
-    previousAssigneeId: string | null;
-    scheduleDelivery: boolean;
-  };
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: {
+      id: true,
+      inboxId: true,
+      assigneeId: true,
+      contact: { select: { isBlocked: true } },
+      inbox: { select: { channelType: true } },
+    },
+  });
+  if (!conversation) throw new NotFoundError("Conversación no encontrada");
 
-  const result = await runWithConversationMessageLock(
-    conversationId,
-    async (): Promise<TemplateSendResult> => {
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-      include: { inbox: true, contact: true },
+  if (conversation.inbox.channelType !== "whatsapp") {
+    throw new AppError("Las plantillas solo aplican a conversaciones de WhatsApp", 422);
+  }
+
+  if (conversation.contact.isBlocked) {
+    throw new AppError(
+      "Este contacto está bloqueado. Desbloquéalo para enviar mensajes.",
+      422,
+      "CONTACT_BLOCKED"
+    );
+  }
+
+  const templateName = body.templateName.trim();
+  const language = body.language.trim();
+  if (!templateName || !language) {
+    throw new AppError("Nombre e idioma de plantilla son obligatorios", 422);
+  }
+
+  const clientMessageId = body.clientMessageId?.trim() || null;
+
+  const [agent, template, existingByClientId] = await Promise.all([
+    prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, name: true } }),
+    findApprovedTemplate(conversation.inboxId, templateName, language),
+    clientMessageId
+      ? prisma.message.findFirst({
+          where: { conversationId, clientMessageId },
+          include: messageInclude,
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (!agent) throw new NotFoundError("Agente no encontrado");
+
+  if (existingByClientId) {
+    const mapped = mapMessage(existingByClientId);
+    if (existingByClientId.status === "pending") {
+      scheduleWhatsAppMessageDelivery(conversationId, mapped.id);
+    }
+    return mapped;
+  }
+
+  const bodyParameters = body.bodyParameters ?? [];
+  const headerParameters = body.headerParameters ?? [];
+  const buttonUrlParameters = body.buttonUrlParameters ?? [];
+
+  assertTemplateParameters(template, {
+    bodyParameters,
+    headerParameters,
+    buttonUrlParameters,
+  });
+
+  const components: WhatsAppTemplateSendComponent[] = [];
+  if (headerParameters.length) {
+    components.push({
+      type: "header",
+      parameters: headerParameters.map((text) => ({ type: "text", text })),
     });
-    if (!conversation) throw new NotFoundError("Conversación no encontrada");
-
-    if (conversation.inbox.channelType !== "whatsapp") {
-      throw new AppError("Las plantillas solo aplican a conversaciones de WhatsApp", 422);
-    }
-
-    if (conversation.contact.isBlocked) {
-      throw new AppError(
-        "Este contacto está bloqueado. Desbloquéalo para enviar mensajes.",
-        422,
-        "CONTACT_BLOCKED"
-      );
-    }
-
-    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
-    if (!agent) throw new NotFoundError("Agente no encontrado");
-
-    const templateName = body.templateName.trim();
-    const language = body.language.trim();
-    if (!templateName || !language) {
-      throw new AppError("Nombre e idioma de plantilla son obligatorios", 422);
-    }
-
-    const template = await findApprovedTemplate(conversation.inboxId, templateName, language);
-
-    const bodyParameters = body.bodyParameters ?? [];
-    const headerParameters = body.headerParameters ?? [];
-    const buttonUrlParameters = body.buttonUrlParameters ?? [];
-
-    assertTemplateParameters(template, {
-      bodyParameters,
-      headerParameters,
-      buttonUrlParameters,
+  }
+  if (bodyParameters.length) {
+    components.push({
+      type: "body",
+      parameters: bodyParameters.map((text) => ({ type: "text", text })),
     });
+  }
+  for (const button of buttonUrlParameters) {
+    components.push({
+      type: "button",
+      sub_type: "url",
+      index: String(button.index),
+      parameters: [{ type: "text", text: button.text }],
+    });
+  }
 
-    const clientMessageId = body.clientMessageId?.trim() || null;
+  const content = buildTemplatePreview(template, {
+    bodyParameters,
+    headerParameters,
+  });
+
+  const deliveryPayload = buildTemplateDeliveryPayload({
+    name: template.name,
+    language: template.language,
+    components: components.length ? components : undefined,
+  });
+
+  const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, false);
+  const previousAssigneeId = conversation.assigneeId;
+  const createdAt = new Date();
+
+  const result = await runWithConversationMessageLock(conversationId, async () => {
     if (clientMessageId) {
-      const existing = await prisma.message.findFirst({
+      const raced = await prisma.message.findFirst({
         where: { conversationId, clientMessageId },
         include: messageInclude,
       });
-      if (existing) {
-        return {
-          message: mapMessage(existing),
-          autoAssign: false,
-          previousAssigneeId: conversation.assigneeId,
-          scheduleDelivery: existing.status === "pending",
-        };
+      if (raced) {
+        return { message: raced, scheduleDelivery: raced.status === "pending" };
       }
     }
 
-    const components: WhatsAppTemplateSendComponent[] = [];
-    if (headerParameters.length) {
-      components.push({
-        type: "header",
-        parameters: headerParameters.map((text) => ({ type: "text", text })),
-      });
-    }
-    if (bodyParameters.length) {
-      components.push({
-        type: "body",
-        parameters: bodyParameters.map((text) => ({ type: "text", text })),
-      });
-    }
-    for (const button of buttonUrlParameters) {
-      components.push({
-        type: "button",
-        sub_type: "url",
-        index: String(button.index),
-        parameters: [{ type: "text", text: button.text }],
-      });
-    }
-
-    const content = buildTemplatePreview(template, {
-      bodyParameters,
-      headerParameters,
-    });
-
-    const deliveryPayload = buildTemplateDeliveryPayload({
-      name: template.name,
-      language: template.language,
-      components: components.length ? components : undefined,
-    });
-
     const sortOrder = await nextMessageSortOrder(conversationId);
-    const createdAt = new Date();
 
     const message = await prisma.message.create({
       data: {
@@ -464,9 +476,6 @@ export async function sendWhatsAppTemplate(
       include: messageInclude,
     });
 
-    const autoAssign = shouldAutoAssignOnReply(conversation.assigneeId, false);
-    const previousAssigneeId = conversation.assigneeId;
-
     const conversationForEmit = await prisma.conversation.update({
       where: { id: conversationId },
       data: {
@@ -476,15 +485,10 @@ export async function sendWhatsAppTemplate(
       include: conversationInclude,
     });
 
-    await emitMessageCreated(conversationId, message.id, {
-      message,
-      conversation: conversationForEmit,
-    });
+    broadcastMessageCreated(mapMessage(message), mapConversation(conversationForEmit));
 
     return {
-      message: mapMessage(message),
-      autoAssign,
-      previousAssigneeId,
+      message,
       scheduleDelivery: true,
     };
   });
@@ -493,16 +497,16 @@ export async function sendWhatsAppTemplate(
     scheduleWhatsAppMessageDelivery(conversationId, result.message.id);
   }
 
-  if (result.autoAssign) {
+  if (autoAssign) {
     void recordConversationAssigneeActivity({
       conversationId,
-      previousAssigneeId: result.previousAssigneeId,
+      previousAssigneeId,
       nextAssigneeId: agentId,
       actorAgentId: agentId,
     });
   }
 
-  return result.message;
+  return mapMessage(result.message);
 }
 
 export async function updateConversation(

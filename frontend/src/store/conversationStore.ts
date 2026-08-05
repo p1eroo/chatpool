@@ -573,6 +573,71 @@ function reconcileOutgoingMessage(
   syncOptimisticSortOrder(conversationId, apiMessage.sortOrder);
 }
 
+function isOutgoingStillPending(messages: Message[], pendingId: string): boolean {
+  return messages.some(
+    (item) =>
+      isPendingMessageId(item.id) &&
+      (item.id === pendingId ||
+        item.clientId === pendingId ||
+        item.clientMessageId === pendingId)
+  );
+}
+
+/** Reconcilia solo si el WS aún no confirmó (POST como respaldo). */
+function reconcileOutgoingMessageIfStillPending(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  get: () => ConversationState,
+  conversationId: string,
+  pendingId: string,
+  apiMessage: Message
+) {
+  const messages = get().messages[conversationId] ?? [];
+  if (!isOutgoingStillPending(messages, pendingId)) return;
+  reconcileOutgoingMessage(set, get, conversationId, pendingId, apiMessage);
+}
+
+function handleOutgoingPostFailure(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  get: () => ConversationState,
+  conversationId: string,
+  pendingId: string,
+  error: unknown,
+  fallbackToast: string
+) {
+  const messages = get().messages[conversationId] ?? [];
+  if (!isOutgoingStillPending(messages, pendingId)) return;
+  markPendingMessageFailed(set, conversationId, pendingId);
+  useUIStore.getState().showToast(
+    isApiError(error) ? error.message : fallbackToast
+  );
+}
+
+function clearTemplateWindowOverrideIfStillPending(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  get: () => ConversationState,
+  conversationId: string,
+  pendingId: string
+) {
+  const messages = get().messages[conversationId] ?? [];
+  if (!isOutgoingStillPending(messages, pendingId)) return;
+  set((state) => {
+    const { [conversationId]: _, ...rest } = state.templateWindowOverrides;
+    return { templateWindowOverrides: rest };
+  });
+}
+
 function removePendingMessage(
   set: (
     partial:
@@ -602,10 +667,12 @@ function markPendingMessageFailed(
   pendingId: string
 ) {
   set((state) => ({
-    messages: {
+      messages: {
       ...state.messages,
       [conversationId]: (state.messages[conversationId] ?? []).map((message) =>
-        message.id === pendingId || message.clientId === pendingId
+        message.id === pendingId ||
+        message.clientId === pendingId ||
+        message.clientMessageId === pendingId
           ? { ...message, status: "failed" as const }
           : message
       ),
@@ -899,24 +966,26 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       },
     }));
 
-    try {
-      const apiMessage = await conversationApiService.sendTemplate(conversationId, {
+    void conversationApiService
+      .sendTemplate(conversationId, {
         ...input,
         clientMessageId: pendingId,
+      })
+      .then((apiMessage) => {
+        reconcileOutgoingMessageIfStillPending(set, get, conversationId, pendingId, apiMessage);
+      })
+      .catch((error) => {
+        handleOutgoingPostFailure(
+          set,
+          get,
+          conversationId,
+          pendingId,
+          error,
+          "No se pudo enviar la plantilla"
+        );
+        clearTemplateWindowOverrideIfStillPending(set, get, conversationId, pendingId);
       });
-      reconcileOutgoingMessage(set, get, conversationId, pendingId, apiMessage);
-      return true;
-    } catch (error) {
-      removePendingMessage(set, conversationId, pendingId);
-      set((state) => {
-        const { [conversationId]: _, ...rest } = state.templateWindowOverrides;
-        return { templateWindowOverrides: rest };
-      });
-      useUIStore.getState().showToast(
-        isApiError(error) ? error.message : "No se pudo enviar la plantilla"
-      );
-      return false;
-    }
+    return true;
   },
 
   retryFailedMessage: async (conversationId, messageId) => {
@@ -1007,7 +1076,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           const targetId = result.conversationId;
 
           if (result.success && result.message) {
-            reconcileOutgoingMessage(set, get, targetId, pendingId, {
+            reconcileOutgoingMessageIfStillPending(set, get, targetId, pendingId, {
               ...result.message,
               fileUrl: result.message.fileUrl ?? get().messages[targetId]?.find(m => m.id === pendingId)?.fileUrl,
               audioUrl: result.message.audioUrl ?? get().messages[targetId]?.find(m => m.id === pendingId)?.audioUrl,
@@ -1015,7 +1084,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             continue;
           }
 
-          markPendingMessageFailed(set, targetId, pendingId);
+          if (isOutgoingStillPending(get().messages[targetId] ?? [], pendingId)) {
+            markPendingMessageFailed(set, targetId, pendingId);
+          }
         }
 
         const { summary } = response;
@@ -1036,7 +1107,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       })
       .catch((error) => {
         for (const delivery of deliveries) {
-          removePendingMessage(set, delivery.targetConversationId, delivery.clientMessageId);
+          if (isOutgoingStillPending(get().messages[delivery.targetConversationId] ?? [], delivery.clientMessageId)) {
+            markPendingMessageFailed(set, delivery.targetConversationId, delivery.clientMessageId);
+          }
         }
         useUIStore.getState().showToast(
           isApiError(error) ? error.message : "No se pudieron reenviar los mensajes"
@@ -1090,26 +1163,26 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     appendMessageToState(set, get, conversationId, optimistic, false);
     useUIStore.getState().setReplyToMessage(null);
 
-    try {
-      const apiMessage = await stickerApiService.send(
-        conversationId,
-        sticker.id,
-        replyToMessageId,
-        pendingId
-      );
-      reconcileOutgoingMessage(set, get, conversationId, pendingId, {
-        ...apiMessage,
-        replyTo: apiMessage.replyTo ?? optimistic.replyTo,
-        fileUrl: apiMessage.fileUrl ?? optimistic.fileUrl,
+    void stickerApiService
+      .send(conversationId, sticker.id, replyToMessageId, pendingId)
+      .then((apiMessage) => {
+        reconcileOutgoingMessageIfStillPending(set, get, conversationId, pendingId, {
+          ...apiMessage,
+          replyTo: apiMessage.replyTo ?? optimistic.replyTo,
+          fileUrl: apiMessage.fileUrl ?? optimistic.fileUrl,
+        });
+      })
+      .catch((error) => {
+        handleOutgoingPostFailure(
+          set,
+          get,
+          conversationId,
+          pendingId,
+          error,
+          "No se pudo enviar el sticker"
+        );
       });
-      return true;
-    } catch (error) {
-      removePendingMessage(set, conversationId, pendingId);
-      useUIStore.getState().showToast(
-        isApiError(error) ? error.message : "No se pudo enviar el sticker"
-      );
-      return false;
-    }
+    return true;
   },
 
   selectConversation: (id) => {
@@ -1369,7 +1442,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             pendingId
           )
           .then((apiMessage) => {
-            reconcileOutgoingMessage(set, get, conversationId, pendingId, {
+            reconcileOutgoingMessageIfStillPending(set, get, conversationId, pendingId, {
               ...apiMessage,
               replyTo: apiMessage.replyTo ?? optimistic.replyTo,
               attachedToMessageId: optimistic.attachedToMessageId,
@@ -1382,9 +1455,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             });
           })
           .catch((error) => {
-            removePendingMessage(set, conversationId, pendingId);
-            useUIStore.getState().showToast(
-              isApiError(error) ? error.message : "No se pudo enviar el archivo"
+            handleOutgoingPostFailure(
+              set,
+              get,
+              conversationId,
+              pendingId,
+              error,
+              "No se pudo enviar el archivo"
             );
           });
         return;
@@ -1397,7 +1474,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           clientMessageId: pendingId,
         })
         .then((apiMessage) => {
-          reconcileOutgoingMessage(set, get, conversationId, pendingId, {
+          reconcileOutgoingMessageIfStillPending(set, get, conversationId, pendingId, {
             ...apiMessage,
             replyTo: apiMessage.replyTo ?? optimistic.replyTo,
             attachedToMessageId: optimistic.attachedToMessageId,
@@ -1406,9 +1483,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           });
         })
         .catch((error) => {
-          removePendingMessage(set, conversationId, pendingId);
-          useUIStore.getState().showToast(
-            isApiError(error) ? error.message : "No se pudo enviar el mensaje"
+          handleOutgoingPostFailure(
+            set,
+            get,
+            conversationId,
+            pendingId,
+            error,
+            "No se pudo enviar el mensaje"
           );
         });
       return;
