@@ -12,6 +12,8 @@ import {
   toggleConversationLabel,
   updateConversation,
 } from "../../../application/conversations/conversations.service.js";
+import { retryFailedMessageDelivery } from "../../../application/conversations/message-delivery.service.js";
+import { forwardMessages } from "../../../application/conversations/message-forward.service.js";
 import { startOutboundConversation } from "../../../application/conversations/start-outbound.service.js";
 import {
   attachmentResponseHeaders,
@@ -32,6 +34,7 @@ const sendMessageSchema = z.object({
   isPrivate: z.boolean().optional(),
   contentType: z.enum(["text", "image", "file", "audio", "sticker"]).optional(),
   replyToMessageId: z.string().optional(),
+  clientMessageId: z.string().min(1).max(128).optional(),
 });
 
 const sendTemplateSchema = z.object({
@@ -49,6 +52,7 @@ const sendTemplateSchema = z.object({
       })
     )
     .optional(),
+  clientMessageId: z.string().min(1).max(128).optional(),
 });
 
 const startOutboundSchema = z.object({
@@ -64,6 +68,20 @@ const updateConversationSchema = z.object({
 });
 
 const attachmentContentTypeSchema = z.enum(["image", "file", "audio", "sticker"]);
+
+const forwardMessagesSchema = z.object({
+  messageIds: z.array(z.string().min(1)).min(1),
+  targetConversationIds: z.array(z.string().min(1)).min(1),
+  deliveries: z
+    .array(
+      z.object({
+        sourceMessageId: z.string().min(1),
+        targetConversationId: z.string().min(1),
+        clientMessageId: z.string().min(1).max(128),
+      })
+    )
+    .optional(),
+});
 
 export async function conversationsRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authenticate);
@@ -158,6 +176,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
       let isPrivate = false;
       let contentType: "image" | "file" | "audio" | "sticker" = "file";
       let replyToMessageId: string | undefined;
+      let clientMessageId: string | undefined;
       let fileBuffer: Buffer | null = null;
       let fileName = "archivo";
       let mimeType = "application/octet-stream";
@@ -174,6 +193,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
         if (part.fieldname === "content") content = value;
         if (part.fieldname === "isPrivate") isPrivate = value === "true";
         if (part.fieldname === "replyToMessageId") replyToMessageId = value || undefined;
+        if (part.fieldname === "clientMessageId") clientMessageId = value || undefined;
         if (part.fieldname === "contentType") {
           contentType = attachmentContentTypeSchema.parse(value);
         }
@@ -192,6 +212,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
           originalName: fileName,
           mimeType,
           replyToMessageId,
+          clientMessageId,
         })
       );
     }
@@ -208,6 +229,44 @@ export async function conversationsRoutes(app: FastifyInstance) {
       const user = request.user as { sub: string };
       const body = sendTemplateSchema.parse(request.body);
       return reply.status(201).send(await sendWhatsAppTemplate(id, user.sub, body));
+    }
+  );
+
+  app.post(
+    "/conversations/:id/messages/forward",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const user = request.user as { sub: string };
+      const body = forwardMessagesSchema.parse(request.body);
+      return reply.status(200).send(
+        await forwardMessages({
+          agentId: user.sub,
+          sourceConversationId: id,
+          messageIds: body.messageIds,
+          targetConversationIds: body.targetConversationIds,
+          deliveries: body.deliveries,
+        })
+      );
+    }
+  );
+
+  app.post(
+    "/conversations/:conversationId/messages/:messageId/retry-delivery",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { conversationId, messageId } = request.params as {
+        conversationId: string;
+        messageId: string;
+      };
+      const user = request.user as { sub: string };
+      return reply.status(200).send(
+        await retryFailedMessageDelivery({
+          conversationId,
+          messageId,
+          agentId: user.sub,
+        })
+      );
     }
   );
 
@@ -243,7 +302,10 @@ export async function conversationsRoutes(app: FastifyInstance) {
       const { id, stickerId } = request.params as { id: string; stickerId: string };
       const user = request.user as { sub: string };
       const body = z
-        .object({ replyToMessageId: z.string().optional() })
+        .object({
+          replyToMessageId: z.string().optional(),
+          clientMessageId: z.string().min(1).max(128).optional(),
+        })
         .parse(request.body ?? {});
       return reply.status(201).send(
         await sendSavedSticker({
@@ -251,6 +313,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
           conversationId: id,
           stickerId,
           replyToMessageId: body.replyToMessageId,
+          clientMessageId: body.clientMessageId,
         })
       );
     }

@@ -321,15 +321,11 @@ export function ChatComposer() {
       })),
     })
       .then((ok) => {
-        if (!ok) {
-          showToast("Meta rechazó la plantilla");
-          return;
-        }
+        if (!ok) return;
         setDraftTemplate(null);
         setActivePopover(null);
         setReplyToMessage(null);
         setNoteAboutMessage(null);
-        showToast("Plantilla enviada correctamente");
       })
       .finally(() => setSendingTemplate(false));
   }, [
@@ -533,9 +529,7 @@ export function ChatComposer() {
   const handleSendSticker = (sticker: SavedSticker) => {
     if (!activeConversationId) return;
     setActivePopover(null);
-    void sendSavedSticker(activeConversationId, sticker.id).then((ok) => {
-      if (!ok) showToast("No se pudo enviar el sticker");
-    });
+    void sendSavedSticker(activeConversationId, sticker);
   };
 
   const toolbarDisabled = isRecording;

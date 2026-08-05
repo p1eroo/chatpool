@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { env } from "@/config/env";
-import type { ChannelType, Contact, Conversation, ConversationStatus, Message } from "@/types";
+import type { ChannelType, Contact, Conversation, ConversationStatus, Message, SavedSticker } from "@/types";
 import { useAgentStore } from "@/store/agentStore";
 import { conversations as seedConversations, getMessages } from "@/data/mock";
 import { useLabelStore } from "@/store/labelStore";
@@ -15,6 +15,7 @@ import {
   syncOptimisticSortOrder,
 } from "@/lib/optimisticMessageSort";
 import { sortMessagesChronologically } from "@/lib/messageOrder";
+import { orderMessagesBySelection } from "@/lib/forwardMessages";
 import { pickLatestPreviewMessage, pickLatestPreviewFromMessages } from "@/lib/conversationPreview";
 import {
   mergeConversationLastMessageAt,
@@ -62,7 +63,13 @@ interface ConversationState {
   applyRealtimeMessageUpdate: (message: Message, conversationId: string) => void;
   applyRealtimeConversation: (conversation: Conversation) => void;
   sendTemplateMessage: (conversationId: string, input: SendTemplateInput) => Promise<boolean>;
-  sendSavedSticker: (conversationId: string, stickerId: string) => Promise<boolean>;
+  retryFailedMessage: (conversationId: string, messageId: string) => Promise<boolean>;
+  forwardMessages: (
+    sourceConversationId: string,
+    messageIds: string[],
+    targetConversationIds: string[]
+  ) => boolean;
+  sendSavedSticker: (conversationId: string, sticker: SavedSticker) => Promise<boolean>;
   /** Solo selecciona el chat (panel + mensajes). Nunca marca leído. */
   selectConversation: (id: string | null) => void;
   /** Clic explícito del usuario: selecciona y marca leído si hay unread. */
@@ -260,11 +267,13 @@ function appendOptimisticActivityIfChatOpen(
     conversationId,
     {
       id: pendingId,
+      clientId: pendingId,
       conversationId,
       content,
       senderType: "system",
       isPrivate: false,
       contentType: "text",
+      sortOrder: nextOptimisticSortOrder(conversationId),
       createdAt: new Date(),
       status: "sent",
     },
@@ -305,60 +314,43 @@ function findPendingActivityReplaceIndex(messages: Message[], incoming: Message)
   );
 }
 
-async function reconcileActivityAfterApi(
-  set: (
-    partial:
-      | Partial<ConversationState>
-      | ((state: ConversationState) => Partial<ConversationState>)
-  ) => void,
-  get: () => ConversationState,
-  conversationId: string,
-  pendingId: string | null
-): Promise<void> {
-  if (env.useMock || !pendingId || get().activeConversationId !== conversationId) return;
-
-  try {
-    const msgs = await conversationApiService.getMessages(conversationId);
-    const pendingContent = get()
-      .messages[conversationId]?.find((message) => message.id === pendingId)?.content;
-    const serverMsg = pendingContent
-      ? msgs.find(
-          (message) => message.senderType === "system" && message.content === pendingContent
-        )
-      : undefined;
-
-    set((state) => {
-      const existing = state.messages[conversationId] ?? [];
-      let next: Message[];
-
-      if (serverMsg) {
-        const seen = new Set<string>();
-        next = existing
-          .map((message) => (message.id === pendingId ? serverMsg : message))
-          .filter((message) => {
-            if (seen.has(message.id)) return false;
-            seen.add(message.id);
-            return true;
-          });
-      } else {
-        next = mergeMessagesById(
-          msgs,
-          existing.filter((message) => !isPendingActivityMessageId(message.id))
-        );
-      }
-
-      next = sortMessagesChronologically(next);
-
-      return {
-        messages: { ...state.messages, [conversationId]: next },
-        messagesLoadedFromApi: { ...state.messagesLoadedFromApi, [conversationId]: true },
-      };
-    });
-
-    syncTemplateWindowOverride(set, get, conversationId, get().messages[conversationId] ?? []);
-  } catch {
-    // El WebSocket puede reconciliar el pending-activity más tarde.
+function revokeIfBlobUrl(url?: string) {
+  if (url?.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
   }
+}
+
+function mergeServerMessageOverLocal(local: Message, server: Message): Message {
+  const pendingClientId =
+    local.clientId ??
+    (isPendingMessageId(local.id) || isPendingActivityMessageId(local.id) ? local.id : undefined);
+  const serverClientId = server.clientMessageId ?? server.clientId;
+
+  const merged: Message = {
+    ...server,
+    clientId: pendingClientId ?? serverClientId,
+    clientMessageId: serverClientId ?? pendingClientId,
+    replyTo: server.replyTo ?? local.replyTo,
+    attachedToMessageId: server.attachedToMessageId ?? local.attachedToMessageId,
+    fileUrl: server.fileUrl ?? local.fileUrl,
+    audioUrl: server.audioUrl ?? local.audioUrl,
+    audioDuration: server.audioDuration ?? local.audioDuration,
+    // Mantener posición visual; el status/id del server sí se actualizan.
+    sortOrder: local.sortOrder ?? server.sortOrder,
+    createdAt: local.createdAt,
+  };
+
+  return mergeServerMessageOverLocalCleanup(local, merged);
+}
+
+function mergeServerMessageOverLocalCleanup(local: Message, merged: Message): Message {
+  if (merged.fileUrl && merged.fileUrl !== local.fileUrl) {
+    revokeIfBlobUrl(local.fileUrl);
+  }
+  if (merged.audioUrl && merged.audioUrl !== local.audioUrl) {
+    revokeIfBlobUrl(local.audioUrl);
+  }
+  return merged;
 }
 
 function appendMessageToState(
@@ -408,6 +400,10 @@ function appendMessageToState(
     !isPrivate &&
     newMessage.senderType === "agent" &&
     Boolean(newMessage.senderId);
+  const conversationBefore = get().conversations.find((c) => c.id === conversationId);
+  const willAutoAssign = Boolean(
+    shouldAutoAssign && conversationBefore && !conversationBefore.assignee && newMessage.senderId
+  );
 
   set((state) => ({
     messages: {
@@ -439,6 +435,17 @@ function appendMessageToState(
       })
     ),
   }));
+
+  if (willAutoAssign && newMessage.senderId) {
+    const agent = useAgentStore.getState().getAgentById(newMessage.senderId);
+    const actorName = agent?.name ?? getCurrentActorName();
+    appendOptimisticActivityIfChatOpen(
+      set,
+      get,
+      conversationId,
+      `La conversación fue asignada a ${actorName} por ${actorName}`
+    );
+  }
 }
 
 function syncTemplateWindowOverride(
@@ -484,6 +491,17 @@ function isPendingMessageId(id: string): boolean {
 function findPendingOutgoingReplaceIndex(messages: Message[], incoming: Message): number {
   if (incoming.senderType !== "agent") return -1;
 
+  const incomingClientId = incoming.clientMessageId ?? incoming.clientId;
+  if (incomingClientId) {
+    const byClient = messages.findIndex(
+      (item) =>
+        isPendingMessageId(item.id) &&
+        (item.clientId === incomingClientId || item.id === incomingClientId)
+    );
+    if (byClient >= 0) return byClient;
+  }
+
+  // Fallback legacy: primer pending con mismo fingerprint (puede fallar si el texto se repite).
   return messages.findIndex(
     (item) =>
       isPendingMessageId(item.id) &&
@@ -508,17 +526,24 @@ function reconcileOutgoingMessage(
 ) {
   set((state) => {
     const current = state.messages[conversationId] ?? [];
-    const pendingIndex = current.findIndex((item) => item.id === pendingId);
-    const hasServerMessage = current.some((item) => item.id === apiMessage.id);
+    const pendingIndex = current.findIndex(
+      (item) => item.id === pendingId || item.clientId === pendingId
+    );
+    const serverIndex = current.findIndex((item) => item.id === apiMessage.id);
 
     let next: Message[];
     if (pendingIndex >= 0) {
       next = [...current];
-      next[pendingIndex] = apiMessage;
-    } else if (hasServerMessage) {
-      next = current.map((item) => (item.id === apiMessage.id ? apiMessage : item));
+      next[pendingIndex] = mergeServerMessageOverLocal(current[pendingIndex], apiMessage);
+      if (serverIndex >= 0 && serverIndex !== pendingIndex) {
+        next = next.filter((_, index) => index !== serverIndex);
+      }
+    } else if (serverIndex >= 0) {
+      next = current.map((item, index) =>
+        index === serverIndex ? mergeServerMessageOverLocal(item, apiMessage) : item
+      );
     } else {
-      next = [...current, apiMessage];
+      next = [...current, { ...apiMessage, clientId: apiMessage.clientId ?? pendingId }];
     }
 
     next = sortMessagesChronologically(next);
@@ -565,6 +590,55 @@ function removePendingMessage(
       ),
     },
   }));
+}
+
+function markPendingMessageFailed(
+  set: (
+    partial:
+      | Partial<ConversationState>
+      | ((state: ConversationState) => Partial<ConversationState>)
+  ) => void,
+  conversationId: string,
+  pendingId: string
+) {
+  set((state) => ({
+    messages: {
+      ...state.messages,
+      [conversationId]: (state.messages[conversationId] ?? []).map((message) =>
+        message.id === pendingId || message.clientId === pendingId
+          ? { ...message, status: "failed" as const }
+          : message
+      ),
+    },
+  }));
+}
+
+function buildForwardOptimisticMessage(
+  source: Message,
+  targetConversationId: string,
+  pendingId: string,
+  agent: { id: string; name: string }
+): Message {
+  return {
+    id: pendingId,
+    clientId: pendingId,
+    clientMessageId: pendingId,
+    conversationId: targetConversationId,
+    content: source.content,
+    senderType: "agent",
+    senderId: agent.id,
+    senderName: agent.name,
+    isPrivate: false,
+    contentType: source.contentType,
+    fileName: source.fileName,
+    fileSize: source.fileSize,
+    fileUrl: source.fileUrl,
+    audioUrl: source.audioUrl,
+    audioDuration: source.audioDuration,
+    sortOrder: nextOptimisticSortOrder(targetConversationId),
+    createdAt: new Date(),
+    status: "pending",
+  };
 }
 
 function getInitialInboxFilter(): string | null {
@@ -639,15 +713,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       );
 
       if (hasMessage) {
+        const clientId = message.clientMessageId ?? message.clientId;
+        const merged = existingMessages
+          .filter((item) => {
+            if (!clientId || !isPendingMessageId(item.id)) return true;
+            return item.clientId !== clientId && item.id !== clientId;
+          })
+          .map((item) =>
+            item.id === message.id ? mergeServerMessageOverLocal(item, message) : item
+          );
+
         return {
           conversations,
           messages: {
             ...currentState.messages,
-            [conversation.id]: sortMessagesChronologically(
-              existingMessages.map((item) =>
-                item.id === message.id ? { ...item, ...message } : item
-              )
-            ),
+            [conversation.id]: sortMessagesChronologically(merged),
           },
         };
       }
@@ -664,7 +744,24 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
       if (pendingIndex >= 0) {
         nextMessages = [...existingMessages];
-        nextMessages[pendingIndex] = message;
+        nextMessages[pendingIndex] = mergeServerMessageOverLocal(
+          existingMessages[pendingIndex],
+          message
+        );
+        const clientId = message.clientMessageId ?? message.clientId;
+        if (clientId) {
+          nextMessages = nextMessages.filter((item, index) => {
+            if (index === pendingIndex) return true;
+            if (item.id === message.id) return false;
+            if (
+              isPendingMessageId(item.id) &&
+              (item.clientId === clientId || item.id === clientId)
+            ) {
+              return false;
+            }
+            return true;
+          });
+        }
         nextMessages = sortMessagesChronologically(nextMessages);
       } else {
         nextMessages = sortMessagesChronologically([...existingMessages, message]);
@@ -688,6 +785,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   applyRealtimeMessageUpdate: (message, conversationId) => {
+    const previous = get().messages[conversationId]?.find((item) => item.id === message.id);
+
     set((state) => {
       const existingMessages = state.messages[conversationId] ?? [];
       const hasMessage = existingMessages.some((item) => item.id === message.id);
@@ -697,11 +796,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         messages: {
           ...state.messages,
           [conversationId]: existingMessages.map((item) =>
-            item.id === message.id ? message : item
+            item.id === message.id ? mergeServerMessageOverLocal(item, message) : item
           ),
         },
       };
     });
+
+    if (
+      message.status === "failed" &&
+      previous?.status !== "failed" &&
+      message.senderType === "agent"
+    ) {
+      useUIStore.getState().showToast("No se pudo entregar el mensaje por WhatsApp");
+    }
   },
 
   applyRealtimeConversation: (conversation) => {
@@ -737,12 +844,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const conversation = get().conversations.find((item) => item.id === conversationId);
     if (!conversation || conversation.channelType !== "whatsapp") return false;
 
-    try {
-      let message: Message;
-
-      if (env.useMock) {
-        const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
-        message = {
+    if (env.useMock) {
+      const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
+      appendMessageToState(
+        set,
+        get,
+        conversationId,
+        {
           id: `msg-${Date.now()}`,
           conversationId,
           content: input.content,
@@ -753,42 +861,253 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           contentType: "text",
           createdAt: new Date(),
           status: "sent",
-        };
-      } else {
-        message = await conversationApiService.sendTemplate(conversationId, input);
-      }
-
-      appendMessageToState(set, get, conversationId, message, false);
-
+        },
+        false
+      );
       set((state) => ({
         templateWindowOverrides: {
           ...state.templateWindowOverrides,
           [conversationId]: true,
         },
       }));
-
       return true;
-    } catch {
+    }
+
+    const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
+    const pendingId = createPendingMessageId();
+    const optimistic: Message = {
+      id: pendingId,
+      clientId: pendingId,
+      clientMessageId: pendingId,
+      conversationId,
+      content: input.content,
+      senderType: "agent",
+      senderId: currentAgent?.id ?? "unknown",
+      senderName: currentAgent?.name ?? "Agente",
+      isPrivate: false,
+      contentType: "text",
+      sortOrder: nextOptimisticSortOrder(conversationId),
+      createdAt: new Date(),
+      status: "pending",
+    };
+
+    appendMessageToState(set, get, conversationId, optimistic, false);
+    set((state) => ({
+      templateWindowOverrides: {
+        ...state.templateWindowOverrides,
+        [conversationId]: true,
+      },
+    }));
+
+    try {
+      const apiMessage = await conversationApiService.sendTemplate(conversationId, {
+        ...input,
+        clientMessageId: pendingId,
+      });
+      reconcileOutgoingMessage(set, get, conversationId, pendingId, apiMessage);
+      return true;
+    } catch (error) {
+      removePendingMessage(set, conversationId, pendingId);
+      set((state) => {
+        const { [conversationId]: _, ...rest } = state.templateWindowOverrides;
+        return { templateWindowOverrides: rest };
+      });
+      useUIStore.getState().showToast(
+        isApiError(error) ? error.message : "No se pudo enviar la plantilla"
+      );
       return false;
     }
   },
 
-  sendSavedSticker: async (conversationId, stickerId) => {
+  retryFailedMessage: async (conversationId, messageId) => {
+    if (env.useMock) return false;
+
+    try {
+      const apiMessage = await conversationApiService.retryMessageDelivery(
+        conversationId,
+        messageId
+      );
+      set((state) => {
+        const existingMessages = state.messages[conversationId] ?? [];
+        const hasMessage = existingMessages.some((item) => item.id === messageId);
+        if (!hasMessage) return state;
+
+        return {
+          messages: {
+            ...state.messages,
+            [conversationId]: existingMessages.map((item) =>
+              item.id === messageId ? mergeServerMessageOverLocal(item, apiMessage) : item
+            ),
+          },
+        };
+      });
+      return true;
+    } catch (error) {
+      useUIStore.getState().showToast(
+        isApiError(error) ? error.message : "No se pudo reintentar el envío"
+      );
+      return false;
+    }
+  },
+
+  forwardMessages: (sourceConversationId, messageIds, targetConversationIds) => {
+    if (env.useMock) return false;
+
+    const convMessages = get().messages[sourceConversationId] ?? [];
+    const sourceMessages = orderMessagesBySelection(convMessages, messageIds);
+
+    if (sourceMessages.length === 0 || targetConversationIds.length === 0) {
+      useUIStore.getState().showToast("No hay mensajes para reenviar");
+      return false;
+    }
+
+    const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
+    const agent = {
+      id: currentAgent?.id ?? "unknown",
+      name: currentAgent?.name ?? "Agente",
+    };
+
+    const deliveries: Array<{
+      sourceMessageId: string;
+      targetConversationId: string;
+      clientMessageId: string;
+    }> = [];
+
+    for (const targetConversationId of targetConversationIds) {
+      for (const sourceMessage of sourceMessages) {
+        const pendingId = createPendingMessageId();
+
+        deliveries.push({
+          sourceMessageId: sourceMessage.id,
+          targetConversationId,
+          clientMessageId: pendingId,
+        });
+
+        appendMessageToState(
+          set,
+          get,
+          targetConversationId,
+          buildForwardOptimisticMessage(sourceMessage, targetConversationId, pendingId, agent),
+          false
+        );
+      }
+    }
+
+    useUIStore.getState().clearForwardFlow();
+
+    void conversationApiService
+      .forwardMessages(sourceConversationId, {
+        messageIds: sourceMessages.map((message) => message.id),
+        targetConversationIds,
+        deliveries,
+      })
+      .then((response) => {
+        for (const result of response.results) {
+          const pendingId = result.clientMessageId;
+          const targetId = result.conversationId;
+
+          if (result.success && result.message) {
+            reconcileOutgoingMessage(set, get, targetId, pendingId, {
+              ...result.message,
+              fileUrl: result.message.fileUrl ?? get().messages[targetId]?.find(m => m.id === pendingId)?.fileUrl,
+              audioUrl: result.message.audioUrl ?? get().messages[targetId]?.find(m => m.id === pendingId)?.audioUrl,
+            });
+            continue;
+          }
+
+          markPendingMessageFailed(set, targetId, pendingId);
+        }
+
+        const { summary } = response;
+
+        if (summary.failed === 0) {
+          const targetLabel =
+            targetConversationIds.length === 1
+              ? "1 chat"
+              : `${targetConversationIds.length} chats`;
+          useUIStore.getState().showToast(`Reenviado a ${targetLabel}`);
+        } else if (summary.sent === 0) {
+          useUIStore.getState().showToast("No se pudo reenviar ningún mensaje");
+        } else {
+          useUIStore.getState().showToast(
+            `${summary.sent} de ${summary.total} envíos completados`
+          );
+        }
+      })
+      .catch((error) => {
+        for (const delivery of deliveries) {
+          removePendingMessage(set, delivery.targetConversationId, delivery.clientMessageId);
+        }
+        useUIStore.getState().showToast(
+          isApiError(error) ? error.message : "No se pudieron reenviar los mensajes"
+        );
+      });
+
+    return true;
+  },
+
+  sendSavedSticker: async (conversationId, sticker) => {
     const conversation = get().conversations.find((item) => item.id === conversationId);
     if (!conversation || conversation.channelType !== "whatsapp") return false;
 
+    if (env.useMock) return false;
+
+    const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
+    const replyToMessageId = useUIStore.getState().replyToMessage?.id;
+    const convMessages = get().messages[conversationId] ?? [];
+    const replyTarget = replyToMessageId
+      ? convMessages.find((m) => m.id === replyToMessageId)
+      : undefined;
+
+    const pendingId = createPendingMessageId();
+    const optimistic: Message = {
+      id: pendingId,
+      clientId: pendingId,
+      clientMessageId: pendingId,
+      conversationId,
+      content: "Sticker",
+      senderType: "agent",
+      senderId: currentAgent?.id ?? "unknown",
+      senderName: currentAgent?.name ?? "Agente",
+      isPrivate: false,
+      replyTo: replyTarget
+        ? {
+            id: replyTarget.id,
+            content: replyTarget.content,
+            senderName: replyTarget.senderName,
+            senderType: replyTarget.senderType as "agent" | "contact" | "bot",
+          }
+        : undefined,
+      contentType: "sticker",
+      fileName: sticker.fileName,
+      fileSize: sticker.fileSize,
+      fileUrl: sticker.fileUrl,
+      sortOrder: nextOptimisticSortOrder(conversationId),
+      createdAt: new Date(),
+      status: "pending",
+    };
+
+    appendMessageToState(set, get, conversationId, optimistic, false);
+    useUIStore.getState().setReplyToMessage(null);
+
     try {
-      if (env.useMock) return false;
-      const replyToMessageId = useUIStore.getState().replyToMessage?.id;
-      const message = await stickerApiService.send(
+      const apiMessage = await stickerApiService.send(
         conversationId,
-        stickerId,
-        replyToMessageId
+        sticker.id,
+        replyToMessageId,
+        pendingId
       );
-      appendMessageToState(set, get, conversationId, message, false);
-      useUIStore.getState().setReplyToMessage(null);
+      reconcileOutgoingMessage(set, get, conversationId, pendingId, {
+        ...apiMessage,
+        replyTo: apiMessage.replyTo ?? optimistic.replyTo,
+        fileUrl: apiMessage.fileUrl ?? optimistic.fileUrl,
+      });
       return true;
-    } catch {
+    } catch (error) {
+      removePendingMessage(set, conversationId, pendingId);
+      useUIStore.getState().showToast(
+        isApiError(error) ? error.message : "No se pudo enviar el sticker"
+      );
       return false;
     }
   },
@@ -963,6 +1282,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     const buildLocalMessage = (overrides?: Partial<Message>): Message => ({
       id: overrides?.id ?? `msg-${Date.now()}`,
+      clientId: overrides?.clientId ?? overrides?.id,
       conversationId,
       content,
       senderType: "agent",
@@ -980,11 +1300,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             }
           : undefined,
       contentType: options?.contentType || "text",
-      audioUrl: options?.audioUrl,
+      audioUrl: overrides?.audioUrl ?? options?.audioUrl,
       audioDuration: options?.audioDuration,
-      fileName: options?.fileName,
-      fileSize: options?.fileSize,
-      fileUrl: options?.fileUrl,
+      fileName: overrides?.fileName ?? options?.fileName,
+      fileSize: overrides?.fileSize ?? options?.fileSize,
+      fileUrl: overrides?.fileUrl ?? options?.fileUrl,
       sortOrder: overrides?.sortOrder ?? nextOptimisticSortOrder(conversationId),
       createdAt:
         overrides?.createdAt ??
@@ -996,7 +1316,32 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     if (!env.useMock) {
       const pendingId = createPendingMessageId();
-      const optimistic = buildLocalMessage({ id: pendingId, status: "sent" });
+      const isWhatsAppOutbound =
+        !isPrivate && conversation?.channelType === "whatsapp";
+      const uploadFile = options?.file;
+      const contentType = options?.contentType ?? "text";
+
+      let previewFileUrl = options?.fileUrl;
+      let previewAudioUrl = options?.audioUrl;
+      if (uploadFile) {
+        if ((contentType === "image" || contentType === "sticker") && !previewFileUrl) {
+          previewFileUrl = URL.createObjectURL(uploadFile);
+        }
+        if (contentType === "audio" && !previewAudioUrl) {
+          previewAudioUrl = URL.createObjectURL(uploadFile);
+        }
+      }
+
+      const optimistic = buildLocalMessage({
+        id: pendingId,
+        clientId: pendingId,
+        clientMessageId: pendingId,
+        status: isWhatsAppOutbound ? "pending" : "sent",
+        fileUrl: previewFileUrl,
+        audioUrl: previewAudioUrl,
+        fileName: options?.fileName ?? uploadFile?.name,
+        fileSize: options?.fileSize ?? uploadFile?.size,
+      });
       appendMessageToState(
         set,
         get,
@@ -1005,9 +1350,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         isPrivate,
         attachedToMessageId
       );
-
-      const uploadFile = options?.file;
-      const contentType = options?.contentType ?? "text";
 
       if (
         uploadFile &&
@@ -1023,14 +1365,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             content,
             isPrivate,
             contentType,
-            replyToMessageId
+            replyToMessageId,
+            pendingId
           )
           .then((apiMessage) => {
             reconcileOutgoingMessage(set, get, conversationId, pendingId, {
               ...apiMessage,
               replyTo: apiMessage.replyTo ?? optimistic.replyTo,
               attachedToMessageId: optimistic.attachedToMessageId,
-              audioUrl: contentType === "audio" ? apiMessage.fileUrl : options?.audioUrl,
+              fileUrl: apiMessage.fileUrl ?? optimistic.fileUrl,
+              audioUrl:
+                contentType === "audio"
+                  ? apiMessage.fileUrl ?? optimistic.audioUrl
+                  : optimistic.audioUrl,
               audioDuration: options?.audioDuration,
             });
           })
@@ -1047,6 +1394,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         .sendMessage(conversationId, content, isPrivate, {
           contentType,
           replyToMessageId,
+          clientMessageId: pendingId,
         })
         .then((apiMessage) => {
           reconcileOutgoingMessage(set, get, conversationId, pendingId, {
@@ -1126,6 +1474,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         id,
         `La conversación fue reabierta por ${actorName}`
       );
+    } else if (status === "resolved") {
+      pendingActivityId = appendOptimisticActivityIfChatOpen(
+        set,
+        get,
+        id,
+        `La conversación fue marcada como resuelta por ${actorName}`
+      );
     }
 
     try {
@@ -1136,10 +1491,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           ? { messagesLoadedFromApi: { ...state.messagesLoadedFromApi, [id]: false } }
           : {}),
       }));
-
-      if (isReopen) {
-        await reconcileActivityAfterApi(set, get, id, pendingActivityId);
-      }
 
       return true;
     } catch {
@@ -1187,7 +1538,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     try {
       await conversationApiService.updateConversation(id, { assigneeId: agentId ?? null });
-      await reconcileActivityAfterApi(set, get, id, pendingActivityId);
       return true;
     } catch {
       removePendingActivityMessage(set, id, pendingActivityId);
@@ -1246,7 +1596,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       set((state) => ({
         conversations: state.conversations.map((c) => (c.id === id ? updated : c)),
       }));
-      await reconcileActivityAfterApi(set, get, id, pendingActivityId);
       return true;
     } catch {
       removePendingActivityMessage(set, id, pendingActivityId);

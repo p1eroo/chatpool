@@ -25,6 +25,30 @@ export function buildConversationMediaKey(
   return `conversations/${conversationId}/${randomUUID()}-${safeFilename(originalName)}`;
 }
 
+export async function copyConversationMediaFromKey(params: {
+  conversationId: string;
+  sourceKey: string;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
+}): Promise<{ fileKey: string; fileUrl: string; fileName: string; fileSize: number; mimeType: string }> {
+  assertMediaStorageReady();
+
+  const fileName = safeFilename(params.originalName);
+  const fileKey = buildConversationMediaKey(params.conversationId, fileName);
+  const mimeType = params.mimeType.trim() || "application/octet-stream";
+
+  await s3Storage.copyObject(params.sourceKey, fileKey, mimeType);
+
+  return {
+    fileKey,
+    fileUrl: s3Storage.getPublicUrl(fileKey),
+    fileName,
+    fileSize: params.fileSize,
+    mimeType,
+  };
+}
+
 export async function uploadConversationMedia(params: {
   conversationId: string;
   buffer: Buffer;

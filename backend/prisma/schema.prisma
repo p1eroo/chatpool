@@ -66,6 +66,7 @@ enum MessageContentType {
 }
 
 enum MessageStatus {
+  pending
   sent
   delivered
   read
@@ -250,10 +251,13 @@ model Message {
   mimeType            String?            @map("mime_type")
   mediaExternalId     String?            @map("media_external_id")
   externalId          String?            @unique @map("external_id")
+  clientMessageId     String?            @map("client_message_id")
+  deliveryPayload     Json?              @map("delivery_payload")
   status              MessageStatus      @default(sent)
   sortOrder           Int                @default(0) @map("sort_order")
   createdAt           DateTime           @default(now()) @map("created_at")
 
+  @@unique([conversationId, clientMessageId])
   @@index([conversationId, sortOrder])
   @@map("messages")
 }

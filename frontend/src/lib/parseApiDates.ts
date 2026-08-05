@@ -1,10 +1,13 @@
 import type { Conversation, Message } from "@/types";
 
 export function parseMessage(
-  raw: Message & { createdAt: string | Date; sortOrder?: number }
+  raw: Message & { createdAt: string | Date; sortOrder?: number; clientMessageId?: string }
 ): Message {
+  const clientMessageId = raw.clientMessageId ?? raw.clientId;
   return {
     ...raw,
+    clientId: raw.clientId ?? clientMessageId,
+    clientMessageId,
     createdAt: raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt),
     sortOrder: raw.sortOrder,
   };

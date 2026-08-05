@@ -1,4 +1,5 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
+import type { Prisma } from "@prisma/client";
 import { mapConversation, mapMessage, messageInclude } from "../mappers.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import type {
@@ -13,7 +14,6 @@ import {
   emitMessageCreated,
 } from "../realtime/realtime.service.js";
 import { uploadConversationMedia } from "../media/media-storage.service.js";
-import { deliverWhatsAppOutbound, deliverWhatsAppTemplate } from "../media/meta-outbound.service.js";
 import { normalizeAudioForWhatsApp } from "../media/audio-transcode.service.js";
 import {
   assertAgentCanAccessInbox,
@@ -34,6 +34,10 @@ import {
 import { refreshConversationLastMessageAt } from "./conversation-last-message.js";
 import { runWithConversationMessageLock } from "./conversation-message-serializer.js";
 import { nextMessageSortOrder } from "./message-sort-order.js";
+import {
+  buildTemplateDeliveryPayload,
+  scheduleWhatsAppMessageDelivery,
+} from "./message-delivery.service.js";
 
 const conversationInclude = conversationRealtimeInclude;
 
@@ -149,9 +153,16 @@ export async function sendAgentMessage(
   conversationId: string,
   agentId: string,
   body: SendMessageBody,
-  options?: { mediaBuffer?: Buffer }
+  _options?: { mediaBuffer?: Buffer }
 ) {
-  return runWithConversationMessageLock(conversationId, async () => {
+  type SendResult = {
+    message: ReturnType<typeof mapMessage>;
+    autoAssign: boolean;
+    previousAssigneeId: string | null;
+    scheduleDelivery: boolean;
+  };
+
+  const result = await runWithConversationMessageLock(conversationId, async (): Promise<SendResult> => {
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { assignee: true, inbox: true, contact: true },
@@ -185,39 +196,24 @@ export async function sendAgentMessage(
       );
     }
 
-    let externalId: string | null = null;
-    let mediaExternalId: string | null = null;
-
-    if (!body.isPrivate && conversation.inbox.channelType === "whatsapp") {
-      let mediaBuffer = options?.mediaBuffer;
-      let mimeType = body.mimeType ?? null;
-      let fileName = body.fileName ?? null;
-
-      if (body.contentType === "audio" && mediaBuffer?.length) {
-        const normalized = await normalizeAudioForWhatsApp(
-          mediaBuffer,
-          mimeType ?? "audio/webm",
-          fileName ?? "voice.webm"
-        );
-        mediaBuffer = normalized.buffer;
-        mimeType = normalized.mimeType;
-        fileName = normalized.fileName;
-      }
-
-      const delivered = await deliverWhatsAppOutbound({
-        inboxId: conversation.inboxId,
-        recipientWaId: conversation.contact.waId,
-        recipientPhone: conversation.contact.phone,
-        contentType: body.contentType ?? "text",
-        content: body.content,
-        fileName,
-        mimeType,
-        mediaBuffer,
-        replyToExternalId: replyTarget?.externalId,
+    const clientMessageId = body.clientMessageId?.trim() || null;
+    if (clientMessageId) {
+      const existing = await prisma.message.findFirst({
+        where: { conversationId, clientMessageId },
+        include: messageInclude,
       });
-      externalId = delivered.externalId;
-      mediaExternalId = delivered.mediaExternalId ?? null;
+      if (existing) {
+        return {
+          message: mapMessage(existing),
+          autoAssign: false,
+          previousAssigneeId: conversation.assigneeId,
+          scheduleDelivery: existing.status === "pending",
+        };
+      }
     }
+
+    const needsWhatsAppDelivery =
+      !body.isPrivate && conversation.inbox.channelType === "whatsapp";
 
     const sortOrder = await nextMessageSortOrder(conversationId);
     const createdAt = new Date();
@@ -235,10 +231,11 @@ export async function sendAgentMessage(
         fileSize: body.fileSize ?? null,
         fileKey: body.fileKey ?? null,
         mimeType: body.mimeType ?? null,
-        mediaExternalId,
-        externalId,
+        mediaExternalId: null,
+        externalId: null,
         replyToMessageId: replyTarget?.id ?? null,
-        status: "sent",
+        clientMessageId,
+        status: needsWhatsAppDelivery ? "pending" : "sent",
         sortOrder,
         createdAt,
       },
@@ -266,18 +263,24 @@ export async function sendAgentMessage(
       message: mapMessage(message),
       autoAssign,
       previousAssigneeId,
+      scheduleDelivery: needsWhatsAppDelivery,
     };
-  }).then(async (result) => {
-    if (result.autoAssign) {
-      await recordConversationAssigneeActivity({
-        conversationId,
-        previousAssigneeId: result.previousAssigneeId,
-        nextAssigneeId: agentId,
-        actorAgentId: agentId,
-      });
-    }
-    return result.message;
   });
+
+  if (result.scheduleDelivery) {
+    scheduleWhatsAppMessageDelivery(conversationId, result.message.id);
+  }
+
+  if (result.autoAssign) {
+    void recordConversationAssigneeActivity({
+      conversationId,
+      previousAssigneeId: result.previousAssigneeId,
+      nextAssigneeId: agentId,
+      actorAgentId: agentId,
+    });
+  }
+
+  return result.message;
 }
 
 export async function sendAgentMessageWithFile(
@@ -291,6 +294,7 @@ export async function sendAgentMessageWithFile(
     originalName: string;
     mimeType: string;
     replyToMessageId?: string;
+    clientMessageId?: string;
   }
 ) {
   let buffer = params.buffer;
@@ -329,8 +333,8 @@ export async function sendAgentMessageWithFile(
       fileKey: stored.fileKey,
       mimeType: stored.mimeType,
       replyToMessageId: params.replyToMessageId,
-    },
-    { mediaBuffer: buffer }
+      clientMessageId: params.clientMessageId,
+    }
   );
 }
 
@@ -340,7 +344,16 @@ export async function sendWhatsAppTemplate(
   agentId: string,
   body: SendTemplateBody
 ) {
-  return runWithConversationMessageLock(conversationId, async () => {
+  type TemplateSendResult = {
+    message: ReturnType<typeof mapMessage>;
+    autoAssign: boolean;
+    previousAssigneeId: string | null;
+    scheduleDelivery: boolean;
+  };
+
+  const result = await runWithConversationMessageLock(
+    conversationId,
+    async (): Promise<TemplateSendResult> => {
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { inbox: true, contact: true },
@@ -380,6 +393,22 @@ export async function sendWhatsAppTemplate(
       buttonUrlParameters,
     });
 
+    const clientMessageId = body.clientMessageId?.trim() || null;
+    if (clientMessageId) {
+      const existing = await prisma.message.findFirst({
+        where: { conversationId, clientMessageId },
+        include: messageInclude,
+      });
+      if (existing) {
+        return {
+          message: mapMessage(existing),
+          autoAssign: false,
+          previousAssigneeId: conversation.assigneeId,
+          scheduleDelivery: existing.status === "pending",
+        };
+      }
+    }
+
     const components: WhatsAppTemplateSendComponent[] = [];
     if (headerParameters.length) {
       components.push({
@@ -407,13 +436,10 @@ export async function sendWhatsAppTemplate(
       headerParameters,
     });
 
-    const delivered = await deliverWhatsAppTemplate({
-      inboxId: conversation.inboxId,
-      recipientWaId: conversation.contact.waId,
-      recipientPhone: conversation.contact.phone,
+    const deliveryPayload = buildTemplateDeliveryPayload({
       name: template.name,
       language: template.language,
-      components,
+      components: components.length ? components : undefined,
     });
 
     const sortOrder = await nextMessageSortOrder(conversationId);
@@ -428,8 +454,10 @@ export async function sendWhatsAppTemplate(
         senderName: agent.name,
         isPrivate: false,
         contentType: "text",
-        externalId: delivered.externalId,
-        status: "sent",
+        externalId: null,
+        clientMessageId,
+        deliveryPayload: deliveryPayload as unknown as Prisma.InputJsonValue,
+        status: "pending",
         sortOrder,
         createdAt,
       },
@@ -457,18 +485,24 @@ export async function sendWhatsAppTemplate(
       message: mapMessage(message),
       autoAssign,
       previousAssigneeId,
+      scheduleDelivery: true,
     };
-  }).then(async (result) => {
-    if (result.autoAssign) {
-      await recordConversationAssigneeActivity({
-        conversationId,
-        previousAssigneeId: result.previousAssigneeId,
-        nextAssigneeId: agentId,
-        actorAgentId: agentId,
-      });
-    }
-    return result.message;
   });
+
+  if (result.scheduleDelivery) {
+    scheduleWhatsAppMessageDelivery(conversationId, result.message.id);
+  }
+
+  if (result.autoAssign) {
+    void recordConversationAssigneeActivity({
+      conversationId,
+      previousAssigneeId: result.previousAssigneeId,
+      nextAssigneeId: agentId,
+      actorAgentId: agentId,
+    });
+  }
+
+  return result.message;
 }
 
 export async function updateConversation(

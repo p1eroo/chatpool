@@ -111,6 +111,10 @@ export interface MessageReply {
 
 export interface Message {
   id: string;
+  /** Id estable en UI (p. ej. pending-*) para no remontar al confirmar el envío. */
+  clientId?: string;
+  /** Id enviado al API para reconciliar con el mensaje persistido. */
+  clientMessageId?: string;
   conversationId: string;
   content: string;
   senderType: "agent" | "contact" | "system" | "bot";
@@ -129,7 +133,7 @@ export interface Message {
   externalId?: string;
   sortOrder?: number;
   createdAt: Date;
-  status?: "sent" | "delivered" | "read" | "failed";
+  status?: "pending" | "sent" | "delivered" | "read" | "failed";
 }
 
 export interface SavedSticker {

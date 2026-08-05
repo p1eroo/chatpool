@@ -1,4 +1,5 @@
 import { env } from "./config/env.js";
+import { resumePendingWhatsAppDeliveries } from "./application/conversations/message-delivery.service.js";
 import { buildApp } from "./presentation/http/server.js";
 
 async function main() {
@@ -6,6 +7,7 @@ async function main() {
 
   try {
     await app.listen({ port: env.PORT, host: env.HOST });
+    resumePendingWhatsAppDeliveries();
     console.log(`Chatpool API en http://${env.HOST}:${env.PORT}`);
   } catch (error) {
     app.log.error(error);

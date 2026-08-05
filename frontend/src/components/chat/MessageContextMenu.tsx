@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import {
   CornerUpLeft,
   Copy,
+  Forward,
+  RefreshCw,
   SmilePlus,
   StickyNote,
   Trash2,
@@ -11,6 +13,7 @@ import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { stickerApiService } from "@/services/stickerApiService";
 import { cn } from "@/lib/utils";
+import { isForwardableMessage } from "@/lib/forwardMessages";
 import type { Message } from "@/types";
 import { ApiError } from "@/api/errors";
 
@@ -58,10 +61,14 @@ export function MessageContextMenu({
   const [position, setPosition] = useState({ x, y });
 
   const deleteMessage = useConversationStore((s) => s.deleteMessage);
+  const retryFailedMessage = useConversationStore((s) => s.retryFailedMessage);
   const setReplyToMessage = useUIStore((s) => s.setReplyToMessage);
   const setNoteAboutMessage = useUIStore((s) => s.setNoteAboutMessage);
   const showToast = useUIStore((s) => s.showToast);
   const replyToMessage = useUIStore((s) => s.replyToMessage);
+  const beginForwardSelection = useUIStore((s) => s.beginForwardSelection);
+
+  const canForward = isForwardableMessage(message);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -155,6 +162,18 @@ export function MessageContextMenu({
         }
       />
 
+      {canForward && (
+        <MenuItem
+          icon={Forward}
+          label="Reenviar"
+          onClick={() =>
+            runAction(() => {
+              beginForwardSelection(conversationId, message.id);
+            })
+          }
+        />
+      )}
+
       {message.contentType === "sticker" && (
         <MenuItem
           icon={SmilePlus}
@@ -173,6 +192,18 @@ export function MessageContextMenu({
                         : "No se pudo guardar el sticker";
                   showToast(text);
                 });
+            })
+          }
+        />
+      )}
+
+      {message.senderType === "agent" && message.status === "failed" && !message.isPrivate && (
+        <MenuItem
+          icon={RefreshCw}
+          label="Reintentar envío"
+          onClick={() =>
+            runAction(() => {
+              void retryFailedMessage(conversationId, message.id);
             })
           }
         />

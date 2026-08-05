@@ -119,6 +119,7 @@ export function mapMessage(message: {
   mimeType: string | null;
   mediaExternalId: string | null;
   externalId: string | null;
+  clientMessageId: string | null;
   status: string;
   sortOrder: number;
   createdAt: Date;
@@ -159,6 +160,7 @@ export function mapMessage(message: {
       : undefined,
     mimeType: message.mimeType ?? undefined,
     externalId: message.externalId ?? undefined,
+    clientMessageId: message.clientMessageId ?? undefined,
     sortOrder: message.sortOrder,
     createdAt: message.createdAt.toISOString(),
     status: message.status as Message["status"],

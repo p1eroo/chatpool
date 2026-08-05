@@ -70,7 +70,11 @@ export const conversationApiService = {
     conversationId: string,
     content: string,
     isPrivate: boolean,
-    options?: { contentType?: Message["contentType"]; replyToMessageId?: string }
+    options?: {
+      contentType?: Message["contentType"];
+      replyToMessageId?: string;
+      clientMessageId?: string;
+    }
   ): Promise<Message> {
     const row = await apiRequest<Message>(`/conversations/${conversationId}/messages`, {
       method: "POST",
@@ -79,6 +83,7 @@ export const conversationApiService = {
         isPrivate,
         contentType: options?.contentType ?? "text",
         replyToMessageId: options?.replyToMessageId,
+        clientMessageId: options?.clientMessageId,
       },
     });
     return parseMessage(row as never);
@@ -90,7 +95,8 @@ export const conversationApiService = {
     content: string,
     isPrivate: boolean,
     contentType: "image" | "file" | "audio" | "sticker",
-    replyToMessageId?: string
+    replyToMessageId?: string,
+    clientMessageId?: string
   ): Promise<Message> {
     const formData = new FormData();
     formData.append("file", file);
@@ -99,6 +105,9 @@ export const conversationApiService = {
     formData.append("contentType", contentType);
     if (replyToMessageId) {
       formData.append("replyToMessageId", replyToMessageId);
+    }
+    if (clientMessageId) {
+      formData.append("clientMessageId", clientMessageId);
     }
 
     const row = await apiUpload<Message>(`/conversations/${conversationId}/messages`, formData);
@@ -144,6 +153,7 @@ export const conversationApiService = {
       bodyParameters?: string[];
       headerParameters?: string[];
       buttonUrlParameters?: Array<{ index: number; text: string }>;
+      clientMessageId?: string;
     }
   ): Promise<Message> {
     const row = await apiRequest<Message>(`/conversations/${conversationId}/templates`, {
@@ -151,5 +161,61 @@ export const conversationApiService = {
       body: payload,
     });
     return parseMessage(row as never);
+  },
+
+  async retryMessageDelivery(conversationId: string, messageId: string): Promise<Message> {
+    const row = await apiRequest<Message>(
+      `/conversations/${conversationId}/messages/${messageId}/retry-delivery`,
+      { method: "POST" }
+    );
+    return parseMessage(row as never);
+  },
+
+  async forwardMessages(
+    sourceConversationId: string,
+    payload: {
+      messageIds: string[];
+      targetConversationIds: string[];
+      deliveries: Array<{
+        sourceMessageId: string;
+        targetConversationId: string;
+        clientMessageId: string;
+      }>;
+    }
+  ): Promise<{
+    results: Array<{
+      sourceMessageId: string;
+      conversationId: string;
+      clientMessageId: string;
+      success: boolean;
+      message?: Message;
+      error?: string;
+      code?: string;
+    }>;
+    summary: { sent: number; failed: number; total: number };
+  }> {
+    const row = await apiRequest<{
+      results: Array<{
+        sourceMessageId: string;
+        conversationId: string;
+        clientMessageId: string;
+        success: boolean;
+        message?: Message;
+        error?: string;
+        code?: string;
+      }>;
+      summary: { sent: number; failed: number; total: number };
+    }>(`/conversations/${sourceConversationId}/messages/forward`, {
+      method: "POST",
+      body: payload,
+    });
+
+    return {
+      ...row,
+      results: row.results.map((item) => ({
+        ...item,
+        message: item.message ? parseMessage(item.message as never) : undefined,
+      })),
+    };
   },
 };

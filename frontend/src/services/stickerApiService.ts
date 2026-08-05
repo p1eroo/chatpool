@@ -17,13 +17,17 @@ export const stickerApiService = {
   async send(
     conversationId: string,
     stickerId: string,
-    replyToMessageId?: string
+    replyToMessageId?: string,
+    clientMessageId?: string
   ): Promise<Message> {
     const row = await apiRequest<Message>(
       `/conversations/${conversationId}/stickers/${stickerId}/send`,
       {
         method: "POST",
-        body: replyToMessageId ? { replyToMessageId } : {},
+        body: {
+          ...(replyToMessageId ? { replyToMessageId } : {}),
+          ...(clientMessageId ? { clientMessageId } : {}),
+        },
       }
     );
     return parseMessage(row as never);

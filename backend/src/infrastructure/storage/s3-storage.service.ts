@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { CopyObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { env } from "../../config/env.js";
 
 function trim(value: string | undefined): string | undefined {
@@ -55,6 +55,26 @@ class S3StorageService {
         Key: key,
         Body: body,
         ContentType: contentType || "application/octet-stream",
+      })
+    );
+  }
+
+  async copyObject(
+    sourceKey: string,
+    destKey: string,
+    contentType?: string
+  ): Promise<void> {
+    if (!this.client) {
+      throw new Error("Almacenamiento S3/MinIO no configurado");
+    }
+
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        CopySource: `${this.bucket}/${sourceKey}`,
+        Key: destKey,
+        ...(contentType ? { ContentType: contentType } : {}),
+        MetadataDirective: contentType ? "REPLACE" : "COPY",
       })
     );
   }

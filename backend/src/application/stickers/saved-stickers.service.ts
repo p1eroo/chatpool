@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
-import { resolvePublicFileUrl } from "../media/media-storage.service.js";
+import {
+  copyConversationMediaFromKey,
+  resolvePublicFileUrl,
+} from "../media/media-storage.service.js";
 import { resolveMessageAttachment } from "../media/message-attachment.service.js";
 import { s3Storage } from "../../infrastructure/storage/s3-storage.service.js";
 import { assertAgentCanAccessConversation } from "../inboxes/inbox-access.service.js";
-import { sendAgentMessageWithFile } from "../conversations/conversations.service.js";
+import { sendAgentMessage } from "../conversations/conversations.service.js";
 
 export type SavedStickerDto = {
   id: string;
@@ -113,6 +116,7 @@ export async function sendSavedSticker(params: {
   conversationId: string;
   stickerId: string;
   replyToMessageId?: string;
+  clientMessageId?: string;
 }) {
   await assertAgentCanAccessConversation(params.agentId, params.conversationId);
 
@@ -121,14 +125,22 @@ export async function sendSavedSticker(params: {
   });
   if (!sticker) throw new NotFoundError("Sticker no encontrado");
 
-  const object = await s3Storage.getObjectBuffer(sticker.fileKey);
+  const copied = await copyConversationMediaFromKey({
+    conversationId: params.conversationId,
+    sourceKey: sticker.fileKey,
+    originalName: sticker.fileName,
+    mimeType: sticker.mimeType || "image/webp",
+    fileSize: sticker.fileSize,
+  });
 
-  return sendAgentMessageWithFile(params.conversationId, params.agentId, {
+  return sendAgentMessage(params.conversationId, params.agentId, {
     content: "Sticker",
     contentType: "sticker",
-    buffer: object.buffer,
-    originalName: sticker.fileName,
-    mimeType: sticker.mimeType || object.contentType || "image/webp",
+    fileName: copied.fileName,
+    fileSize: copied.fileSize,
+    fileKey: copied.fileKey,
+    mimeType: copied.mimeType,
     replyToMessageId: params.replyToMessageId,
+    clientMessageId: params.clientMessageId,
   });
 }

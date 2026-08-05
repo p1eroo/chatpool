@@ -7,6 +7,7 @@ import { MessageList } from "./MessageList";
 import { ChatComposer } from "./ChatComposer";
 import { WhatsAppReplyWindowBanner } from "./WhatsAppReplyWindowBanner";
 import { ImageLightbox } from "./ImageLightbox";
+import { ForwardMessagesModal } from "./ForwardMessagesModal";
 import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
 import { Paperclip } from "lucide-react";
 
@@ -20,6 +21,11 @@ export function ChatArea() {
   const noteAboutMessage = useUIStore((s) => s.noteAboutMessage);
   const requestAttachFile = useUIStore((s) => s.requestAttachFile);
   const showToast = useUIStore((s) => s.showToast);
+  const forwardSelectionMode = useUIStore((s) => s.forwardSelectionMode);
+  const forwardModalOpen = useUIStore((s) => s.forwardModalOpen);
+  const forwardSourceConversationId = useUIStore((s) => s.forwardSourceConversationId);
+  const forwardSelectedMessageIds = useUIStore((s) => s.forwardSelectedMessageIds);
+  const closeForwardModal = useUIStore((s) => s.closeForwardModal);
   const canSendMessages = useHasPermission("sendMessages");
 
   const [isDragging, setIsDragging] = useState(false);
@@ -142,7 +148,7 @@ export function ChatArea() {
       onPaste={handlePaste}
     >
       <MessageList />
-      {activeConversationId && !isLoadingMessages &&
+      {activeConversationId && !isLoadingMessages && !forwardSelectionMode &&
         (whatsAppWindowClosed ? (
           <WhatsAppReplyWindowBanner conversationId={activeConversationId} />
         ) : canSendMessages ? (
@@ -155,6 +161,12 @@ export function ChatArea() {
           </div>
         ))}
       <ImageLightbox />
+      <ForwardMessagesModal
+        open={forwardModalOpen}
+        sourceConversationId={forwardSourceConversationId}
+        messageIds={forwardSelectedMessageIds}
+        onClose={closeForwardModal}
+      />
 
       {isDragging && activeConversationId && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-[var(--color-bg-primary)]/85 border-2 border-dashed border-[var(--color-brand)] pointer-events-none animate-fade-in">

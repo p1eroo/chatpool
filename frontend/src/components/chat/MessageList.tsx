@@ -1,20 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Forward, X } from "lucide-react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
+import { useChatScrollAnchor } from "@/hooks/useChatScrollAnchor";
 import { MessageBubble } from "./MessageBubble";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { ChatMessagesLoading } from "./ChatMessagesLoading";
 import { formatDate } from "@/lib/utils";
 import { sortMessagesChronologically } from "@/lib/messageOrder";
+import { isForwardableMessage } from "@/lib/forwardMessages";
 import type { Message } from "@/types";
 import { ChatHeader } from "./ChatHeader";
-
-const NEAR_BOTTOM_PX = 96;
-
-function isScrollNearBottom(el: HTMLElement): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
-}
 
 export function MessageList() {
   const conversations = useConversationStore((s) => s.conversations);
@@ -35,14 +31,24 @@ export function MessageList() {
     activeConversationId && messagesLoading[activeConversationId]
   );
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const isNearBottomRef = useRef(true);
-  const prevMessageMetaRef = useRef<{ conversationId: string | null; length: number }>({
+  const {
+    scrollRef,
+    contentRef,
+    bottomRef,
+    isNearBottom,
+    scrollToBottom,
+    releaseStick,
+  } = useChatScrollAnchor({
+    conversationId: activeConversation?.id ?? null,
+    messageCount: messages.length,
+    isLoadingMessages,
+    isTyping: activeConversation?.isTyping ?? false,
+  });
+
+  const prevNewMessageMetaRef = useRef<{ conversationId: string | null; length: number }>({
     conversationId: null,
     length: 0,
   });
-  const [isNearBottom, setIsNearBottom] = useState(true);
   const [newBelowCount, setNewBelowCount] = useState(0);
   const [contextMenu, setContextMenu] = useState<{
     messageId: string;
@@ -53,63 +59,38 @@ export function MessageList() {
   const jumpToMessageId = useUIStore((s) => s.jumpToMessageId);
   const clearJumpToMessage = useUIStore((s) => s.clearJumpToMessage);
   const showToast = useUIStore((s) => s.showToast);
-
-  const updateNearBottom = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const near = isScrollNearBottom(el);
-    isNearBottomRef.current = near;
-    setIsNearBottom(near);
-    if (near) {
-      setNewBelowCount((count) => (count > 0 ? 0 : count));
-    }
-  };
-
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
-    bottomRef.current?.scrollIntoView({ behavior });
-    isNearBottomRef.current = true;
-    setIsNearBottom(true);
-    setNewBelowCount(0);
-  };
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    const onScroll = () => updateNearBottom();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [activeConversationId]);
+  const forwardSelectionMode = useUIStore((s) => s.forwardSelectionMode);
+  const forwardSelectedMessageIds = useUIStore((s) => s.forwardSelectedMessageIds);
+  const forwardSourceConversationId = useUIStore((s) => s.forwardSourceConversationId);
+  const toggleForwardMessageSelection = useUIStore((s) => s.toggleForwardMessageSelection);
+  const openForwardModal = useUIStore((s) => s.openForwardModal);
+  const clearForwardFlow = useUIStore((s) => s.clearForwardFlow);
 
   useEffect(() => {
     const conversationId = activeConversation?.id ?? null;
-    const prev = prevMessageMetaRef.current;
+    const prev = prevNewMessageMetaRef.current;
     const length = messages.length;
 
     if (conversationId !== prev.conversationId) {
-      prevMessageMetaRef.current = { conversationId, length };
+      prevNewMessageMetaRef.current = { conversationId, length };
       setNewBelowCount(0);
-      requestAnimationFrame(() => scrollToBottom("auto"));
       return;
     }
 
-    if (length > prev.length) {
-      // Carga inicial del historial (0 → N): no contar como "mensajes nuevos".
-      if (prev.length === 0) {
-        requestAnimationFrame(() => scrollToBottom("auto"));
-      } else if (isNearBottomRef.current) {
-        requestAnimationFrame(() => scrollToBottom("smooth"));
-      } else {
-        const added = messages.slice(prev.length);
-        const addedContact = added.filter((message) => message.senderType === "contact").length;
-        if (addedContact > 0) {
-          setNewBelowCount((count) => count + addedContact);
-        }
+    if (length > prev.length && !isNearBottom) {
+      const added = messages.slice(prev.length);
+      const addedContact = added.filter((message) => message.senderType === "contact").length;
+      if (addedContact > 0) {
+        setNewBelowCount((count) => count + addedContact);
       }
     }
 
-    prevMessageMetaRef.current = { conversationId, length };
-  }, [messages, activeConversation?.id]);
+    if (isNearBottom) {
+      setNewBelowCount(0);
+    }
+
+    prevNewMessageMetaRef.current = { conversationId, length };
+  }, [messages, activeConversation?.id, isNearBottom]);
 
   useEffect(() => {
     if (!jumpToMessageId || !scrollRef.current) return;
@@ -119,6 +100,7 @@ export function MessageList() {
     );
 
     clearJumpToMessage();
+    releaseStick();
 
     if (!target) {
       showToast("No se encontró el mensaje citado en esta conversación");
@@ -133,11 +115,21 @@ export function MessageList() {
     }, 1400);
 
     return () => window.clearTimeout(timer);
-  }, [jumpToMessageId, clearJumpToMessage, showToast, messages]);
+  }, [jumpToMessageId, clearJumpToMessage, showToast, messages, scrollRef, releaseStick]);
 
   useEffect(() => {
     setContextMenu(null);
   }, [activeConversationId]);
+
+  useEffect(() => {
+    if (
+      forwardSourceConversationId &&
+      activeConversationId &&
+      forwardSourceConversationId !== activeConversationId
+    ) {
+      clearForwardFlow();
+    }
+  }, [activeConversationId, forwardSourceConversationId, clearForwardFlow]);
 
   if (!activeConversation) {
     return (
@@ -192,6 +184,17 @@ export function MessageList() {
   const newMessagesLabel =
     newBelowCount === 1 ? "1 mensaje nuevo" : `${newBelowCount} mensajes nuevos`;
 
+  const isForwardSelectionActive =
+    forwardSelectionMode &&
+    forwardSourceConversationId === activeConversationId;
+
+  const selectedForwardCount = forwardSelectedMessageIds.length;
+
+  const handleScrollToBottom = () => {
+    scrollToBottom("smooth");
+    setNewBelowCount(0);
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <ChatHeader conversation={activeConversation} />
@@ -200,6 +203,7 @@ export function MessageList() {
       ) : (
       <div className="relative flex-1 min-h-0">
         <div ref={scrollRef} className="h-full overflow-y-auto py-3">
+          <div ref={contentRef}>
           {messageGroups.map((group) => (
             <div key={group.date}>
               <div className="flex justify-center my-3">
@@ -217,12 +221,15 @@ export function MessageList() {
 
                 return (
                   <MessageBubble
-                    key={msg.id}
+                    key={msg.clientId ?? msg.id}
                     message={msg}
                     isHighlighted={highlightedMessageId === msg.id}
                     attachedToMessage={attachedToMessage}
                     hasAttachedNotesAbove={hasAttachedNotesAbove}
                     isMenuOpen={contextMenu?.messageId === msg.id}
+                    isForwardSelectable={isForwardSelectionActive && isForwardableMessage(msg)}
+                    isForwardSelected={forwardSelectedMessageIds.includes(msg.id)}
+                    onForwardToggle={() => toggleForwardMessageSelection(msg.id)}
                     isLastInGroup={
                       msg.isPrivate ||
                       i === group.messages.length - 1 ||
@@ -258,12 +265,13 @@ export function MessageList() {
             </div>
           )}
           <div ref={bottomRef} />
+          </div>
         </div>
 
         {newBelowCount > 0 && !isNearBottom && (
           <button
             type="button"
-            onClick={() => scrollToBottom("smooth")}
+            onClick={handleScrollToBottom}
             className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)]/95 px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] shadow-lg backdrop-blur-sm transition-colors hover:bg-[var(--color-bg-tertiary)] animate-fade-in"
           >
             <ChevronDown className="h-3.5 w-3.5 text-[var(--color-brand)]" />
@@ -271,6 +279,41 @@ export function MessageList() {
           </button>
         )}
       </div>
+      )}
+
+      {isForwardSelectionActive && (
+        <div className="shrink-0 flex items-center gap-4 border-t border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] px-4 py-3">
+          <button
+            type="button"
+            onClick={clearForwardFlow}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            aria-label="Cancelar selección"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <span className="flex-1 text-sm font-medium text-[var(--color-text-primary)]">
+            {selectedForwardCount === 0
+              ? "Selecciona mensajes"
+              : selectedForwardCount === 1
+                ? "1 seleccionado"
+                : `${selectedForwardCount} seleccionados`}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedForwardCount === 0) {
+                showToast("Selecciona al menos un mensaje");
+                return;
+              }
+              openForwardModal();
+            }}
+            disabled={selectedForwardCount === 0}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Reenviar mensajes seleccionados"
+          >
+            <Forward className="h-5 w-5" />
+          </button>
+        </div>
       )}
 
       {contextMenu &&

@@ -10,6 +10,10 @@ interface UIState {
   lightboxMessageId: string | null;
   attachFileRequest: File | null;
   jumpToMessageId: string | null;
+  forwardSourceConversationId: string | null;
+  forwardSelectedMessageIds: string[];
+  forwardSelectionMode: boolean;
+  forwardModalOpen: boolean;
   toggleContactSidebar: () => void;
   setContactSidebarOpen: (open: boolean) => void;
   toggleNoteMode: () => void;
@@ -24,6 +28,11 @@ interface UIState {
   clearToast: () => void;
   jumpToMessage: (messageId: string) => void;
   clearJumpToMessage: () => void;
+  beginForwardSelection: (conversationId: string, initialMessageId?: string) => void;
+  toggleForwardMessageSelection: (messageId: string) => void;
+  openForwardModal: () => void;
+  closeForwardModal: () => void;
+  clearForwardFlow: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -35,6 +44,10 @@ export const useUIStore = create<UIState>((set) => ({
   lightboxMessageId: null,
   attachFileRequest: null,
   jumpToMessageId: null,
+  forwardSourceConversationId: null,
+  forwardSelectedMessageIds: [],
+  forwardSelectionMode: false,
+  forwardModalOpen: false,
 
   toggleContactSidebar: () =>
     set((state) => ({ contactSidebarOpen: !state.contactSidebarOpen })),
@@ -70,4 +83,35 @@ export const useUIStore = create<UIState>((set) => ({
   clearToast: () => set({ toast: null }),
   jumpToMessage: (messageId) => set({ jumpToMessageId: messageId }),
   clearJumpToMessage: () => set({ jumpToMessageId: null }),
+  beginForwardSelection: (conversationId, initialMessageId) =>
+    set({
+      forwardSourceConversationId: conversationId,
+      forwardSelectedMessageIds: initialMessageId ? [initialMessageId] : [],
+      forwardSelectionMode: true,
+      forwardModalOpen: false,
+    }),
+  toggleForwardMessageSelection: (messageId) =>
+    set((state) => {
+      const selected = state.forwardSelectedMessageIds;
+      const exists = selected.includes(messageId);
+      return {
+        forwardSelectedMessageIds: exists
+          ? selected.filter((id) => id !== messageId)
+          : [...selected, messageId],
+      };
+    }),
+  openForwardModal: () =>
+    set((state) =>
+      state.forwardSelectedMessageIds.length > 0
+        ? { forwardModalOpen: true }
+        : state
+    ),
+  closeForwardModal: () => set({ forwardModalOpen: false }),
+  clearForwardFlow: () =>
+    set({
+      forwardSourceConversationId: null,
+      forwardSelectedMessageIds: [],
+      forwardSelectionMode: false,
+      forwardModalOpen: false,
+    }),
 }));

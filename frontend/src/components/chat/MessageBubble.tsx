@@ -3,7 +3,7 @@ import { cn, formatMessageTime } from "@/lib/utils";
 import { WhatsAppFormattedText } from "@/lib/whatsappFormatting";
 import type { Message, MessageReply } from "@/types";
 import { useUIStore } from "@/store/uiStore";
-import { Check, CheckCheck, Mic, MoreVertical, Pause, Play } from "lucide-react";
+import { Check, CheckCheck, Clock, Mic, MoreVertical, Pause, Play } from "lucide-react";
 import { FileAttachmentCard } from "./FileAttachmentCard";
 import { WAVEFORM_BAR_COUNT, formatVoiceTime } from "@/hooks/useVoiceRecorder";
 
@@ -14,6 +14,9 @@ interface MessageBubbleProps {
   attachedToMessage?: Message;
   hasAttachedNotesAbove?: boolean;
   isMenuOpen?: boolean;
+  isForwardSelectable?: boolean;
+  isForwardSelected?: boolean;
+  onForwardToggle?: () => void;
   onContextMenu?: (event: React.MouseEvent) => void;
   onMenuOpen?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
@@ -25,6 +28,9 @@ export function MessageBubble({
   attachedToMessage,
   hasAttachedNotesAbove,
   isMenuOpen,
+  isForwardSelectable,
+  isForwardSelected,
+  onForwardToggle,
   onContextMenu,
   onMenuOpen,
 }: MessageBubbleProps) {
@@ -95,13 +101,51 @@ export function MessageBubble({
     <div
       data-message-id={message.id}
       className={cn(
-        "group flex px-4 animate-fade-in",
-        isAgent ? "justify-end" : "justify-start",
+        "group flex px-4 animate-fade-in gap-3",
+        isForwardSelectable
+          ? "justify-start"
+          : isAgent
+            ? "justify-end"
+            : "justify-start",
         hasAttachedNotesAbove ? "mb-0.5" : isLastInGroup ? "mb-3" : "mb-0.5",
-        isHighlighted && "animate-message-highlight -mx-1 px-5"
+        isHighlighted && "animate-message-highlight -mx-1 px-5",
+        isForwardSelectable && "cursor-pointer",
+        isForwardSelected && "bg-[var(--color-brand)]/5"
       )}
+      onClick={
+        isForwardSelectable && onForwardToggle
+          ? (event) => {
+              if ((event.target as HTMLElement).closest("button, a, audio, input")) return;
+              onForwardToggle();
+            }
+          : undefined
+      }
     >
-      <div className={cn("max-w-[75%]", isLastInGroup ? "mb-0" : "")}>
+      {isForwardSelectable && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onForwardToggle?.();
+          }}
+          className={cn(
+            "mt-2 flex h-5 w-5 shrink-0 items-center justify-center self-start rounded-full border transition-colors",
+            isForwardSelected
+              ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white"
+              : "border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)]"
+          )}
+          aria-label={isForwardSelected ? "Quitar selección" : "Seleccionar mensaje"}
+        >
+          {isForwardSelected ? <Check className="h-3 w-3" /> : null}
+        </button>
+      )}
+      <div
+        className={cn(
+          "min-w-0 max-w-[75%]",
+          isForwardSelectable && isAgent && "ml-auto",
+          isLastInGroup ? "mb-0" : ""
+        )}
+      >
         <div
           className={cn(
             "flex items-center gap-1",
@@ -110,7 +154,7 @@ export function MessageBubble({
         >
           <MessageMenuButton
             isMenuOpen={isMenuOpen}
-            onOpen={onMenuOpen}
+            onOpen={isForwardSelectable ? undefined : onMenuOpen}
           />
           <div
             onContextMenu={(e) => {
@@ -233,6 +277,8 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
             alt="Sticker"
             className="w-[140px] h-[140px] object-contain drop-shadow-sm"
             draggable={false}
+            loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="w-[140px] h-[140px] rounded-xl bg-[var(--color-bg-hover)] flex items-center justify-center text-xs text-[var(--color-text-muted)]">
@@ -263,7 +309,9 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
             <img
               src={message.fileUrl}
               alt={fileName}
-              className="w-full max-w-[220px] object-cover"
+              className="w-full max-w-[220px] aspect-[4/3] object-cover bg-[var(--color-bg-hover)]"
+              loading="lazy"
+              decoding="async"
             />
           </button>
         ) : (
@@ -433,12 +481,16 @@ function QuotedReply({ reply, isAgent }: { reply: MessageReply; isAgent: boolean
 
 function MessageStatus({ status }: { status: string }) {
   switch (status) {
+    case "pending":
+      return <Clock className="w-3 h-3 text-[var(--color-text-muted)] animate-pulse" />;
     case "sent":
       return <Check className="w-3 h-3 text-[var(--color-text-muted)]" />;
     case "delivered":
       return <CheckCheck className="w-3 h-3 text-[var(--color-text-muted)]" />;
     case "read":
       return <CheckCheck className="w-3 h-3 text-[var(--color-brand)]" />;
+    case "failed":
+      return <span className="text-[10px] text-red-400 font-medium">!</span>;
     default:
       return null;
   }

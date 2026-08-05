@@ -66,7 +66,8 @@ export interface Message {
   externalId?: string;
   sortOrder?: number;
   createdAt: string;
-  status?: "sent" | "delivered" | "read" | "failed";
+  status?: "pending" | "sent" | "delivered" | "read" | "failed";
+  clientMessageId?: string;
 }
 
 export interface Label {
@@ -156,6 +157,8 @@ export interface SendMessageBody {
   fileKey?: string;
   mimeType?: string;
   replyToMessageId?: string;
+  /** Id estable del cliente para reconciliar UI y evitar duplicados. */
+  clientMessageId?: string;
 }
 
 export interface SavedSticker {
@@ -177,6 +180,7 @@ export interface SendTemplateBody {
   bodyParameters?: string[];
   headerParameters?: string[];
   buttonUrlParameters?: Array<{ index: number; text: string }>;
+  clientMessageId?: string;
 }
 
 export interface UpdateConversationBody {
