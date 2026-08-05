@@ -1,7 +1,7 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import {
+  broadcastMessageCreated,
   conversationRealtimeInclude,
-  emitMessageCreated,
   emitMessageUpdated,
 } from "../realtime/realtime.service.js";
 import { resolveMetaApiFailure } from "../../shared/meta-api-errors.js";
@@ -9,15 +9,19 @@ import {
   downloadAndStoreMetaMedia,
   parseIncomingMetaMedia,
 } from "../media/meta-media.service.js";
-import { messageInclude } from "../mappers.js";
+import { mapConversation, mapMessage, messageInclude } from "../mappers.js";
 import {
   enrichWhatsAppContactPhone,
   processSmbAppStateSync,
   upsertWhatsAppContact,
 } from "../contacts/whatsapp-contact-sync.service.js";
 import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
+import {
+  computeInboundQueueSortKey,
+  scheduleInboundContactTask,
+} from "../conversations/inbound-contact-queue.js";
 import { runWithConversationMessageLock } from "../conversations/conversation-message-serializer.js";
-import { nextMessageSortOrder } from "../conversations/message-sort-order.js";
+import { computeInboundMessageSortOrder } from "../conversations/message-sort-order.js";
 import { parseMetaMessageTimestamp } from "../../shared/meta-message-time.js";
 import { noteContactMessageAt } from "../../shared/whatsapp-window.js";
 import {
@@ -234,6 +238,185 @@ export interface MetaWebhookProcessedEvent {
   syncedContacts?: number;
 }
 
+type InboxWebhookSettings = NonNullable<Awaited<ReturnType<typeof resolveInboxForMetaWebhook>>>;
+
+type MetaInboundMessage = NonNullable<
+  NonNullable<
+    NonNullable<MetaWebhookPayload["entry"]>[number]["changes"]
+  >[number]["value"]
+>["messages"] extends (infer M)[] | undefined
+  ? M
+  : never;
+
+async function processInboundMetaMessage(params: {
+  settings: InboxWebhookSettings;
+  message: MetaInboundMessage;
+  batchIndex: number;
+  contacts?: MetaWebhookContact[];
+  accessToken: string | null;
+}): Promise<MetaWebhookProcessedEvent | null> {
+  const { settings, message, batchIndex, contacts, accessToken } = params;
+  if (!message.id) return null;
+
+  const matchedContact =
+    contacts?.find(
+      (c) =>
+        (message.from && c.wa_id === message.from) ||
+        (message.from_user_id && c.user_id === message.from_user_id)
+    ) ?? contacts?.[0];
+
+  const identity = resolveInboundWhatsAppIdentity({
+    from: message.from,
+    fromUserId: message.from_user_id,
+    contact: matchedContact,
+  });
+
+  if (!identity) {
+    console.error(
+      `[webhook] sin identidad from=${message.from ?? "-"} from_user_id=${message.from_user_id ?? "-"} msg=${message.id}`
+    );
+    return null;
+  }
+
+  const contactName = sanitizeWhatsAppDisplayName(
+    identity.displayName,
+    identity.phone || identity.identityKey
+  );
+
+  const alternateIdentityKeys = [
+    message.from_user_id,
+    matchedContact?.user_id,
+    message.from && message.from !== identity.identityKey ? message.from : null,
+  ].filter((value): value is string => Boolean(value?.trim()));
+
+  const contact = await upsertWhatsAppContact(settings.inboxId, {
+    waId: identity.identityKey,
+    phone: identity.phone,
+    alternateIdentityKeys,
+    name: contactName,
+    touchLastSeen: true,
+  });
+
+  if (!contact) {
+    console.error(
+      `[webhook] no se pudo upsert contacto identity=${identity.identityKey} msg=${message.id}`
+    );
+    return null;
+  }
+
+  if (contact.isBlocked) return null;
+
+  const { conversation } = await findOrReopenConversationForContact({
+    inboxId: settings.inboxId,
+    contactId: contact.id,
+  });
+
+  const existing = await prisma.message.findUnique({
+    where: { externalId: message.id },
+  });
+
+  if (existing) return null;
+
+  let replyToMessageId: string | null = null;
+  if (message.context?.id) {
+    const replied = await prisma.message.findUnique({
+      where: { externalId: message.context.id },
+      select: { id: true, conversationId: true },
+    });
+    if (replied?.conversationId === conversation.id) {
+      replyToMessageId = replied.id;
+    }
+  }
+
+  const parsed = parseIncomingMetaMedia(message.type, message.id, message);
+  const fallbackContent = `[${message.type ?? "mensaje"}]`;
+  let content = parsed?.content ?? fallbackContent;
+  let contentType = parsed?.contentType ?? "text";
+  let fileName: string | null = null;
+  let mimeType: string | null = null;
+  let mediaExternalId: string | null = parsed?.mediaId || null;
+  const shouldHydrateMedia = Boolean(parsed?.mediaId && accessToken);
+
+  if (parsed && parsed.contentType !== "text") {
+    content = parsed.content || parsed.fileName || fallbackContent;
+    contentType = parsed.contentType;
+    fileName = parsed.fileName;
+    mimeType = parsed.mimeType;
+  }
+
+  const messageAt = parseMetaMessageTimestamp(message.timestamp);
+
+  const { createdMessage } = await runWithConversationMessageLock(
+    conversation.id,
+    async () => {
+      const sortOrder = await computeInboundMessageSortOrder(
+        conversation.id,
+        message.timestamp,
+        batchIndex
+      );
+
+      const created = await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          content,
+          senderType: "contact",
+          senderContactId: contact.id,
+          senderName: contactName,
+          contentType,
+          fileName,
+          fileSize: null,
+          fileKey: null,
+          mimeType,
+          mediaExternalId,
+          externalId: message.id,
+          replyToMessageId,
+          status: "delivered",
+          createdAt: messageAt,
+          sortOrder,
+        },
+        include: messageInclude,
+      });
+
+      const conversationRow = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          unreadCount: { increment: 1 },
+          lastMessageAt: messageAt,
+        },
+        include: conversationRealtimeInclude,
+      });
+
+      broadcastMessageCreated(mapMessage(created), mapConversation(conversationRow));
+
+      return { createdMessage: created };
+    }
+  );
+
+  noteContactMessageAt(conversation.id, messageAt);
+
+  if (shouldHydrateMedia && parsed?.mediaId && accessToken) {
+    scheduleIncomingMediaHydration({
+      messageId: createdMessage.id,
+      conversationId: conversation.id,
+      accessToken,
+      mediaId: parsed.mediaId,
+      fileName: parsed.fileName,
+      mimeType: parsed.mimeType,
+    });
+  }
+
+  return {
+    kind: "message",
+    contactName,
+    contactPhone: identity.phone || identity.identityKey,
+    contentPreview: content.slice(0, 120),
+    conversationId: conversation.id,
+    messageId: createdMessage.id,
+    inboxId: settings.inboxId,
+    inboxName: settings.inbox.name,
+  };
+}
+
 export async function processMetaWebhookPayload(
   payload: MetaWebhookPayload,
   inboxId?: string
@@ -273,6 +456,59 @@ export async function processMetaWebhookPayload(
       if (change.field !== "messages") continue;
 
       const accessToken = settings.accessToken?.trim() || null;
+      const inboundTasks: Promise<void>[] = [];
+
+      for (let batchIndex = 0; batchIndex < (value.messages ?? []).length; batchIndex++) {
+        const message = value.messages![batchIndex];
+        if (!message?.id) continue;
+
+        const matchedContact =
+          value.contacts?.find(
+            (c) =>
+              (message.from && c.wa_id === message.from) ||
+              (message.from_user_id && c.user_id === message.from_user_id)
+          ) ?? value.contacts?.[0];
+
+        const identity = resolveInboundWhatsAppIdentity({
+          from: message.from,
+          fromUserId: message.from_user_id,
+          contact: matchedContact,
+        });
+
+        if (!identity) {
+          console.error(
+            `[webhook] sin identidad from=${message.from ?? "-"} from_user_id=${message.from_user_id ?? "-"} msg=${message.id}`
+          );
+          continue;
+        }
+
+        inboundTasks.push(
+          scheduleInboundContactTask(
+            settings.inboxId,
+            identity.identityKey,
+            computeInboundQueueSortKey(message.timestamp, batchIndex),
+            async () => {
+              try {
+                const event = await processInboundMetaMessage({
+                  settings,
+                  message,
+                  batchIndex,
+                  contacts: value.contacts,
+                  accessToken,
+                });
+                if (!event) return;
+                events.push(event);
+                processed += 1;
+              } catch (error) {
+                console.error(
+                  `[webhook] error procesando msg=${message.id} from=${message.from ?? message.from_user_id ?? "-"}:`,
+                  error instanceof Error ? error.message : error
+                );
+              }
+            }
+          )
+        );
+      }
 
       processed += await processMetaMessageStatuses(
         settings.inboxId,
@@ -280,176 +516,7 @@ export async function processMetaWebhookPayload(
         value.contacts
       );
 
-      for (const message of value.messages ?? []) {
-        if (!message.id) continue;
-
-        try {
-          const matchedContact =
-            value.contacts?.find(
-              (c) =>
-                (message.from && c.wa_id === message.from) ||
-                (message.from_user_id && c.user_id === message.from_user_id)
-            ) ?? value.contacts?.[0];
-
-          const identity = resolveInboundWhatsAppIdentity({
-            from: message.from,
-            fromUserId: message.from_user_id,
-            contact: matchedContact,
-          });
-
-          if (!identity) {
-            console.error(
-              `[webhook] sin identidad from=${message.from ?? "-"} from_user_id=${message.from_user_id ?? "-"} msg=${message.id}`
-            );
-            continue;
-          }
-
-          const contactName = sanitizeWhatsAppDisplayName(
-            identity.displayName,
-            identity.phone || identity.identityKey
-          );
-
-          const alternateIdentityKeys = [
-            message.from_user_id,
-            matchedContact?.user_id,
-            message.from && message.from !== identity.identityKey ? message.from : null,
-          ].filter((value): value is string => Boolean(value?.trim()));
-
-          const contact = await upsertWhatsAppContact(settings.inboxId, {
-            waId: identity.identityKey,
-            phone: identity.phone,
-            alternateIdentityKeys,
-            name: contactName,
-            touchLastSeen: true,
-          });
-
-          if (!contact) {
-            console.error(
-              `[webhook] no se pudo upsert contacto identity=${identity.identityKey} msg=${message.id}`
-            );
-            continue;
-          }
-
-          if (contact.isBlocked) continue;
-
-          // Conversaciones nuevas entran sin asignar; la asignación es manual.
-          const { conversation } = await findOrReopenConversationForContact({
-            inboxId: settings.inboxId,
-            contactId: contact.id,
-          });
-
-          const existing = await prisma.message.findUnique({
-            where: { externalId: message.id },
-          });
-
-          if (existing) continue;
-
-          let replyToMessageId: string | null = null;
-          if (message.context?.id) {
-            const replied = await prisma.message.findUnique({
-              where: { externalId: message.context.id },
-              select: { id: true, conversationId: true },
-            });
-            if (replied?.conversationId === conversation.id) {
-              replyToMessageId = replied.id;
-            }
-          }
-
-          const parsed = parseIncomingMetaMedia(message.type, message.id, message);
-          const fallbackContent = `[${message.type ?? "mensaje"}]`;
-          let content = parsed?.content ?? fallbackContent;
-          let contentType = parsed?.contentType ?? "text";
-          let fileName: string | null = null;
-          let mimeType: string | null = null;
-          let mediaExternalId: string | null = parsed?.mediaId || null;
-          const shouldHydrateMedia = Boolean(parsed?.mediaId && accessToken);
-
-          if (parsed && parsed.contentType !== "text") {
-            content = parsed.content || parsed.fileName || fallbackContent;
-            contentType = parsed.contentType;
-            fileName = parsed.fileName;
-            mimeType = parsed.mimeType;
-          }
-
-          const messageAt = parseMetaMessageTimestamp(message.timestamp);
-
-          const { createdMessage, conversationForEmit } = await runWithConversationMessageLock(
-            conversation.id,
-            async () => {
-              const sortOrder = await nextMessageSortOrder(conversation.id);
-
-              const created = await prisma.message.create({
-                data: {
-                  conversationId: conversation.id,
-                  content,
-                  senderType: "contact",
-                  senderContactId: contact.id,
-                  senderName: contactName,
-                  contentType,
-                  fileName,
-                  fileSize: null,
-                  fileKey: null,
-                  mimeType,
-                  mediaExternalId,
-                  externalId: message.id,
-                  replyToMessageId,
-                  status: "delivered",
-                  createdAt: messageAt,
-                  sortOrder,
-                },
-                include: messageInclude,
-              });
-
-              const conversationRow = await prisma.conversation.update({
-                where: { id: conversation.id },
-                data: {
-                  unreadCount: { increment: 1 },
-                  lastMessageAt: messageAt,
-                },
-                include: conversationRealtimeInclude,
-              });
-
-              return { createdMessage: created, conversationForEmit: conversationRow };
-            }
-          );
-
-          await emitMessageCreated(conversation.id, createdMessage.id, {
-            message: createdMessage,
-            conversation: conversationForEmit,
-          });
-
-          noteContactMessageAt(conversation.id, messageAt);
-
-          if (shouldHydrateMedia && parsed?.mediaId && accessToken) {
-            scheduleIncomingMediaHydration({
-              messageId: createdMessage.id,
-              conversationId: conversation.id,
-              accessToken,
-              mediaId: parsed.mediaId,
-              fileName: parsed.fileName,
-              mimeType: parsed.mimeType,
-            });
-          }
-
-          events.push({
-            kind: "message",
-            contactName,
-            contactPhone: identity.phone || identity.identityKey,
-            contentPreview: content.slice(0, 120),
-            conversationId: conversation.id,
-            messageId: createdMessage.id,
-            inboxId: settings.inboxId,
-            inboxName: settings.inbox.name,
-          });
-
-          processed += 1;
-        } catch (error) {
-          console.error(
-            `[webhook] error procesando msg=${message.id} from=${message.from ?? message.from_user_id ?? "-"}:`,
-            error instanceof Error ? error.message : error
-          );
-        }
-      }
+      await Promise.all(inboundTasks);
     }
   }
 
