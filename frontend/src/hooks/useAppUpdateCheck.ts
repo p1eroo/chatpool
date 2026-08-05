@@ -6,16 +6,10 @@ import {
   tryClaimAppUpdateCheck,
 } from "@/config/appVersion";
 
-const DISMISS_STORAGE_KEY = "chatpool-update-dismissed-build";
 export const APP_UPDATE_AUTO_RELOAD_SECONDS = 5;
 
-function readDismissedBuildId(): string | null {
-  try {
-    return sessionStorage.getItem(DISMISS_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
+/** Poll de respaldo por si el WS no reconecta o version.json falló antes. */
+const APP_UPDATE_POLL_INTERVAL_MS = 3 * 60 * 1000;
 
 function isMockUpdatePreview(): boolean {
   if (!import.meta.env.DEV) return false;
@@ -51,7 +45,6 @@ export function useAppUpdateCheck() {
     try {
       const remote = await fetchDeployedBuildId();
       if (!remote || remote === APP_BUILD_ID) return;
-      if (readDismissedBuildId() === remote) return;
 
       setRemoteBuildId(remote);
       setUpdateAvailable(true);
@@ -71,9 +64,13 @@ export function useAppUpdateCheck() {
 
     void checkForUpdate({ force: true });
 
+    const pollTimer = window.setInterval(() => {
+      void checkForUpdate();
+    }, APP_UPDATE_POLL_INTERVAL_MS);
+
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        void checkForUpdate();
+        void checkForUpdate({ force: true });
       }
     };
 
@@ -85,6 +82,7 @@ export function useAppUpdateCheck() {
     window.addEventListener(APP_UPDATE_CHECK_EVENT, onRequested);
 
     return () => {
+      window.clearInterval(pollTimer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener(APP_UPDATE_CHECK_EVENT, onRequested);
     };

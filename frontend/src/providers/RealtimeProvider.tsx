@@ -36,8 +36,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     const handleEvent = (event: RealtimeEvent) => {
       if (event.type === "connected") {
-        // Tras un deploy el API se reinicia y el WS reconecta: una sola lectura de version.json.
-        requestAppUpdateCheck();
+        // Tras un deploy el API se reinicia y el WS reconecta: check forzado (sin throttle).
+        requestAppUpdateCheck({ force: true });
 
         const { isAppDataBootstrapped } = useConversationStore.getState();
         if (isAppDataBootstrapped) {

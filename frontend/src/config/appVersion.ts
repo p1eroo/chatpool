@@ -17,22 +17,49 @@ export const APP_UPDATE_CHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
 let lastCheckAt = 0;
 
-export async function fetchDeployedBuildId(): Promise<string | null> {
+const NO_CACHE: RequestInit = {
+  cache: "no-store",
+  headers: {
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+  },
+};
+
+function parseBuildIdFromJson(body: string): string | null {
+  if (!body || body.trimStart().startsWith("<")) return null;
   try {
-    const response = await fetch(`/version.json?build=${Date.now()}`, {
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
-      },
-    });
-    if (!response.ok) return null;
-
-    const body = await response.text();
-    if (!body || body.trimStart().startsWith("<")) return null;
-
     const data = JSON.parse(body) as Partial<AppVersionPayload>;
     return data.buildId?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function parseBuildIdFromHtml(html: string): string | null {
+  const match = html.match(
+    /name=["']chatpool-build-id["']\s+content=["']([^"']+)["']/i
+  );
+  return match?.[1]?.trim() || null;
+}
+
+/** Build ID desplegado: version.json primero; si nginx no lo sirve, meta en index.html. */
+export async function fetchDeployedBuildId(): Promise<string | null> {
+  const bust = Date.now();
+
+  try {
+    const versionResponse = await fetch(`/version.json?build=${bust}`, NO_CACHE);
+    if (versionResponse.ok) {
+      const fromJson = parseBuildIdFromJson(await versionResponse.text());
+      if (fromJson) return fromJson;
+    }
+  } catch {
+    // fallback abajo
+  }
+
+  try {
+    const indexResponse = await fetch(`/?build=${bust}`, NO_CACHE);
+    if (!indexResponse.ok) return null;
+    return parseBuildIdFromHtml(await indexResponse.text());
   } catch {
     return null;
   }

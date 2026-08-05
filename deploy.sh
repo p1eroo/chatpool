@@ -77,6 +77,18 @@ mkdir -p "$FRONTEND_DEST"
 cp -r dist/* "$FRONTEND_DEST/"
 ok "Frontend desplegado en ${FRONTEND_DEST}/"
 
+VERSION_FILE="$FRONTEND_DEST/version.json"
+if [ ! -f "$VERSION_FILE" ]; then
+  fail "version.json no generado en dist/ — el modal de actualización no funcionará"
+  exit 1
+fi
+REMOTE_BUILD_ID="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(d.buildId||'');" "$VERSION_FILE")"
+if [ -z "$REMOTE_BUILD_ID" ] || [ "$REMOTE_BUILD_ID" != "$BUILD_ID" ]; then
+  fail "version.json inválido o buildId distinto al esperado (${BUILD_ID})"
+  exit 1
+fi
+ok "version.json OK (buildId: ${REMOTE_BUILD_ID})"
+
 # ============================================================
 header "Backend - dependencias y compilación"
 
@@ -158,6 +170,8 @@ else
   warn "Backend no responde aún"
   info "Logs: pm2 logs ${PM2_APP}"
 fi
+
+info "Build frontend activo: ${REMOTE_BUILD_ID}"
 
 ROLES_STATUS="$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/roles" 2>/dev/null || echo "000")"
 if [ "$ROLES_STATUS" = "401" ] || [ "$ROLES_STATUS" = "403" ]; then
