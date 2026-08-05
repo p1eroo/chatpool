@@ -7,7 +7,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(16),
-  JWT_EXPIRES_IN: z.string().default("8h"),
+  JWT_EXPIRES_IN: z.string().default("365d"),
   CORS_ORIGIN: z.string().default("http://localhost:5174"),
   PUBLIC_BASE_URL: z.string().default("http://localhost:3001"),
   WEBHOOK_BASE_URL: z.string().default("http://localhost:3001/webhooks"),

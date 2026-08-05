@@ -30,6 +30,12 @@ export class SessionRevokedError extends UnauthorizedError {
   }
 }
 
+export class SessionExpiredError extends UnauthorizedError {
+  constructor(message = "Tu sesión expiró. Vuelve a iniciar sesión.") {
+    super(message, "SESSION_EXPIRED");
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Recurso no encontrado") {
     super(message, 404, "NOT_FOUND");

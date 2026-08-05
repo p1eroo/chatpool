@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { assertActiveAgentSession } from "../../../application/auth/auth.service.js";
+import { SessionRevokedError, UnauthorizedError } from "../../../domain/errors.js";
 import {
   registerRealtimeClient,
   unregisterRealtimeClient,
@@ -16,31 +18,42 @@ export async function realtimeRoutes(app: FastifyInstance) {
       return;
     }
 
+    let payload: { sub: string; sid?: string };
     try {
-      app.jwt.verify(token);
+      payload = app.jwt.verify(token) as { sub: string; sid?: string };
     } catch {
       socket.close(4401, "Token inválido");
       return;
     }
 
-    const client = {
-      send: (data: string) => {
-        if (socket.readyState === socket.OPEN) {
-          socket.send(data);
+    void assertActiveAgentSession(payload.sub, payload.sid)
+      .then(() => {
+        const client = {
+          send: (data: string) => {
+            if (socket.readyState === socket.OPEN) {
+              socket.send(data);
+            }
+          },
+        };
+
+        registerRealtimeClient(client);
+
+        socket.on("close", () => {
+          unregisterRealtimeClient(client);
+        });
+
+        socket.on("error", () => {
+          unregisterRealtimeClient(client);
+        });
+
+        socket.send(JSON.stringify({ type: "connected" }));
+      })
+      .catch((error) => {
+        if (error instanceof SessionRevokedError || error instanceof UnauthorizedError) {
+          socket.close(4401, "Sesión cerrada");
+          return;
         }
-      },
-    };
-
-    registerRealtimeClient(client);
-
-    socket.on("close", () => {
-      unregisterRealtimeClient(client);
-    });
-
-    socket.on("error", () => {
-      unregisterRealtimeClient(client);
-    });
-
-    socket.send(JSON.stringify({ type: "connected" }));
+        socket.close(4500, "Error de sesión");
+      });
   });
 }

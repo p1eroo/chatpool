@@ -42,6 +42,7 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
 
 function resolveUnauthorizedReason(code?: string): UnauthorizedReason {
   if (code === "SESSION_REVOKED") return "SESSION_REVOKED";
+  if (code === "SESSION_EXPIRED") return "SESSION_EXPIRED";
   return "UNAUTHORIZED";
 }
 

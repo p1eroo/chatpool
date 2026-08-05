@@ -84,8 +84,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const defaultMessage =
       reason === "SESSION_REVOKED"
-        ? "Sesión cerrada: iniciaste sesión en otro dispositivo"
-        : "Tu sesión expiró. Vuelve a iniciar sesión.";
+        ? "Sesión cerrada: iniciaste sesión en otro dispositivo o cerraste sesión"
+        : reason === "SESSION_EXPIRED"
+          ? "Tu sesión expiró. Vuelve a iniciar sesión."
+          : "Tu sesión ya no es válida. Vuelve a iniciar sesión.";
 
     useUIStore.getState().showToast(message ?? defaultMessage);
   },

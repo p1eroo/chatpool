@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { verifyPassword } from "../../infrastructure/security/password.service.js";
 import { toAgentProfile } from "../../infrastructure/webhooks/webhook-url.builder.js";
-import { UnauthorizedError } from "../../domain/errors.js";
+import { SessionRevokedError, UnauthorizedError } from "../../domain/errors.js";
 import { normalizePermissions } from "../../shared/permissions.js";
 
 function toAuthAgentProfile(agent: {
@@ -66,24 +66,40 @@ export async function rotateAgentSession(agentId: string): Promise<string> {
   return sessionId;
 }
 
-export async function validateAgentSession(
+export async function clearAgentSession(agentId: string): Promise<void> {
+  await prisma.agent.update({
+    where: { id: agentId },
+    data: { activeSessionId: null },
+  });
+}
+
+/** Sesión válida si el sid del token coincide con active_session_id del agente. */
+export async function assertActiveAgentSession(
   agentId: string,
   sessionId: string | undefined
-): Promise<boolean> {
-  if (!sessionId) return false;
+): Promise<void> {
+  if (!sessionId) {
+    throw new UnauthorizedError();
+  }
 
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
     select: { activeSessionId: true, active: true },
   });
 
-  if (!agent?.active || !agent.activeSessionId) return false;
-  return agent.activeSessionId === sessionId;
+  if (!agent?.active || !agent.activeSessionId || agent.activeSessionId !== sessionId) {
+    throw new SessionRevokedError();
+  }
 }
 
-export async function clearAgentSession(agentId: string): Promise<void> {
-  await prisma.agent.update({
-    where: { id: agentId },
-    data: { activeSessionId: null },
-  });
+export async function validateAgentSession(
+  agentId: string,
+  sessionId: string | undefined
+): Promise<boolean> {
+  try {
+    await assertActiveAgentSession(agentId, sessionId);
+    return true;
+  } catch {
+    return false;
+  }
 }

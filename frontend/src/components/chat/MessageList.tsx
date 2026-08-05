@@ -9,6 +9,7 @@ import { ChatMessagesLoading } from "./ChatMessagesLoading";
 import { formatDate } from "@/lib/utils";
 import { sortMessagesChronologically } from "@/lib/messageOrder";
 import { isForwardableMessage } from "@/lib/forwardMessages";
+import { isLastMessageInSenderGroup } from "@/lib/messageSenderGroup";
 import type { Message } from "@/types";
 import { ChatHeader } from "./ChatHeader";
 
@@ -223,6 +224,7 @@ export function MessageList() {
                   <MessageBubble
                     key={msg.clientId ?? msg.id}
                     message={msg}
+                    contactName={activeConversation.contact.name}
                     isHighlighted={highlightedMessageId === msg.id}
                     attachedToMessage={attachedToMessage}
                     hasAttachedNotesAbove={hasAttachedNotesAbove}
@@ -230,13 +232,7 @@ export function MessageList() {
                     isForwardSelectable={isForwardSelectionActive && isForwardableMessage(msg)}
                     isForwardSelected={forwardSelectedMessageIds.includes(msg.id)}
                     onForwardToggle={() => toggleForwardMessageSelection(msg.id)}
-                    isLastInGroup={
-                      msg.isPrivate ||
-                      i === group.messages.length - 1 ||
-                      group.messages[i + 1]?.senderType !== msg.senderType ||
-                      group.messages[i + 1]?.isPrivate !== msg.isPrivate ||
-                      !!group.messages[i + 1]?.attachedToMessageId
-                    }
+                    isLastInGroup={isLastMessageInSenderGroup(msg, group.messages[i + 1])}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       openMessageMenu(msg.id, e.currentTarget as HTMLElement, {

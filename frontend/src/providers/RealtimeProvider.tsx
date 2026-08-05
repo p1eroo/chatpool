@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { getAccessToken } from "@/api/client";
 import { env } from "@/config/env";
 import { requestAppUpdateCheck } from "@/config/appVersion";
@@ -13,6 +14,8 @@ const RECONNECT_MS = 3_000;
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const forceLogout = useAuthStore((s) => s.forceLogout);
+  const navigate = useNavigate();
   const reconnectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -95,8 +98,13 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         socket = null;
+        if (event.code === 4401) {
+          forceLogout("SESSION_REVOKED");
+          navigate("/login", { replace: true });
+          return;
+        }
         scheduleReconnect();
       };
 
@@ -113,7 +121,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       socket?.close();
       socket = null;
     };
-  }, [isAuthenticated]);
+  }, [forceLogout, isAuthenticated, navigate]);
 
   return children;
 }

@@ -3,6 +3,11 @@ import { cn, formatMessageTime } from "@/lib/utils";
 import { WhatsAppFormattedText } from "@/lib/whatsappFormatting";
 import type { Message, MessageReply } from "@/types";
 import { useUIStore } from "@/store/uiStore";
+import { Avatar } from "@/components/ui/Avatar";
+import {
+  isOutboundMessage,
+  messageSenderDisplayName,
+} from "@/lib/messageSenderGroup";
 import { Check, CheckCheck, Clock, Mic, MoreVertical, Pause, Play } from "lucide-react";
 import { FileAttachmentCard } from "./FileAttachmentCard";
 import { WAVEFORM_BAR_COUNT, formatVoiceTime } from "@/hooks/useVoiceRecorder";
@@ -10,6 +15,7 @@ import { WAVEFORM_BAR_COUNT, formatVoiceTime } from "@/hooks/useVoiceRecorder";
 interface MessageBubbleProps {
   message: Message;
   isLastInGroup: boolean;
+  contactName?: string;
   isHighlighted?: boolean;
   attachedToMessage?: Message;
   hasAttachedNotesAbove?: boolean;
@@ -24,6 +30,7 @@ interface MessageBubbleProps {
 export function MessageBubble({
   message,
   isLastInGroup,
+  contactName,
   isHighlighted,
   attachedToMessage,
   hasAttachedNotesAbove,
@@ -44,10 +51,12 @@ export function MessageBubble({
     );
   }
 
-  const isAgent = message.senderType === "agent";
+  const isAgent = isOutboundMessage(message);
   const isPrivate = message.isPrivate;
   const isAttachedNote = isPrivate && !!message.attachedToMessageId;
   const noteAlignEnd = attachedToMessage?.senderType === "agent";
+  const showSenderAvatar = isLastInGroup && !isPrivate;
+  const senderLabel = messageSenderDisplayName(message, contactName);
 
   if (isPrivate) {
     return (
@@ -141,11 +150,21 @@ export function MessageBubble({
       )}
       <div
         className={cn(
-          "min-w-0 max-w-[75%]",
+          "flex min-w-0 max-w-[85%] items-end gap-1.5",
           isForwardSelectable && isAgent && "ml-auto",
-          isLastInGroup ? "mb-0" : ""
+          !isForwardSelectable && isAgent && "ml-auto flex-row-reverse"
         )}
       >
+        {showSenderAvatar ? (
+          <Avatar
+            name={senderLabel}
+            size="xs"
+            className="mb-0.5 shrink-0 shadow-sm ring-1 ring-black/5"
+          />
+        ) : (
+          <span className="w-6 shrink-0" aria-hidden />
+        )}
+        <div className={cn("min-w-0 max-w-full", isLastInGroup ? "mb-0" : "")}>
         <div
           className={cn(
             "flex items-center gap-1",
@@ -177,7 +196,11 @@ export function MessageBubble({
             )}
           >
             {message.replyTo && (
-              <QuotedReply reply={message.replyTo} isAgent={isAgent} />
+              <QuotedReply
+                reply={message.replyTo}
+                isAgent={isAgent}
+                contactName={contactName}
+              />
             )}
             <MessageContent message={message} isAgent={isAgent} />
           </div>
@@ -197,6 +220,7 @@ export function MessageBubble({
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -232,9 +256,9 @@ function MessageMenuButton({
   );
 }
 
-function getReplyAuthorLabel(reply: MessageReply): string {
-  if (reply.senderType === "agent") return "Tú";
-  return reply.senderName || "Contacto";
+function getReplyAuthorLabel(reply: MessageReply, contactName?: string): string {
+  if (reply.senderType === "agent") return reply.senderName || "Agente";
+  return contactName?.trim() || reply.senderName || "Contacto";
 }
 
 function MessageContent({ message, isAgent }: { message: Message; isAgent: boolean }) {
@@ -442,7 +466,15 @@ function AudioMessageContent({ message, isAgent }: { message: Message; isAgent: 
   );
 }
 
-function QuotedReply({ reply, isAgent }: { reply: MessageReply; isAgent: boolean }) {
+function QuotedReply({
+  reply,
+  isAgent,
+  contactName,
+}: {
+  reply: MessageReply;
+  isAgent: boolean;
+  contactName?: string;
+}) {
   const jumpToMessage = useUIStore((s) => s.jumpToMessage);
 
   return (
@@ -466,7 +498,7 @@ function QuotedReply({ reply, isAgent }: { reply: MessageReply; isAgent: boolean
           isAgent ? "text-white/90" : "text-[var(--color-brand)]"
         )}
       >
-        {getReplyAuthorLabel(reply)}
+        {getReplyAuthorLabel(reply, contactName)}
       </p>
       <WhatsAppFormattedText
         text={reply.content}

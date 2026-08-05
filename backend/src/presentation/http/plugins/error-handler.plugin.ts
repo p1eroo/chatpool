@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { validateAgentSession } from "../../../application/auth/auth.service.js";
-import { AppError, SessionRevokedError, UnauthorizedError } from "../../../domain/errors.js";
+import { assertActiveAgentSession } from "../../../application/auth/auth.service.js";
+import {
+  AppError,
+  SessionExpiredError,
+  UnauthorizedError,
+} from "../../../domain/errors.js";
 import { ApiError } from "../../../shared/api-error.js";
 
 export function registerErrorHandler(app: FastifyInstance) {
@@ -24,20 +28,27 @@ export function registerErrorHandler(app: FastifyInstance) {
   });
 }
 
+function isJwtExpiredError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: string }).code;
+  return code === "FST_JWT_AUTHORIZATION_TOKEN_EXPIRED";
+}
+
 export async function authenticate(
   request: FastifyRequest,
   _reply: FastifyReply
 ): Promise<void> {
   try {
     await request.jwtVerify();
-  } catch {
+  } catch (error) {
+    if (isJwtExpiredError(error)) {
+      throw new SessionExpiredError(
+        "Tu sesión expiró. Vuelve a iniciar sesión."
+      );
+    }
     throw new UnauthorizedError();
   }
 
   const payload = request.user as { sub: string; sid?: string };
-  const valid = await validateAgentSession(payload.sub, payload.sid);
-
-  if (!valid) {
-    throw new SessionRevokedError();
-  }
+  await assertActiveAgentSession(payload.sub, payload.sid);
 }
