@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { cn, formatMessageTime } from "@/lib/utils";
 import { WhatsAppFormattedText } from "@/lib/whatsappFormatting";
+import { isUrlOnlyMessage } from "@/lib/detectUrls";
+import { useMessageLinkPreview } from "@/hooks/useLinkPreview";
+import { LinkPreviewCard } from "./LinkPreviewCard";
 import type { Message, MessageReply } from "@/types";
 import { useUIStore } from "@/store/uiStore";
 import { Avatar } from "@/components/ui/Avatar";
@@ -98,6 +101,7 @@ export function MessageBubble({
             </div>
             <WhatsAppFormattedText
               text={message.content}
+              linkClassName={incomingLinkClassName}
               className="text-[13px] text-[var(--color-text-primary)] leading-relaxed"
             />
           </div>
@@ -261,8 +265,46 @@ function getReplyAuthorLabel(reply: MessageReply, contactName?: string): string 
   return contactName?.trim() || reply.senderName || "Contacto";
 }
 
+const outgoingLinkClassName =
+  "text-sky-200 underline underline-offset-2 hover:text-white break-all";
+const incomingLinkClassName =
+  "text-[var(--color-brand)] underline underline-offset-2 hover:opacity-80 break-all";
+
+function TextMessageContent({
+  message,
+  isAgent,
+  linkClassName,
+}: {
+  message: Message;
+  isAgent: boolean;
+  linkClassName: string;
+}) {
+  const { preview, loading } = useMessageLinkPreview(message);
+  const hideUrlText = preview && isUrlOnlyMessage(message.content);
+
+  return (
+    <>
+      {preview ? (
+        <LinkPreviewCard
+          preview={preview}
+          variant={isAgent ? "outgoing" : "incoming"}
+          loading={loading}
+        />
+      ) : null}
+      {!hideUrlText ? (
+        <WhatsAppFormattedText
+          text={message.content}
+          linkClassName={linkClassName}
+          className="leading-relaxed"
+        />
+      ) : null}
+    </>
+  );
+}
+
 function MessageContent({ message, isAgent }: { message: Message; isAgent: boolean }) {
   const openLightbox = useUIStore((s) => s.openLightbox);
+  const linkClassName = isAgent ? outgoingLinkClassName : incomingLinkClassName;
 
   if (message.contentType === "audio") {
     return <AudioMessageContent message={message} isAgent={isAgent} />;
@@ -283,9 +325,10 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
           variant={isAgent ? "outgoing" : "incoming"}
         />
         {caption && (
-          <WhatsAppFormattedText
-            text={caption}
-            className={cn("text-sm leading-relaxed px-0.5", isAgent ? "text-white" : "")}
+          <TextMessageContent
+            message={{ ...message, content: caption }}
+            isAgent={isAgent}
+            linkClassName={linkClassName}
           />
         )}
       </div>
@@ -349,14 +392,24 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
           </div>
         )}
         {caption && (
-          <WhatsAppFormattedText text={caption} className="text-sm leading-relaxed" />
+          <div className={cn("text-sm leading-relaxed", isAgent ? "text-white px-0.5" : "")}>
+            <TextMessageContent
+              message={{ ...message, content: caption }}
+              isAgent={isAgent}
+              linkClassName={linkClassName}
+            />
+          </div>
         )}
       </div>
     );
   }
 
   return (
-    <WhatsAppFormattedText text={message.content} className="leading-relaxed" />
+    <TextMessageContent
+      message={message}
+      isAgent={isAgent}
+      linkClassName={linkClassName}
+    />
   );
 }
 
@@ -502,6 +555,7 @@ function QuotedReply({
       </p>
       <WhatsAppFormattedText
         text={reply.content}
+        linkClassName={isAgent ? outgoingLinkClassName : incomingLinkClassName}
         className={cn(
           "text-xs leading-snug line-clamp-3",
           isAgent ? "text-white/70" : "text-[var(--color-text-secondary)]"

@@ -9,7 +9,9 @@ import type {
   Message,
   MessageReply,
 } from "../types/api-responses.js";
+import type { Prisma } from "@prisma/client";
 import { resolvePublicFileUrl } from "./media/media-storage.service.js";
+import { parseLinkPreviewDeliveryPayload, isLinkPreviewSuppressed } from "../shared/link-preview.js";
 
 export const messageInclude = {
   senderAgent: { select: { name: true } },
@@ -120,6 +122,7 @@ export function mapMessage(message: {
   mediaExternalId: string | null;
   externalId: string | null;
   clientMessageId: string | null;
+  deliveryPayload?: unknown;
   status: string;
   sortOrder: number;
   createdAt: Date;
@@ -164,6 +167,12 @@ export function mapMessage(message: {
     sortOrder: message.sortOrder,
     createdAt: message.createdAt.toISOString(),
     status: message.status as Message["status"],
+    linkPreview: parseLinkPreviewDeliveryPayload(
+      message.deliveryPayload as Prisma.JsonValue | null | undefined
+    ) ?? undefined,
+    linkPreviewSuppressed: isLinkPreviewSuppressed(
+      message.deliveryPayload as Prisma.JsonValue | null | undefined
+    ),
   };
 }
 

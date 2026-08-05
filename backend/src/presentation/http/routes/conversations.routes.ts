@@ -35,6 +35,16 @@ const sendMessageSchema = z.object({
   contentType: z.enum(["text", "image", "file", "audio", "sticker"]).optional(),
   replyToMessageId: z.string().optional(),
   clientMessageId: z.string().min(1).max(128).optional(),
+  linkPreview: z
+    .object({
+      url: z.string().min(1),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      imageUrl: z.string().optional(),
+      siteName: z.string().optional(),
+    })
+    .optional(),
+  suppressLinkPreview: z.boolean().optional(),
 });
 
 const sendTemplateSchema = z.object({

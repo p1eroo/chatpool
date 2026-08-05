@@ -7,6 +7,7 @@ import {
 import { AppError } from "../../domain/errors.js";
 import { resolveMetaSendFailure } from "../../shared/meta-api-errors.js";
 import { resolveWhatsAppOutboundTarget } from "../../shared/whatsapp-contact.js";
+import { shouldEnableWhatsAppLinkPreview } from "../link-preview/link-preview.service.js";
 
 async function resolveInboxWhatsAppCredentials(inboxId: string) {
   const settings = await prisma.inboxSettings.findUnique({
@@ -61,6 +62,7 @@ export async function deliverWhatsAppOutbound(params: {
   mimeType?: string | null;
   mediaBuffer?: Buffer;
   replyToExternalId?: string | null;
+  enableLinkPreview?: boolean;
 }): Promise<{ externalId: string; mediaExternalId?: string }> {
   const { phoneNumberId, accessToken } = await resolveInboxWhatsAppCredentials(params.inboxId);
   const target = resolveRecipientOrThrow(params.recipientWaId, params.recipientPhone);
@@ -76,7 +78,12 @@ export async function deliverWhatsAppOutbound(params: {
         ...addressing,
         context,
         type: "text",
-        text: { body: params.content, preview_url: false },
+        text: {
+          body: params.content,
+          preview_url:
+            params.enableLinkPreview !== false &&
+            shouldEnableWhatsAppLinkPreview(params.content),
+        },
       });
       return { externalId };
     }

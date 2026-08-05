@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { env } from "@/config/env";
-import type { ChannelType, Contact, Conversation, ConversationStatus, Message, SavedSticker } from "@/types";
+import type { ChannelType, Contact, Conversation, ConversationStatus, LinkPreview, Message, SavedSticker } from "@/types";
 import { useAgentStore } from "@/store/agentStore";
 import { conversations as seedConversations, getMessages } from "@/data/mock";
 import { useLabelStore } from "@/store/labelStore";
@@ -95,6 +95,8 @@ interface ConversationState {
       fileSize?: number;
       fileUrl?: string;
       file?: File;
+      linkPreview?: LinkPreview;
+      suppressLinkPreview?: boolean;
     }
   ) => void;
   createConversation: (
@@ -1430,6 +1432,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       fileName: overrides?.fileName ?? options?.fileName,
       fileSize: overrides?.fileSize ?? options?.fileSize,
       fileUrl: overrides?.fileUrl ?? options?.fileUrl,
+      linkPreview: overrides?.linkPreview ?? options?.linkPreview,
+      linkPreviewSuppressed:
+        overrides?.linkPreviewSuppressed ?? options?.suppressLinkPreview,
       sortOrder: overrides?.sortOrder ?? nextOptimisticSortOrder(conversationId),
       createdAt:
         overrides?.createdAt ??
@@ -1466,6 +1471,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         audioUrl: previewAudioUrl,
         fileName: options?.fileName ?? uploadFile?.name,
         fileSize: options?.fileSize ?? uploadFile?.size,
+        linkPreview: options?.linkPreview,
+        linkPreviewSuppressed: options?.suppressLinkPreview,
       });
       appendMessageToState(
         set,
@@ -1524,12 +1531,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           contentType,
           replyToMessageId,
           clientMessageId: pendingId,
+          linkPreview: options?.linkPreview,
+          suppressLinkPreview: options?.suppressLinkPreview,
         })
         .then((apiMessage) => {
           reconcileOutgoingMessageIfStillPending(set, get, conversationId, pendingId, {
             ...apiMessage,
             replyTo: apiMessage.replyTo ?? optimistic.replyTo,
             attachedToMessageId: optimistic.attachedToMessageId,
+            linkPreview: apiMessage.linkPreview ?? optimistic.linkPreview,
+            linkPreviewSuppressed:
+              apiMessage.linkPreviewSuppressed ?? optimistic.linkPreviewSuppressed,
             audioUrl: options?.audioUrl,
             audioDuration: options?.audioDuration,
           });

@@ -22,6 +22,7 @@ import {
 } from "../realtime/conversation-realtime-emit.js";
 import { uploadConversationMedia } from "../media/media-storage.service.js";
 import { normalizeAudioForWhatsApp } from "../media/audio-transcode.service.js";
+import { buildLinkPreviewPayloadFromBody, scheduleLinkPreviewEnrichment } from "../link-preview/link-preview-enrichment.service.js";
 import {
   assertAgentCanAccessInbox,
   listInboxIdsForAgent,
@@ -235,6 +236,11 @@ export async function sendAgentMessage(
     }
 
     const sortOrder = await reserveNextSortOrder(conversationId);
+    const linkPreviewPayload = buildLinkPreviewPayloadFromBody(
+      body.linkPreview,
+      body.content,
+      body.suppressLinkPreview
+    );
 
     const message = await prisma.message.create({
       data: {
@@ -253,6 +259,7 @@ export async function sendAgentMessage(
         externalId: null,
         replyToMessageId: replyTarget?.id ?? null,
         clientMessageId,
+        deliveryPayload: linkPreviewPayload,
         status: needsWhatsAppDelivery ? "pending" : "sent",
         sortOrder,
         createdAt,
@@ -284,6 +291,15 @@ export async function sendAgentMessage(
 
   if (result.scheduleDelivery) {
     scheduleWhatsAppMessageDelivery(conversationId, result.message.id);
+  }
+
+  if ((body.contentType ?? "text") === "text" && !body.linkPreview && !body.suppressLinkPreview) {
+    scheduleLinkPreviewEnrichment({
+      messageId: result.message.id,
+      conversationId,
+      content: body.content,
+      contentType: "text",
+    });
   }
 
   if (autoAssign) {

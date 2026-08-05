@@ -1,7 +1,7 @@
 import { apiRequest, apiUpload } from "@/api/client";
 import { parseConversation, parseMessage } from "@/lib/parseApiDates";
 import type { AssigneeFilter } from "@/store/conversationStore";
-import type { Contact, Conversation, Message } from "@/types";
+import type { Contact, Conversation, LinkPreview, Message } from "@/types";
 
 export const conversationApiService = {
   async list(filters?: {
@@ -74,6 +74,8 @@ export const conversationApiService = {
       contentType?: Message["contentType"];
       replyToMessageId?: string;
       clientMessageId?: string;
+      linkPreview?: LinkPreview;
+      suppressLinkPreview?: boolean;
     }
   ): Promise<Message> {
     const row = await apiRequest<Message>(`/conversations/${conversationId}/messages`, {
@@ -84,6 +86,8 @@ export const conversationApiService = {
         contentType: options?.contentType ?? "text",
         replyToMessageId: options?.replyToMessageId,
         clientMessageId: options?.clientMessageId,
+        linkPreview: options?.linkPreview,
+        suppressLinkPreview: options?.suppressLinkPreview,
       },
     });
     return parseMessage(row as never);

@@ -203,7 +203,7 @@ export function MessageList() {
         <ChatMessagesLoading />
       ) : (
       <div className="relative flex-1 min-h-0">
-        <div ref={scrollRef} className="h-full overflow-y-auto py-3">
+        <div ref={scrollRef} className="h-full overflow-y-auto py-3 chat-wallpaper">
           <div ref={contentRef}>
           {messageGroups.map((group) => (
             <div key={group.date}>

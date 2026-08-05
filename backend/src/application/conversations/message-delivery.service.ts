@@ -5,8 +5,9 @@ import {
   deliverWhatsAppOutbound,
   deliverWhatsAppTemplate,
 } from "../media/meta-outbound.service.js";
-import { mapMessage, messageInclude } from "../mappers.js";
 import { emitMessageUpdated } from "../realtime/realtime.service.js";
+import { isLinkPreviewSuppressed } from "../../shared/link-preview.js";
+import { mapMessage, messageInclude } from "../mappers.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import type { WhatsAppTemplateSendComponent } from "../../infrastructure/meta/meta-api.client.js";
 import { assertAgentCanAccessConversation } from "../inboxes/inbox-access.service.js";
@@ -124,6 +125,7 @@ async function deliverPendingWhatsAppMessage(messageId: string): Promise<void> {
         mimeType: message.mimeType,
         mediaBuffer,
         replyToExternalId: replyTarget?.externalId,
+        enableLinkPreview: !isLinkPreviewSuppressed(message.deliveryPayload),
       });
       externalId = delivered.externalId;
       mediaExternalId = delivered.mediaExternalId ?? null;

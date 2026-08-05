@@ -1,8 +1,63 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import {
+  isLikelyBareDomainUrl,
+  normalizeUrlForHref,
+  splitUrlTrailingPunctuation,
+  URL_IN_TEXT_REGEX,
+} from "@/lib/detectUrls";
+
+function linkifyPlainText(text: string, linkClassName: string | undefined, keyStart: number): ReactNode[] {
+  if (!text || !linkClassName) {
+    return text ? [text] : [];
+  }
+
+  const parts: ReactNode[] = [];
+  URL_IN_TEXT_REGEX.lastIndex = 0;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = keyStart;
+
+  while ((match = URL_IN_TEXT_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    const raw = match[0];
+    const { url, trailing } = splitUrlTrailingPunctuation(raw);
+
+    if (url && isLikelyBareDomainUrl(url)) {
+      parts.push(
+        <a
+          key={key++}
+          href={normalizeUrlForHref(url)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClassName}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {url}
+        </a>
+      );
+      if (trailing) {
+        parts.push(trailing);
+      }
+    } else {
+      parts.push(raw);
+    }
+
+    lastIndex = match.index + raw.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length ? parts : [text];
+}
 
 /** Formato WhatsApp (+ **negrita** Markdown por compatibilidad al pegar). */
-function renderWhatsAppInline(text: string): ReactNode[] {
+function renderWhatsAppInline(text: string, linkClassName?: string): ReactNode[] {
   const parts: ReactNode[] = [];
   const regex =
     /(```[^`\n]+```|\*\*[^*\n]+\*\*|\*[^*\n]+\*|__[^_\n]+__|_[^_\n]+_|~~[^~\n]+~~|~[^~\n]+~)/g;
@@ -12,7 +67,8 @@ function renderWhatsAppInline(text: string): ReactNode[] {
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
+      parts.push(...linkifyPlainText(text.slice(lastIndex, match.index), linkClassName, key));
+      key += 1000;
     }
     const token = match[0];
     if (token.startsWith("```") && token.endsWith("```")) {
@@ -65,20 +121,22 @@ function renderWhatsAppInline(text: string): ReactNode[] {
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
+    parts.push(...linkifyPlainText(text.slice(lastIndex), linkClassName, key));
   }
 
-  return parts.length ? parts : [text];
+  return parts.length ? parts : linkifyPlainText(text, linkClassName, 0);
 }
 
-/** Texto con saltos de línea y formato WhatsApp (*negrita*, _cursiva_, etc.). */
+/** Texto con saltos de línea, URLs clicables y formato WhatsApp (*negrita*, _cursiva_, etc.). */
 export function WhatsAppFormattedText({
   text,
   className,
+  linkClassName,
   as: Tag = "p",
 }: {
   text: string;
   className?: string;
+  linkClassName?: string;
   as?: "p" | "div" | "span";
 }) {
   const lines = text.split("\n");
@@ -87,7 +145,7 @@ export function WhatsAppFormattedText({
     <Tag className={cn("whitespace-pre-wrap break-words", className)}>
       {lines.map((line, index) => (
         <span key={index}>
-          {renderWhatsAppInline(line)}
+          {renderWhatsAppInline(line, linkClassName)}
           {index < lines.length - 1 ? <br /> : null}
         </span>
       ))}

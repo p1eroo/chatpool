@@ -109,6 +109,14 @@ export interface MessageReply {
   senderType: "agent" | "contact" | "bot";
 }
 
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  siteName?: string;
+}
+
 export interface Message {
   id: string;
   /** Id estable en UI (p. ej. pending-*) para no remontar al confirmar el envío. */
@@ -134,6 +142,8 @@ export interface Message {
   sortOrder?: number;
   createdAt: Date;
   status?: "pending" | "sent" | "delivered" | "read" | "failed";
+  linkPreview?: LinkPreview;
+  linkPreviewSuppressed?: boolean;
 }
 
 export interface SavedSticker {

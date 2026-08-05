@@ -14,6 +14,7 @@ import {
   downloadAndStoreMetaMedia,
 } from "../media/meta-media.service.js";
 import { mapMessage, messageInclude } from "../mappers.js";
+import { scheduleLinkPreviewEnrichment } from "../link-preview/link-preview-enrichment.service.js";
 import {
   enrichWhatsAppContactPhone,
   processSmbAppStateSync,
@@ -462,6 +463,13 @@ async function processInboundMetaMessage(params: {
       mimeType: mimeType ?? "application/octet-stream",
     });
   }
+
+  scheduleLinkPreviewEnrichment({
+    messageId: createdMessage.id,
+    conversationId,
+    content,
+    contentType,
+  });
 
   return {
     kind: "message",

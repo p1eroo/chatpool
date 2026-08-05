@@ -29,6 +29,8 @@
   --color-note-border: #ffd54f;
   --color-note-text: #795548;
   --color-note-time: #a1887f;
+  --color-chat-wallpaper: var(--color-bg-primary);
+  --chat-wallpaper-image: url("/chat-wallpaper-light.svg");
 }
 
 .dark {
@@ -60,6 +62,8 @@
   --color-note-border: #a68a2e;
   --color-note-text: #ffd54f;
   --color-note-time: #a68a2e;
+  --color-chat-wallpaper: var(--color-bg-primary);
+  --chat-wallpaper-image: url("/chat-wallpaper-dark.svg");
 }
 
 @theme {
@@ -133,4 +137,13 @@ body {
 
 .animate-chat-skeleton {
   animation: chat-skeleton 1.6s ease-in-out infinite;
+}
+
+/* Fondo tipo WhatsApp: color base + patrón SVG tileable (sin librerías externas). */
+.chat-wallpaper {
+  background-color: var(--color-chat-wallpaper);
+  background-image: var(--chat-wallpaper-image);
+  background-repeat: repeat;
+  background-size: 400px 400px;
+  background-attachment: local;
 }

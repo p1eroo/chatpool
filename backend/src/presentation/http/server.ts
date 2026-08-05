@@ -15,6 +15,7 @@ import { integrationRoutes } from "./routes/integrations.routes.js";
 import { rolesRoutes } from "./routes/roles.routes.js";
 import { webhookRoutes } from "./routes/webhooks.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
+import { linkPreviewRoutes } from "./routes/link-preview.routes.js";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
@@ -63,6 +64,7 @@ export async function buildApp() {
   await app.register(integrationRoutes);
   await app.register(webhookRoutes);
   await app.register(realtimeRoutes);
+  await app.register(linkPreviewRoutes);
 
   return app;
 }

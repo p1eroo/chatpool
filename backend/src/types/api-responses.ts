@@ -47,6 +47,14 @@ export interface MessageReply {
   senderType: "agent" | "contact" | "system" | "bot";
 }
 
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  siteName?: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -68,6 +76,8 @@ export interface Message {
   createdAt: string;
   status?: "pending" | "sent" | "delivered" | "read" | "failed";
   clientMessageId?: string;
+  linkPreview?: LinkPreview;
+  linkPreviewSuppressed?: boolean;
 }
 
 export interface Label {
@@ -159,6 +169,9 @@ export interface SendMessageBody {
   replyToMessageId?: string;
   /** Id estable del cliente para reconciliar UI y evitar duplicados. */
   clientMessageId?: string;
+  linkPreview?: LinkPreview;
+  /** Si true, no generar preview en UI ni enviar preview_url a WhatsApp. */
+  suppressLinkPreview?: boolean;
 }
 
 export interface SavedSticker {

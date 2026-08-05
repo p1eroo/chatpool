@@ -3,6 +3,8 @@ import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { getClipboardAttachmentFile, mergePendingAttachments } from "@/lib/attachmentUtils";
 import { ComposerPendingAttachments, type ComposerPendingAttachment } from "@/components/chat/ComposerPendingAttachments";
+import { LinkPreviewCard } from "@/components/chat/LinkPreviewCard";
+import { useLinkPreview } from "@/hooks/useLinkPreview";
 import { cn } from "@/lib/utils";
 import { VoiceRecorderBar } from "@/components/chat/VoiceRecorderBar";
 import { ComposerEmojiPicker } from "@/components/chat/ComposerEmojiPicker";
@@ -97,6 +99,16 @@ export function ChatComposer() {
 
   const activeInboxId = activeConversation?.inboxId ?? null;
   const { data: cannedResponses = [] } = useCannedResponses(activeInboxId);
+  const {
+    preview: composerLinkPreview,
+    loading: composerLinkPreviewLoading,
+    dismiss: dismissComposerLinkPreview,
+    isDismissed: composerLinkPreviewDismissed,
+    url: composerLinkUrl,
+  } = useLinkPreview(
+    content,
+    !noteAboutMessage && pendingAttachments.length === 0 && !isRecording
+  );
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -314,6 +326,9 @@ export function ChatComposer() {
     sendMessage(activeConversationId, caption, Boolean(noteAboutMessage), {
       attachedToMessageId: noteAboutMessage?.id,
       replyToMessageId: noteAboutMessage ? undefined : replyToMessage?.id,
+      linkPreview:
+        composerLinkPreviewDismissed ? undefined : composerLinkPreview ?? undefined,
+      suppressLinkPreview: composerLinkPreviewDismissed && Boolean(composerLinkUrl),
     });
     setContent("");
     setReplyToMessage(null);
@@ -331,6 +346,9 @@ export function ChatComposer() {
     sendingTemplate,
     setReplyToMessage,
     setNoteAboutMessage,
+    composerLinkPreview,
+    composerLinkPreviewDismissed,
+    composerLinkUrl,
   ]);
 
   const sendDraftTemplate = useCallback(() => {
@@ -704,6 +722,15 @@ export function ChatComposer() {
           </button>
         </div>
       )}
+
+      {(composerLinkPreview || composerLinkPreviewLoading) && composerLinkUrl ? (
+        <LinkPreviewCard
+          preview={composerLinkPreview ?? { url: composerLinkUrl }}
+          variant="composer"
+          loading={composerLinkPreviewLoading}
+          onDismiss={dismissComposerLinkPreview}
+        />
+      ) : null}
 
       {pendingAttachments.length > 0 && !isRecording && (
         <ComposerPendingAttachments
