@@ -25,6 +25,10 @@ export function buildConversationMediaKey(
   return `conversations/${conversationId}/${randomUUID()}-${safeFilename(originalName)}`;
 }
 
+export function buildCannedMediaKey(inboxId: string, originalName: string): string {
+  return `inboxes/${inboxId}/canned/${randomUUID()}-${safeFilename(originalName)}`;
+}
+
 export async function copyConversationMediaFromKey(params: {
   conversationId: string;
   sourceKey: string;
@@ -80,6 +84,52 @@ export async function uploadConversationMedia(params: {
     fileSize: params.buffer.length,
     mimeType,
   };
+}
+
+export async function uploadCannedMedia(params: {
+  inboxId: string;
+  buffer: Buffer;
+  originalName: string;
+  mimeType: string;
+}): Promise<{ fileKey: string; fileUrl: string; fileName: string; fileSize: number; mimeType: string }> {
+  assertMediaStorageReady();
+
+  if (params.buffer.length === 0) {
+    throw new Error("Archivo vacío");
+  }
+
+  if (params.buffer.length > MAX_BYTES) {
+    throw new Error(
+      `El archivo supera el máximo permitido (${Math.floor(MAX_BYTES / (1024 * 1024))} MB)`
+    );
+  }
+
+  const mimeType = params.mimeType.trim() || "application/octet-stream";
+  if (!mimeType.startsWith("image/")) {
+    throw new Error("Solo se permiten imágenes en respuestas predefinidas");
+  }
+
+  const fileName = safeFilename(params.originalName);
+  const fileKey = buildCannedMediaKey(params.inboxId, fileName);
+
+  await s3Storage.putObject(fileKey, params.buffer, mimeType);
+
+  return {
+    fileKey,
+    fileUrl: s3Storage.getPublicUrl(fileKey),
+    fileName,
+    fileSize: params.buffer.length,
+    mimeType,
+  };
+}
+
+export async function deleteMediaObject(fileKey: string | null | undefined): Promise<void> {
+  if (!fileKey || !s3Storage.isConfigured()) return;
+  try {
+    await s3Storage.deleteObject(fileKey);
+  } catch {
+    // Best-effort cleanup; no bloquear la operación principal.
+  }
 }
 
 export function resolvePublicFileUrl(fileKey: string | null | undefined): string | undefined {

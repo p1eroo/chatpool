@@ -14,6 +14,7 @@ import { StickerPickerPopover } from "@/components/chat/StickerPickerPopover";
 import { useCannedResponses } from "@/hooks/useCannedResponses";
 import { useWhatsAppTemplates } from "@/hooks/useWhatsAppTemplates";
 import { filterCannedBySlashQuery, getSlashQuery } from "@/lib/cannedSlash";
+import { cannedResponseApiService } from "@/services/cannedResponseApiService";
 import {
   clipboardToWhatsApp,
   hasMeaningfulHtmlFormatting,
@@ -374,6 +375,19 @@ export function ChatComposer() {
       setSlashMenuDismissed(true);
       setSlashActiveIndex(0);
 
+      if (item.attachmentUrl || item.fileUrl) {
+        void (async () => {
+          try {
+            const file = await cannedResponseApiService.fetchImageFile(item);
+            if (file && !stageFile(file)) {
+              showToast("No se pudo adjuntar la imagen de la respuesta");
+            }
+          } catch {
+            showToast("No se pudo cargar la imagen de la respuesta");
+          }
+        })();
+      }
+
       requestAnimationFrame(() => {
         const el = textareaRef.current;
         if (!el) return;
@@ -385,7 +399,7 @@ export function ChatComposer() {
         el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
       });
     },
-    [content, slashCursor]
+    [content, slashCursor, stageFile, showToast]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -510,10 +524,23 @@ export function ChatComposer() {
     setCannedModalOpen(true);
   };
 
-  const applyCannedResponse = (text: string) => {
-    setContent(normalizeMarkdownToWhatsApp(text));
+  const applyCannedResponse = async (response: CannedResponse) => {
+    const text = normalizeMarkdownToWhatsApp(response.content);
+    setContent(text);
     setCannedModalOpen(false);
     setSlashMenuDismissed(true);
+
+    if (response.attachmentUrl || response.fileUrl) {
+      try {
+        const file = await cannedResponseApiService.fetchImageFile(response);
+        if (file && !stageFile(file)) {
+          showToast("No se pudo adjuntar la imagen de la respuesta");
+        }
+      } catch {
+        showToast("No se pudo cargar la imagen de la respuesta");
+      }
+    }
+
     textareaRef.current?.focus();
   };
 
@@ -570,7 +597,7 @@ export function ChatComposer() {
               <ComposerMoreTray
                 isWhatsApp={isWhatsApp}
                 disabled={!moreOpen || toolbarDisabled || sendingTemplate}
-                onStickers={() => openFromMore("sticker")}
+                onAudio={startRecording}
                 onFiles={() => {
                   setMoreOpen(false);
                   fileInputRef.current?.click();
@@ -700,11 +727,26 @@ export function ChatComposer() {
                 <Smile className="w-5 h-5" />
               </ToolbarButton>
 
+              {isWhatsApp && (
+                <ToolbarButton
+                  title="Stickers"
+                  disabled={sendingTemplate}
+                  active={activePopover === "sticker"}
+                  onClick={() => togglePopover("sticker")}
+                >
+                  <Sticker className="w-5 h-5" />
+                </ToolbarButton>
+              )}
+
               {activePopover === "emoji" && (
                 <ComposerEmojiPicker
                   align="left"
                   onEmojiSelect={(emoji) => insertAtCursor(emoji)}
                 />
+              )}
+
+              {activePopover === "sticker" && (
+                <StickerPickerPopover onSelect={handleSendSticker} disabled={sendingTemplate} />
               )}
             </div>
 
@@ -743,14 +785,6 @@ export function ChatComposer() {
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
-              <ToolbarButton
-                title="Grabar audio"
-                disabled={toolbarDisabled || sendingTemplate}
-                onClick={startRecording}
-              >
-                <Mic className="w-5 h-5" />
-              </ToolbarButton>
-
               <button
                 type="button"
                 onClick={handleSend}
@@ -766,10 +800,6 @@ export function ChatComposer() {
                 <Send className="w-5 h-5" />
               </button>
             </div>
-
-            {activePopover === "sticker" && (
-              <StickerPickerPopover onSelect={handleSendSticker} disabled={sendingTemplate} />
-            )}
 
             {activePopover === "template" && (
               <ComposerPopover
@@ -825,30 +855,26 @@ export function ChatComposer() {
 function ComposerMoreTray({
   isWhatsApp,
   disabled,
-  onStickers,
+  onAudio,
   onFiles,
   onTemplates,
   onCanned,
 }: {
   isWhatsApp: boolean;
   disabled?: boolean;
-  onStickers: () => void;
+  onAudio: () => void;
   onFiles: () => void;
   onTemplates: () => void;
   onCanned: () => void;
 }) {
   const items = [
-    ...(isWhatsApp
-      ? [
-          {
-            id: "stickers",
-            label: "Stickers",
-            icon: Sticker,
-            onClick: onStickers,
-            iconClass: "text-amber-400",
-          },
-        ]
-      : []),
+    {
+      id: "audio",
+      label: "Audio",
+      icon: Mic,
+      onClick: onAudio,
+      iconClass: "text-rose-400",
+    },
     {
       id: "files",
       label: "Archivos",

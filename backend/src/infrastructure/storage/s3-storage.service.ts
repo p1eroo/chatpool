@@ -1,4 +1,10 @@
-import { CopyObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { env } from "../../config/env.js";
 
 function trim(value: string | undefined): string | undefined {
@@ -101,6 +107,19 @@ class S3StorageService {
       buffer: Buffer.from(bytes),
       contentType: result.ContentType || "application/octet-stream",
     };
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    if (!this.client) {
+      throw new Error("Almacenamiento S3/MinIO no configurado");
+    }
+
+    await this.client.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      })
+    );
   }
 }
 

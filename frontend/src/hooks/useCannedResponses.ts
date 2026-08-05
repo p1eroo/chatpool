@@ -37,11 +37,18 @@ export function useCreateCannedResponse(inboxId: string | null | undefined) {
     mutationFn: async (input: Omit<UpsertCannedResponseInput, "inboxId">) => {
       if (!inboxId) throw new Error("Bandeja no seleccionada");
       if (env.useMock) {
+        const previewUrl = input.imageFile
+          ? URL.createObjectURL(input.imageFile)
+          : undefined;
         return {
           id: `cr-${Date.now()}`,
           inboxId,
           title: input.title.trim(),
           content: input.content.trim(),
+          fileName: input.imageFile?.name,
+          mimeType: input.imageFile?.type,
+          fileSize: input.imageFile?.size,
+          fileUrl: previewUrl,
         } satisfies CannedResponse;
       }
       return cannedResponseApiService.create({ ...input, inboxId });
@@ -65,11 +72,31 @@ export function useUpdateCannedResponse(inboxId: string | null | undefined) {
       ...input
     }: UpdateCannedResponseInput & { id: string }) => {
       if (env.useMock) {
+        const list = queryClient.getQueryData<CannedResponse[]>(
+          cannedResponseKeys.list(inboxId ?? "")
+        );
+        const previous = list?.find((item) => item.id === id);
+        const previewUrl = input.imageFile
+          ? URL.createObjectURL(input.imageFile)
+          : input.removeImage
+            ? undefined
+            : previous?.fileUrl;
         return {
           id,
           inboxId: inboxId ?? "",
           title: input.title.trim(),
           content: input.content.trim(),
+          fileName: input.removeImage
+            ? undefined
+            : input.imageFile?.name ?? previous?.fileName,
+          mimeType: input.removeImage
+            ? undefined
+            : input.imageFile?.type ?? previous?.mimeType,
+          fileSize: input.removeImage
+            ? undefined
+            : input.imageFile?.size ?? previous?.fileSize,
+          fileUrl: previewUrl,
+          attachmentUrl: previewUrl ? previous?.attachmentUrl : undefined,
         } satisfies CannedResponse;
       }
       return cannedResponseApiService.update(id, input);
@@ -79,7 +106,7 @@ export function useUpdateCannedResponse(inboxId: string | null | undefined) {
       if (!keyInboxId) return;
       queryClient.setQueryData<CannedResponse[]>(cannedResponseKeys.list(keyInboxId), (prev = []) =>
         prev
-          .map((item) => (item.id === updated.id ? updated : item))
+          .map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
           .sort((a, b) => a.title.localeCompare(b.title, "es"))
       );
     },

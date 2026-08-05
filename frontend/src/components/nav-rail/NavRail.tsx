@@ -19,9 +19,7 @@ import {
   useAgentPermissions,
   useCanAccessSettings,
 } from "@/hooks/useAgentPermissions";
-
-const sItem = "var(--sidebar-item)";
-const sHover = "var(--sidebar-hover)";
+import { cn } from "@/lib/utils";
 
 export function NavRail() {
   const conversations = useConversationStore((s) => s.conversations);
@@ -55,11 +53,7 @@ export function NavRail() {
 
   return (
     <aside
-      className="w-[72px] flex flex-col items-center shrink-0 h-screen sticky top-0 border-r"
-      style={{
-        backgroundColor: "var(--sidebar-bg)",
-        borderColor: "var(--sidebar-separator)",
-      }}
+      className="w-[72px] flex flex-col items-center shrink-0 h-screen sticky top-0 border-r bg-[var(--sidebar-bg)] border-[var(--sidebar-separator)]"
     >
       <div className="pt-4 pb-2 flex flex-col items-center gap-1">
         <div className="w-9 h-9 rounded-lg bg-[var(--color-brand)] flex items-center justify-center mb-2">
@@ -73,24 +67,15 @@ export function NavRail() {
             key={item.id}
             to={item.path}
             end
-            className="relative w-11 h-11 flex items-center justify-center rounded-xl transition-colors duration-150 group"
-            style={({ isActive }) => ({
-              color: isActive ? "white" : sItem,
-              backgroundColor: isActive ? "var(--color-brand)" : "transparent",
-            })}
-            onMouseEnter={(e) => {
-              if (e.currentTarget.style.backgroundColor !== "var(--color-brand)") {
-                e.currentTarget.style.backgroundColor = sHover;
-                e.currentTarget.style.color = "white";
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (e.currentTarget.style.backgroundColor !== "var(--color-brand)") {
-                e.currentTarget.style.backgroundColor = "transparent";
-                e.currentTarget.style.color = sItem;
-              }
-            }}
             title={item.label}
+            className={({ isActive }) =>
+              cn(
+                "relative w-11 h-11 flex items-center justify-center rounded-xl transition-colors duration-150",
+                isActive
+                  ? "bg-[var(--sidebar-item-active-bg)] text-[var(--sidebar-item-active)]"
+                  : "text-[var(--sidebar-item)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--color-text-primary)]"
+              )
+            }
           >
             <item.icon className="w-5 h-5" />
             {item.id === "inbox" && (
@@ -103,16 +88,7 @@ export function NavRail() {
       <div className="flex flex-col items-center gap-3 pb-4">
         <button
           onClick={toggleTheme}
-          className="w-10 h-10 flex items-center justify-center rounded-xl transition-colors"
-          style={{ color: sItem }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = sHover;
-            e.currentTarget.style.color = "white";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "transparent";
-            e.currentTarget.style.color = sItem;
-          }}
+          className="w-10 h-10 flex items-center justify-center rounded-xl text-[var(--sidebar-item)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--color-text-primary)] transition-colors"
           title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
         >
           {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}

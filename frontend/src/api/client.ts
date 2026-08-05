@@ -105,9 +105,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 export async function apiUpload<T>(
   path: string,
   formData: FormData,
-  options: Omit<RequestOptions, "body"> = {}
+  options: Omit<RequestOptions, "body"> & { method?: string } = {}
 ): Promise<T> {
-  const { auth = true, notifyUnauthorized = true, headers, ...init } = options;
+  const {
+    auth = true,
+    notifyUnauthorized = true,
+    headers,
+    method = "POST",
+    ...init
+  } = options;
 
   const requestHeaders = new Headers(headers);
 
@@ -120,7 +126,7 @@ export async function apiUpload<T>(
 
   const response = await fetch(`${env.apiUrl}${path}`, {
     ...init,
-    method: "POST",
+    method,
     headers: requestHeaders,
     body: formData,
   });
@@ -135,6 +141,10 @@ export async function apiUpload<T>(
 
     notifyHttpError(response.status, errorBody, auth, notifyUnauthorized);
     throw new ApiError(response.status, errorBody);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return (await response.json()) as T;

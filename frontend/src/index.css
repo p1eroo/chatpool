@@ -1,11 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --sidebar-bg: #2e2e2e;
-  --sidebar-item: #878a92;
-  --sidebar-item-active: #ffffff;
-  --sidebar-hover: rgba(255, 255, 255, 0.08);
-  --sidebar-separator: #404040;
+  --sidebar-bg: #f0f0f3;
+  --sidebar-item: #797c8c;
+  --sidebar-item-active: #4eac6d;
+  --sidebar-item-active-bg: rgba(78, 172, 109, 0.14);
+  --sidebar-hover: rgba(73, 80, 87, 0.08);
+  --sidebar-separator: #eaeaf1;
 
   --color-bg-primary: #f6f6f9;
   --color-bg-secondary: #ffffff;
@@ -31,6 +32,13 @@
 }
 
 .dark {
+  --sidebar-bg: #2e2e2e;
+  --sidebar-item: #878a92;
+  --sidebar-item-active: #ffffff;
+  --sidebar-item-active-bg: #4eac6d;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-separator: #404040;
+
   --color-bg-primary: #2e2e2e;
   --color-bg-secondary: #262626;
   --color-bg-tertiary: #383838;

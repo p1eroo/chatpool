@@ -346,6 +346,10 @@ function mergeServerMessageOverLocal(local: Message, server: Message): Message {
     // Mantener posición visual; el status/id del server sí se actualizan.
     sortOrder: local.sortOrder ?? server.sortOrder,
     createdAt: local.createdAt,
+    status:
+      isPendingMessageId(local.id) && server.status === "pending"
+        ? "sent"
+        : server.status ?? local.status,
   };
 
   return mergeServerMessageOverLocalCleanup(local, merged);
@@ -487,6 +491,7 @@ function mergeMessagesById(primary: Message[], secondary: Message[]): Message[] 
 }
 
 const PENDING_MESSAGE_PREFIX = "pending-";
+const PROVISIONAL_INBOUND_PREFIX = "provisional-";
 
 function createPendingMessageId(): string {
   return `${PENDING_MESSAGE_PREFIX}${crypto.randomUUID()}`;
@@ -494,6 +499,10 @@ function createPendingMessageId(): string {
 
 function isPendingMessageId(id: string): boolean {
   return id.startsWith(PENDING_MESSAGE_PREFIX);
+}
+
+function isProvisionalInboundId(id: string): boolean {
+  return id.startsWith(PROVISIONAL_INBOUND_PREFIX);
 }
 
 function findPendingOutgoingReplaceIndex(messages: Message[], incoming: Message): number {
@@ -518,6 +527,14 @@ function findPendingOutgoingReplaceIndex(messages: Message[], incoming: Message)
       item.content === incoming.content &&
       item.isPrivate === incoming.isPrivate &&
       item.contentType === incoming.contentType
+  );
+}
+
+function findProvisionalInboundReplaceIndex(messages: Message[], incoming: Message): number {
+  if (incoming.senderType !== "contact" || !incoming.externalId) return -1;
+
+  return messages.findIndex(
+    (item) => isProvisionalInboundId(item.id) && item.externalId === incoming.externalId
   );
 }
 
@@ -812,10 +829,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         existingMessages,
         message
       );
+      const provisionalInboundIndex = findProvisionalInboundReplaceIndex(
+        existingMessages,
+        message
+      );
       const pendingIndex =
         outgoingPendingIndex >= 0
           ? outgoingPendingIndex
-          : findPendingActivityReplaceIndex(existingMessages, message);
+          : provisionalInboundIndex >= 0
+            ? provisionalInboundIndex
+            : findPendingActivityReplaceIndex(existingMessages, message);
       let nextMessages: Message[];
 
       if (pendingIndex >= 0) {
@@ -825,13 +848,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           message
         );
         const clientId = message.clientMessageId ?? message.clientId;
-        if (clientId) {
+        const externalId = message.externalId;
+        if (clientId || externalId) {
           nextMessages = nextMessages.filter((item, index) => {
             if (index === pendingIndex) return true;
             if (item.id === message.id) return false;
             if (
+              clientId &&
               isPendingMessageId(item.id) &&
               (item.clientId === clientId || item.id === clientId)
+            ) {
+              return false;
+            }
+            if (
+              externalId &&
+              isProvisionalInboundId(item.id) &&
+              item.externalId === externalId
             ) {
               return false;
             }
@@ -839,6 +871,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           });
         }
         nextMessages = sortMessagesChronologically(nextMessages);
+      } else if (
+        message.externalId &&
+        existingMessages.some(
+          (item) => item.externalId === message.externalId && !isProvisionalInboundId(item.id)
+        )
+      ) {
+        nextMessages = existingMessages.map((item) =>
+          item.externalId === message.externalId
+            ? mergeServerMessageOverLocal(item, message)
+            : item
+        );
       } else {
         nextMessages = sortMessagesChronologically([...existingMessages, message]);
       }

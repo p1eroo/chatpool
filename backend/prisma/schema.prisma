@@ -285,11 +285,15 @@ model ConversationLabel {
 }
 
 model CannedResponse {
-  id      String @id @default(cuid())
-  inboxId String @map("inbox_id")
-  inbox   Inbox  @relation(fields: [inboxId], references: [id], onDelete: Cascade)
-  title   String
-  content String
+  id       String  @id @default(cuid())
+  inboxId  String  @map("inbox_id")
+  inbox    Inbox   @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  title    String
+  content  String  @default("")
+  fileKey  String? @map("file_key")
+  fileName String? @map("file_name")
+  mimeType String? @map("mime_type")
+  fileSize Int?    @map("file_size")
 
   @@index([inboxId])
   @@map("canned_responses")

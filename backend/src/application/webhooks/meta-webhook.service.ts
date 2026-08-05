@@ -7,11 +7,11 @@ import {
   conversationMessageEmitSelect,
   mapConversationMessageEmit,
   messageCreateInclude,
+  type ConversationMessageEmitRow,
 } from "../realtime/conversation-realtime-emit.js";
 import { resolveMetaApiFailure } from "../../shared/meta-api-errors.js";
 import {
   downloadAndStoreMetaMedia,
-  parseIncomingMetaMedia,
 } from "../media/meta-media.service.js";
 import { mapMessage, messageInclude } from "../mappers.js";
 import {
@@ -32,6 +32,12 @@ import { runWithConversationMessageLock } from "../conversations/conversation-me
 import { computeInboundMessageSortOrder } from "../conversations/message-sort-order.js";
 import { parseMetaMessageTimestamp } from "../../shared/meta-message-time.js";
 import { noteContactMessageAt } from "../../shared/whatsapp-window.js";
+import {
+  emitInboundProvisionalIfNeeded,
+  parseInboundWebhookContent,
+  shouldIgnoreInboundMessageType,
+  tryEmitInboundProvisionalFast,
+} from "./inbound-provisional-message.js";
 import {
   resolveInboundWhatsAppIdentity,
   sanitizeWhatsAppDisplayName,
@@ -265,6 +271,7 @@ async function processInboundMetaMessage(params: {
 }): Promise<MetaWebhookProcessedEvent | null> {
   const { settings, message, batchIndex, contacts, accessToken } = params;
   if (!message.id) return null;
+  if (shouldIgnoreInboundMessageType(message.type)) return null;
 
   const matchedContact =
     contacts?.find(
@@ -285,6 +292,12 @@ async function processInboundMetaMessage(params: {
     );
     return null;
   }
+
+  tryEmitInboundProvisionalFast({
+    inboxId: settings.inboxId,
+    identityKey: identity.identityKey,
+    message,
+  });
 
   const contactName = sanitizeWhatsAppDisplayName(
     identity.displayName,
@@ -316,9 +329,15 @@ async function processInboundMetaMessage(params: {
 
   const cachedContext = getInboundContactContext(settings.inboxId, identity.identityKey);
 
-  const resolveConversation = async (): Promise<string> => {
+  const resolveConversation = async (): Promise<{
+    conversationId: string;
+    conversationBase: ConversationMessageEmitRow | null;
+  }> => {
     if (cachedContext && cachedContext.contactId === contact.id) {
-      return cachedContext.conversationId;
+      return {
+        conversationId: cachedContext.conversationId,
+        conversationBase: cachedContext.conversationBase,
+      };
     }
 
     const { conversation } = await findOrReopenConversationForContact({
@@ -342,10 +361,10 @@ async function processInboundMetaMessage(params: {
       });
     }
 
-    return conversation.id;
+    return { conversationId: conversation.id, conversationBase };
   };
 
-  const [conversationId, existing, replyTarget] = await Promise.all([
+  const [{ conversationId, conversationBase }, existing, replyTarget] = await Promise.all([
     resolveConversation(),
     prisma.message.findUnique({ where: { externalId: message.id } }),
     message.context?.id
@@ -363,23 +382,24 @@ async function processInboundMetaMessage(params: {
     replyToMessageId = replyTarget.id;
   }
 
-  const parsed = parseIncomingMetaMedia(message.type, message.id, message);
-  const fallbackContent = `[${message.type ?? "mensaje"}]`;
-  let content = parsed?.content ?? fallbackContent;
-  let contentType = parsed?.contentType ?? "text";
-  let fileName: string | null = null;
-  let mimeType: string | null = null;
-  let mediaExternalId: string | null = parsed?.mediaId || null;
-  const shouldHydrateMedia = Boolean(parsed?.mediaId && accessToken);
-
-  if (parsed && parsed.contentType !== "text") {
-    content = parsed.content || parsed.fileName || fallbackContent;
-    contentType = parsed.contentType;
-    fileName = parsed.fileName;
-    mimeType = parsed.mimeType;
-  }
+  const { content, contentType, fileName, mimeType, mediaExternalId } = parseInboundWebhookContent(
+    message.id,
+    message
+  );
+  const shouldHydrateMedia = Boolean(mediaExternalId && accessToken);
 
   const messageAt = parseMetaMessageTimestamp(message.timestamp);
+
+  if (conversationBase) {
+    emitInboundProvisionalIfNeeded({
+      externalId: message.id,
+      conversationId,
+      contactId: contact.id,
+      contactName,
+      conversationBase,
+      message,
+    });
+  }
 
   const { createdMessage } = await runWithConversationMessageLock(
     conversationId,
@@ -432,14 +452,14 @@ async function processInboundMetaMessage(params: {
 
   noteContactMessageAt(conversationId, messageAt);
 
-  if (shouldHydrateMedia && parsed?.mediaId && accessToken) {
-      scheduleIncomingMediaHydration({
+  if (shouldHydrateMedia && mediaExternalId && accessToken) {
+    scheduleIncomingMediaHydration({
       messageId: createdMessage.id,
       conversationId,
       accessToken,
-      mediaId: parsed.mediaId,
-      fileName: parsed.fileName,
-      mimeType: parsed.mimeType,
+      mediaId: mediaExternalId,
+      fileName: fileName ?? `${contentType}-${message.id.slice(0, 8)}`,
+      mimeType: mimeType ?? "application/octet-stream",
     });
   }
 
@@ -519,6 +539,12 @@ export async function processMetaWebhookPayload(
           );
           continue;
         }
+
+        tryEmitInboundProvisionalFast({
+          inboxId: settings.inboxId,
+          identityKey: identity.identityKey,
+          message,
+        });
 
         inboundTasks.push(
           scheduleInboundContactTask(

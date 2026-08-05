@@ -1,6 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ImagePlus,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   clipboardToWhatsApp,
@@ -22,7 +31,7 @@ interface CannedResponsesModalProps {
   open: boolean;
   inboxId: string | null;
   onClose: () => void;
-  onSelect: (content: string) => void;
+  onSelect: (response: CannedResponse) => void;
 }
 
 type FormMode = "list" | "create" | "edit";
@@ -39,12 +48,18 @@ export function CannedResponsesModal({
   const createResponse = useCreateCannedResponse(inboxId);
   const updateResponse = useUpdateCannedResponse(inboxId);
   const deleteResponse = useDeleteCannedResponse(inboxId);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [mode, setMode] = useState<FormMode>("list");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
+  const [hasExistingImage, setHasExistingImage] = useState(false);
+  const [removeExistingImage, setRemoveExistingImage] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -53,35 +68,57 @@ export function CannedResponsesModal({
       setExpandedId(null);
       setTitle("");
       setContent("");
+      setImageFile(null);
+      setExistingImageUrl(null);
+      setHasExistingImage(false);
+      setRemoveExistingImage(false);
     }
   }, [open]);
 
   useEffect(() => {
+    if (!imageFile) {
+      setImagePreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
+
+  useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (mode !== "list") {
-          setMode("list");
-          setEditingId(null);
-          setTitle("");
-          setContent("");
-        } else {
-          onClose();
-        }
+      if (e.key !== "Escape") return;
+      if (mode !== "list") {
+        setTitle("");
+        setContent("");
+        setEditingId(null);
+        setImageFile(null);
+        setExistingImageUrl(null);
+        setHasExistingImage(false);
+        setRemoveExistingImage(false);
+        setMode("list");
+      } else {
+        onClose();
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, mode, onClose]);
 
-  if (!open) return null;
-
   const resetForm = () => {
     setTitle("");
     setContent("");
     setEditingId(null);
+    setImageFile(null);
+    setExistingImageUrl(null);
+    setHasExistingImage(false);
+    setRemoveExistingImage(false);
     setMode("list");
+    if (imageInputRef.current) imageInputRef.current.value = "";
   };
+
+  if (!open) return null;
 
   const startCreate = () => {
     if (!canManage || !inboxId) return;
@@ -89,6 +126,10 @@ export function CannedResponsesModal({
     setContent("");
     setEditingId(null);
     setExpandedId(null);
+    setImageFile(null);
+    setExistingImageUrl(null);
+    setHasExistingImage(false);
+    setRemoveExistingImage(false);
     setMode("create");
   };
 
@@ -97,16 +138,43 @@ export function CannedResponsesModal({
     setEditingId(response.id);
     setTitle(response.title);
     setContent(response.content);
+    setImageFile(null);
+    setExistingImageUrl(response.fileUrl ?? null);
+    setHasExistingImage(Boolean(response.fileUrl || response.attachmentUrl));
+    setRemoveExistingImage(false);
     setMode("edit");
   };
 
   const busy =
     createResponse.isPending || updateResponse.isPending || deleteResponse.isPending;
 
+  const hasImage =
+    Boolean(imageFile) || (hasExistingImage && !removeExistingImage);
+
+  const handlePickImage = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showToast("Solo se permiten imágenes");
+      return;
+    }
+    setImageFile(file);
+    setRemoveExistingImage(false);
+  };
+
+  const clearImage = () => {
+    setImageFile(null);
+    if (hasExistingImage) setRemoveExistingImage(true);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
   const handleSave = async () => {
     const normalizedContent = normalizeMarkdownToWhatsApp(content).trim();
-    if (!title.trim() || !normalizedContent) {
-      showToast("Completa el título y el mensaje");
+    if (!title.trim()) {
+      showToast("Completa el código corto");
+      return;
+    }
+    if (!normalizedContent && !hasImage) {
+      showToast("Añade un mensaje o una imagen");
       return;
     }
 
@@ -116,10 +184,16 @@ export function CannedResponsesModal({
           id: editingId,
           title,
           content: normalizedContent,
+          imageFile,
+          removeImage: removeExistingImage && !imageFile,
         });
         showToast("Respuesta actualizada");
       } else {
-        await createResponse.mutateAsync({ title, content: normalizedContent });
+        await createResponse.mutateAsync({
+          title,
+          content: normalizedContent,
+          imageFile,
+        });
         showToast("Respuesta creada");
       }
       resetForm();
@@ -148,8 +222,11 @@ export function CannedResponsesModal({
     });
   };
 
-  const selectResponse = (raw: string) => {
-    onSelect(normalizeMarkdownToWhatsApp(raw));
+  const selectResponse = (response: CannedResponse) => {
+    onSelect({
+      ...response,
+      content: normalizeMarkdownToWhatsApp(response.content),
+    });
   };
 
   const handleDelete = async (id: string) => {
@@ -168,6 +245,10 @@ export function CannedResponsesModal({
   };
 
   const isFormMode = mode === "create" || mode === "edit";
+  const previewSrc =
+    imagePreviewUrl ||
+    (!removeExistingImage && existingImageUrl ? existingImageUrl : null);
+  const showImageSlot = Boolean(previewSrc) || (hasExistingImage && !removeExistingImage && !imageFile);
 
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -247,7 +328,7 @@ export function CannedResponsesModal({
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   onPaste={handleContentPaste}
-                  placeholder="Pega desde Chatwoot o escribe con *negrita*…"
+                  placeholder="Pega desde Chatwoot o escribe con *negrita*… (opcional si hay imagen)"
                   rows={5}
                   className="w-full bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] rounded-lg px-3 py-2.5 outline-none border border-[var(--color-border-primary)] focus:border-[var(--color-brand)] resize-none"
                 />
@@ -268,6 +349,67 @@ export function CannedResponsesModal({
                   </div>
                 )}
               </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-muted)] mb-1.5">
+                  Imagen (opcional)
+                </label>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handlePickImage(e.target.files?.[0] ?? null)}
+                />
+                {previewSrc ? (
+                  <div className="relative rounded-xl overflow-hidden border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)]">
+                    <img
+                      src={previewSrc}
+                      alt="Vista previa"
+                      className="w-full max-h-44 object-contain bg-[var(--color-bg-primary)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={clearImage}
+                      className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+                      title="Quitar imagen"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : showImageSlot ? (
+                  <div className="relative rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] px-3 py-6 text-center">
+                    <ImagePlus className="w-5 h-5 mx-auto text-[var(--color-brand)] mb-1.5" />
+                    <p className="text-sm text-[var(--color-text-secondary)]">Imagen adjunta</p>
+                    <button
+                      type="button"
+                      onClick={clearImage}
+                      className="mt-2 text-xs text-[var(--color-danger)] hover:opacity-80"
+                    >
+                      Quitar imagen
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="w-full h-24 rounded-xl border border-dashed border-[var(--color-border-secondary)] bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)] transition-colors inline-flex flex-col items-center justify-center gap-1.5"
+                  >
+                    <ImagePlus className="w-5 h-5" />
+                    Añadir imagen
+                  </button>
+                )}
+                {(previewSrc || showImageSlot) && (
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="mt-2 text-xs text-[var(--color-brand)] hover:opacity-80 transition-opacity"
+                  >
+                    Cambiar imagen
+                  </button>
+                )}
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
@@ -320,6 +462,7 @@ export function CannedResponsesModal({
                 <div className="space-y-2">
                   {responses.map((response) => {
                     const expanded = expandedId === response.id;
+                    const hasMedia = Boolean(response.fileUrl || response.attachmentUrl);
                     return (
                       <div
                         key={response.id}
@@ -343,6 +486,9 @@ export function CannedResponsesModal({
                             <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">
                               /{response.title}
                             </span>
+                            {hasMedia && (
+                              <ImagePlus className="w-3.5 h-3.5 text-[var(--color-brand)] shrink-0" />
+                            )}
                           </button>
 
                           {canManage && (
@@ -376,16 +522,29 @@ export function CannedResponsesModal({
                           )}
                         >
                           <div className="overflow-hidden min-h-0">
-                            <div className="px-3 pb-3 pt-0.5 border-t border-[var(--color-border-primary)]/60">
-                              <WhatsAppFormattedText
-                                as="div"
-                                text={normalizeMarkdownToWhatsApp(response.content)}
-                                className="text-sm text-[var(--color-text-secondary)] leading-relaxed pt-2.5"
-                              />
+                            <div className="px-3 pb-3 pt-0.5 border-t border-[var(--color-border-primary)]/60 space-y-2.5">
+                              {hasMedia && response.fileUrl && (
+                                <img
+                                  src={response.fileUrl}
+                                  alt=""
+                                  className="mt-2.5 w-full max-h-36 object-contain rounded-lg bg-[var(--color-bg-primary)] border border-[var(--color-border-primary)]"
+                                />
+                              )}
+                              {response.content.trim() ? (
+                                <WhatsAppFormattedText
+                                  as="div"
+                                  text={normalizeMarkdownToWhatsApp(response.content)}
+                                  className="text-sm text-[var(--color-text-secondary)] leading-relaxed pt-1"
+                                />
+                              ) : (
+                                <p className="text-xs text-[var(--color-text-muted)] pt-1 italic">
+                                  Solo imagen
+                                </p>
+                              )}
                               <button
                                 type="button"
-                                onClick={() => selectResponse(response.content)}
-                                className="mt-3 h-8 px-3 text-xs font-medium rounded-lg bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)] transition-colors"
+                                onClick={() => selectResponse(response)}
+                                className="h-8 px-3 text-xs font-medium rounded-lg bg-[var(--color-brand)] text-white hover:bg-[var(--color-brand-light)] transition-colors"
                               >
                                 Usar en el mensaje
                               </button>

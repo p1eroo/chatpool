@@ -157,6 +157,11 @@ export interface CannedResponse {
   inboxId: string;
   title: string;
   content: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
+  fileUrl?: string;
+  attachmentUrl?: string;
 }
 
 export interface Conversation {

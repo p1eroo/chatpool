@@ -5,13 +5,9 @@ import { QueryProvider } from "@/providers/QueryProvider";
 import "./index.css";
 
 (function initTheme() {
-  const saved = localStorage.getItem("chatpool-theme");
-  const theme = saved || "dark";
-  if (theme === "dark") {
-    document.documentElement.classList.add("dark");
-  } else {
-    document.documentElement.classList.remove("dark");
-  }
+  const saved = localStorage.getItem("chatpool-theme") ?? localStorage.getItem("theme");
+  const theme = saved === "light" || saved === "dark" ? saved : "dark";
+  document.documentElement.classList.toggle("dark", theme === "dark");
 })();
 
 createRoot(document.getElementById("root")!).render(

@@ -1,3 +1,4 @@
+import { ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CannedResponse } from "@/types";
 
@@ -32,30 +33,38 @@ export function CannedSlashMenu({
         </p>
       </div>
       <div className="max-h-56 overflow-y-auto py-1">
-        {items.map((item, index) => (
-          <button
-            key={item.id}
-            type="button"
-            onMouseEnter={() => onHover(index)}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onSelect(item);
-            }}
-            className={cn(
-              "w-full px-3 py-2 text-left transition-colors",
-              index === activeIndex
-                ? "bg-[var(--color-bg-hover)]"
-                : "hover:bg-[var(--color-bg-hover)]"
-            )}
-          >
-            <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">
-              /{item.title}
-            </p>
-            <p className="text-xs text-[var(--color-text-secondary)] line-clamp-1 mt-0.5">
-              {item.content}
-            </p>
-          </button>
-        ))}
+        {items.map((item, index) => {
+          const hasImage = Boolean(item.fileUrl || item.attachmentUrl);
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onMouseEnter={() => onHover(index)}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onSelect(item);
+              }}
+              className={cn(
+                "w-full px-3 py-2 text-left transition-colors",
+                index === activeIndex
+                  ? "bg-[var(--color-bg-hover)]"
+                  : "hover:bg-[var(--color-bg-hover)]"
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                  /{item.title}
+                </p>
+                {hasImage && (
+                  <ImageIcon className="w-3.5 h-3.5 text-[var(--color-brand)] shrink-0" />
+                )}
+              </div>
+              <p className="text-xs text-[var(--color-text-secondary)] line-clamp-1 mt-0.5">
+                {item.content.trim() || (hasImage ? "Imagen adjunta" : "")}
+              </p>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
