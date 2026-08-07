@@ -1,5 +1,6 @@
 import { apiRequest, apiUpload, getAccessToken } from "@/api/client";
 import { env } from "@/config/env";
+import { withApiProgress } from "@/store/apiLoadingStore";
 import type { CannedResponse } from "@/types";
 
 export type UpsertCannedResponseInput = {
@@ -72,13 +73,15 @@ export const cannedResponseApiService = {
       const token = getAccessToken();
       const url = new URL(`${env.apiUrl}${response.attachmentUrl}`);
       url.searchParams.set("inline", "1");
-      const res = await fetch(url.toString(), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      blob = await withApiProgress(async () => {
+        const res = await fetch(url.toString(), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) {
+          throw new Error("No se pudo cargar la imagen de la respuesta");
+        }
+        return res.blob();
       });
-      if (!res.ok) {
-        throw new Error("No se pudo cargar la imagen de la respuesta");
-      }
-      blob = await res.blob();
     } else {
       const res = await fetch(response.fileUrl!);
       if (!res.ok) {

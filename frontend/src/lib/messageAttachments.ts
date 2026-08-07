@@ -1,5 +1,6 @@
 import { env } from "@/config/env";
 import { getAccessToken } from "@/api/client";
+import { withApiProgress } from "@/store/apiLoadingStore";
 
 function triggerBlobDownload(blob: Blob, fileName: string) {
   const objectUrl = URL.createObjectURL(blob);
@@ -25,22 +26,24 @@ export async function downloadMessageAttachment(params: {
     url.searchParams.set("inline", "1");
   }
 
-  const response = await fetch(url.toString(), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  await withApiProgress(async () => {
+    const response = await fetch(url.toString(), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
 
-  if (!response.ok) {
-    let message = "No se pudo descargar el archivo";
-    try {
-      const body = (await response.json()) as { message?: string };
-      if (body.message?.trim()) message = body.message.trim();
-    } catch {
-      // ignore invalid JSON
+    if (!response.ok) {
+      let message = "No se pudo descargar el archivo";
+      try {
+        const body = (await response.json()) as { message?: string };
+        if (body.message?.trim()) message = body.message.trim();
+      } catch {
+        // ignore invalid JSON
+      }
+      throw new Error(message);
     }
-    throw new Error(message);
-  }
 
-  triggerBlobDownload(await response.blob(), params.fileName);
+    triggerBlobDownload(await response.blob(), params.fileName);
+  });
 }
 
 /** Descarga forzada: API auth o blob (CDN cross-origin ignora el atributo download). */
@@ -74,14 +77,16 @@ export async function fetchMessageAttachmentBlob(attachmentUrl: string): Promise
   const url = new URL(`${env.apiUrl}${attachmentUrl}`);
   url.searchParams.set("inline", "1");
 
-  const response = await fetch(url.toString(), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  return withApiProgress(async () => {
+    const response = await fetch(url.toString(), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    if (!response.ok) {
+      throw new Error("No se pudo cargar el archivo");
+    }
+
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
   });
-
-  if (!response.ok) {
-    throw new Error("No se pudo cargar el archivo");
-  }
-
-  const blob = await response.blob();
-  return URL.createObjectURL(blob);
 }

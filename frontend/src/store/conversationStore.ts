@@ -27,6 +27,7 @@ import { conversationApiService } from "@/services/conversationApiService";
 import { contactApiService } from "@/services/contactApiService";
 import { stickerApiService } from "@/services/stickerApiService";
 import { useUIStore } from "@/store/uiStore";
+import { useInboxStore } from "@/store/inboxStore";
 
 export type AssigneeFilter = "mine" | "unassigned" | "all";
 
@@ -54,6 +55,8 @@ interface ConversationState {
   filterStatus: string;
   filterAssignee: AssigneeFilter;
   filterInboxId: string | null;
+  /** Bandeja a la que pertenece `conversations` (null = aún cargando / no sincronizar badge en vivo). */
+  conversationsInboxId: string | null;
   filterLabelId: string | null;
 
   setConversations: (conversations: Conversation[]) => void;
@@ -182,6 +185,30 @@ function isActivelyViewingConversation(
   );
 }
 
+/** Actualiza badge de bandeja tras realtime sin pisar conteos de bandejas no cargadas. */
+function syncInboxUnreadAfterRealtime(
+  inboxId: string,
+  previousUnread: number,
+  nextUnread: number
+) {
+  const { conversationsInboxId, conversations } = useConversationStore.getState();
+
+  if (conversationsInboxId === inboxId) {
+    useInboxStore
+      .getState()
+      .syncInboxUnreadFromConversations(inboxId, conversations);
+    return;
+  }
+
+  const wasUnread = previousUnread > 0;
+  const isUnread = nextUnread > 0;
+  if (!wasUnread && isUnread) {
+    useInboxStore.getState().adjustInboxUnread(inboxId, 1);
+  } else if (wasUnread && !isUnread) {
+    useInboxStore.getState().adjustInboxUnread(inboxId, -1);
+  }
+}
+
 function clearUnreadCountLocally(
   set: (
     partial:
@@ -190,15 +217,18 @@ function clearUnreadCountLocally(
   ) => void,
   conversationId: string
 ) {
-  set((state) => {
-    const current = state.conversations.find((item) => item.id === conversationId);
-    if (!current || current.unreadCount <= 0) return state;
-    return {
-      conversations: state.conversations.map((item) =>
-        item.id === conversationId ? { ...item, unreadCount: 0 } : item
-      ),
-    };
-  });
+  const current = useConversationStore
+    .getState()
+    .conversations.find((item) => item.id === conversationId);
+  if (!current || current.unreadCount <= 0) return;
+
+  set((state) => ({
+    conversations: state.conversations.map((item) =>
+      item.id === conversationId ? { ...item, unreadCount: 0 } : item
+    ),
+  }));
+  // Badge de bandeja cuenta chats, no mensajes.
+  useInboxStore.getState().adjustInboxUnread(current.inboxId, -1);
 }
 
 function scheduleMarkReadWhileViewing(conversationId: string, reason: string) {
@@ -754,15 +784,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messagesLoadedFromApi: {},
   messagesLoading: {},
   templateWindowOverrides: {},
-  filterStatus: "open",
+  filterStatus: "all",
   filterAssignee: "mine",
   filterInboxId: getInitialInboxFilter(),
+  conversationsInboxId: null,
   filterLabelId: null,
 
-  setConversations: (conversations) =>
+  setConversations: (conversations) => {
+    const sorted = sortConversations(conversations);
+    const inboxId = get().filterInboxId;
     set({
-      conversations: sortConversations(conversations),
-    }),
+      conversations: sorted,
+      conversationsInboxId: inboxId,
+    });
+    if (inboxId) {
+      useInboxStore.getState().syncInboxUnreadFromConversations(inboxId, sorted);
+    }
+  },
 
   setInboxViewActive: (active) => set({ isInboxViewActive: active }),
 
@@ -770,6 +808,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   applyRealtimeMessage: (message, conversation) => {
     let shouldMarkReadWhileViewing = false;
+    let previousUnread = 0;
+    let nextUnread = conversation.unreadCount;
 
     set((currentState) => {
       const existingMessages = currentState.messages[conversation.id] ?? [];
@@ -778,6 +818,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         (item) => item.id === conversation.id
       );
       const hasConversation = Boolean(existingConversation);
+      previousUnread = existingConversation?.unreadCount ?? 0;
       const isNewMessage = !hasMessage;
       const viewing = isActivelyViewingConversation(currentState, conversation.id);
 
@@ -798,6 +839,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         mergedConversation = { ...mergedConversation, unreadCount: 0 };
         shouldMarkReadWhileViewing = true;
       }
+      nextUnread = mergedConversation.unreadCount;
 
       const conversations = sortConversations(
         hasConversation
@@ -901,6 +943,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       scheduleMarkReadWhileViewing(conversation.id, "active-view");
     }
 
+    syncInboxUnreadAfterRealtime(
+      conversation.inboxId,
+      previousUnread,
+      nextUnread
+    );
+
     syncOptimisticSortOrder(conversation.id, message.sortOrder);
     syncTemplateWindowOverride(set, get, conversation.id, get().messages[conversation.id] ?? []);
   },
@@ -933,11 +981,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   applyRealtimeConversation: (conversation) => {
+    let previousUnread = 0;
+    let nextUnread = conversation.unreadCount;
+
     set((state) => {
       const existingConversation = state.conversations.find(
         (item) => item.id === conversation.id
       );
       const hasConversation = Boolean(existingConversation);
+      previousUnread = existingConversation?.unreadCount ?? 0;
       let mergedConversation = existingConversation
         ? mergeConversationOnRealtimeUpdate(existingConversation, conversation)
         : conversation;
@@ -948,6 +1000,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       ) {
         mergedConversation = { ...mergedConversation, unreadCount: 0 };
       }
+      nextUnread = mergedConversation.unreadCount;
 
       const conversations = sortConversations(
         hasConversation
@@ -959,6 +1012,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
       return { conversations };
     });
+
+    syncInboxUnreadAfterRealtime(
+      conversation.inboxId,
+      previousUnread,
+      nextUnread
+    );
   },
 
   sendTemplateMessage: async (conversationId, input) => {
@@ -1332,16 +1391,27 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       saveInboxFilter(agentId, inboxId);
     }
 
-    set({ filterInboxId: inboxId, filterLabelId: null });
+    // Al cambiar de bandeja: no sincronizar badge en vivo hasta que llegue la lista de esa bandeja.
+    set({
+      filterInboxId: inboxId,
+      conversationsInboxId: null,
+      filterLabelId: null,
+      activeConversationId: null,
+      filterStatus: "all",
+      filterAssignee: "all",
+    });
 
     if (!env.useMock) {
       if (!inboxId) {
-        set({ conversations: [] });
+        set({ conversations: [], conversationsInboxId: null });
         return;
       }
       void conversationApiService
         .list({ inboxId, status: "all", assignee: "all" })
-        .then((conversations) => get().setConversations(conversations))
+        .then((conversations) => {
+          if (get().filterInboxId !== inboxId) return;
+          get().setConversations(conversations);
+        })
         .catch(() => {});
     }
   },
@@ -1696,11 +1766,20 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   markAsUnread: (id) => {
+    const current = get().conversations.find((c) => c.id === id);
+    if (!current) return;
+    const wasRead = current.unreadCount <= 0;
+    const nextUnread = Math.max(current.unreadCount, 1);
+
     set((state) => ({
       conversations: state.conversations.map((c) =>
-        c.id === id ? { ...c, unreadCount: Math.max(c.unreadCount, 1) } : c
+        c.id === id ? { ...c, unreadCount: nextUnread } : c
       ),
     }));
+
+    if (wasRead) {
+      useInboxStore.getState().adjustInboxUnread(current.inboxId, 1);
+    }
 
     if (!env.useMock) {
       void conversationApiService.updateConversation(id, { unreadCount: 1 }).catch(() => {});
@@ -1833,16 +1912,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   getFilteredConversations: () => {
-    const { conversations, filterStatus, filterAssignee, filterInboxId, filterLabelId } = get();
+    const { conversations, filterAssignee, filterInboxId, filterLabelId } = get();
     let filtered = conversations;
-    if (filterStatus !== "all") {
-      filtered = filtered.filter((c) => c.status === filterStatus);
-    }
+    // Mías / Sin asignar = solo abiertas. Todas = abiertas + cerradas.
     if (filterAssignee === "mine") {
       const agentId = getCurrentAgentId();
-      filtered = filtered.filter((c) => agentId && c.assignee?.id === agentId);
+      filtered = filtered.filter(
+        (c) => agentId && c.assignee?.id === agentId && c.status === "open"
+      );
     } else if (filterAssignee === "unassigned") {
-      filtered = filtered.filter((c) => !c.assignee);
+      filtered = filtered.filter((c) => !c.assignee && c.status === "open");
     }
     if (filterInboxId) {
       filtered = filtered.filter((c) => c.inboxId === filterInboxId);
@@ -1864,6 +1943,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   getTotalUnread: () => {
-    return get().conversations.reduce((sum, c) => sum + c.unreadCount, 0);
+    return get().conversations.filter((c) => c.unreadCount > 0).length;
   },
 }));

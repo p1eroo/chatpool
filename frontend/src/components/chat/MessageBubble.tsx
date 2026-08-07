@@ -46,8 +46,11 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   if (message.senderType === "system") {
     return (
-      <div className="flex justify-center my-3">
-        <span className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-3 py-1 rounded-full">
+      <div
+        data-message-id={message.id}
+        className="flex justify-center my-3 px-4"
+      >
+        <span className="max-w-[min(100%,28rem)] text-center text-[12px] leading-snug font-medium text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] border border-[var(--color-border-secondary)] px-3.5 py-1.5 rounded-full shadow-sm">
           {message.content}
         </span>
       </div>
@@ -144,7 +147,7 @@ export function MessageBubble({
           className={cn(
             "mt-2 flex h-5 w-5 shrink-0 items-center justify-center self-start rounded-full border transition-colors",
             isForwardSelected
-              ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white"
+              ? "border-[var(--control-selected-fg)] bg-[var(--control-selected-bg)] text-[var(--control-selected-fg)]"
               : "border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)]"
           )}
           aria-label={isForwardSelected ? "Quitar selección" : "Seleccionar mensaje"}

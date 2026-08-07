@@ -121,6 +121,15 @@ export async function listConversations(filters: {
   return rows.map(mapConversation);
 }
 
+export async function getConversationById(conversationId: string) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: conversationInclude,
+  });
+  if (!conversation) throw new NotFoundError("Conversación no encontrada");
+  return mapConversation(conversation);
+}
+
 export async function getConversationMessages(conversationId: string) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },

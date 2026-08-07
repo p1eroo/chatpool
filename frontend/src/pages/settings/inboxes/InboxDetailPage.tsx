@@ -109,6 +109,15 @@ export function InboxDetailPage() {
       <SettingsSection title="General" description="Identidad y estado del canal">
         <SettingsField label="Nombre" value={inbox.name} />
         <SettingsField label="Canal" value={channelLabels[inbox.channelType] ?? inbox.channelType} />
+        <CopyableValueRow
+          label="Inbox ID"
+          value={inbox.id}
+          onCopy={() => {
+            void navigator.clipboard.writeText(inbox.id);
+            showToast("Inbox ID copiado");
+          }}
+          hint="Úsalo en las APIs de n8n como inbox_id"
+        />
         <SettingsField label="Identificador" value={config.detail} mono />
         <SettingsField label="Estado" value={<InboxStatusBadge status={config.status} />} />
         {config.description && <SettingsField label="Descripción" value={config.description} />}

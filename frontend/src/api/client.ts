@@ -1,6 +1,7 @@
 import { env } from "@/config/env";
 import { ApiError } from "@/api/errors";
 import type { ApiErrorBody } from "@/types/api";
+import { withApiProgress } from "@/store/apiLoadingStore";
 
 const AUTH_TOKEN_KEY = "chatpool-access-token";
 
@@ -8,6 +9,11 @@ export type UnauthorizedReason = "SESSION_REVOKED" | "SESSION_EXPIRED" | "UNAUTH
 
 let onUnauthorized: ((reason: UnauthorizedReason, message: string) => void) | null = null;
 let onForbidden: ((message: string) => void) | null = null;
+
+function trackApiRequest<T>(track: boolean, run: () => Promise<T>): Promise<T> {
+  if (!track) return run();
+  return withApiProgress(run);
+}
 
 export function setUnauthorizedHandler(
   handler: (reason: UnauthorizedReason, message: string) => void
@@ -38,6 +44,8 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   auth?: boolean;
   /** Si false, no dispara forceLogout automático en 401 (p. ej. validateSession). */
   notifyUnauthorized?: boolean;
+  /** Si false, no muestra la barra de progreso global. */
+  trackProgress?: boolean;
 }
 
 function resolveUnauthorizedReason(code?: string): UnauthorizedReason {
@@ -64,43 +72,52 @@ function notifyHttpError(
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, auth = true, notifyUnauthorized = true, headers, ...init } = options;
+  const {
+    body,
+    auth = true,
+    notifyUnauthorized = true,
+    trackProgress = true,
+    headers,
+    ...init
+  } = options;
 
-  const requestHeaders = new Headers(headers);
-  if (body !== undefined && !requestHeaders.has("Content-Type")) {
-    requestHeaders.set("Content-Type", "application/json");
-  }
-
-  if (auth) {
-    const token = getAccessToken();
-    if (token) {
-      requestHeaders.set("Authorization", `Bearer ${token}`);
+  return trackApiRequest(trackProgress, async () => {
+    const requestHeaders = new Headers(headers);
+    if (body !== undefined && !requestHeaders.has("Content-Type")) {
+      requestHeaders.set("Content-Type", "application/json");
     }
-  }
 
-  const response = await fetch(`${env.apiUrl}${path}`, {
-    ...init,
-    headers: requestHeaders,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    if (auth) {
+      const token = getAccessToken();
+      if (token) {
+        requestHeaders.set("Authorization", `Bearer ${token}`);
+      }
+    }
+
+    const response = await fetch(`${env.apiUrl}${path}`, {
+      ...init,
+      headers: requestHeaders,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      let errorBody: ApiErrorBody = { message: response.statusText || "Error de API" };
+      try {
+        errorBody = (await response.json()) as ApiErrorBody;
+      } catch {
+        // ignore invalid JSON
+      }
+
+      notifyHttpError(response.status, errorBody, auth, notifyUnauthorized);
+      throw new ApiError(response.status, errorBody);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return (await response.json()) as T;
   });
-
-  if (!response.ok) {
-    let errorBody: ApiErrorBody = { message: response.statusText || "Error de API" };
-    try {
-      errorBody = (await response.json()) as ApiErrorBody;
-    } catch {
-      // ignore invalid JSON
-    }
-
-    notifyHttpError(response.status, errorBody, auth, notifyUnauthorized);
-    throw new ApiError(response.status, errorBody);
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
 }
 
 export async function apiUpload<T>(
@@ -111,42 +128,45 @@ export async function apiUpload<T>(
   const {
     auth = true,
     notifyUnauthorized = true,
+    trackProgress = true,
     headers,
     method = "POST",
     ...init
   } = options;
 
-  const requestHeaders = new Headers(headers);
+  return trackApiRequest(trackProgress, async () => {
+    const requestHeaders = new Headers(headers);
 
-  if (auth) {
-    const token = getAccessToken();
-    if (token) {
-      requestHeaders.set("Authorization", `Bearer ${token}`);
+    if (auth) {
+      const token = getAccessToken();
+      if (token) {
+        requestHeaders.set("Authorization", `Bearer ${token}`);
+      }
     }
-  }
 
-  const response = await fetch(`${env.apiUrl}${path}`, {
-    ...init,
-    method,
-    headers: requestHeaders,
-    body: formData,
+    const response = await fetch(`${env.apiUrl}${path}`, {
+      ...init,
+      method,
+      headers: requestHeaders,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      let errorBody: ApiErrorBody = { message: response.statusText || "Error de API" };
+      try {
+        errorBody = (await response.json()) as ApiErrorBody;
+      } catch {
+        // ignore invalid JSON
+      }
+
+      notifyHttpError(response.status, errorBody, auth, notifyUnauthorized);
+      throw new ApiError(response.status, errorBody);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return (await response.json()) as T;
   });
-
-  if (!response.ok) {
-    let errorBody: ApiErrorBody = { message: response.statusText || "Error de API" };
-    try {
-      errorBody = (await response.json()) as ApiErrorBody;
-    } catch {
-      // ignore invalid JSON
-    }
-
-    notifyHttpError(response.status, errorBody, auth, notifyUnauthorized);
-    throw new ApiError(response.status, errorBody);
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
 }

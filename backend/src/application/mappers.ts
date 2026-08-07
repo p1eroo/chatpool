@@ -233,8 +233,9 @@ export function mapInbox(
     conversations?: Array<{ unreadCount: number }>;
   }
 ): Inbox {
+  // Badge = conversaciones con no leídos (no suma de mensajes).
   const unreadCount =
-    inbox.conversations?.reduce((sum, item) => sum + item.unreadCount, 0) ?? 0;
+    inbox.conversations?.filter((item) => item.unreadCount > 0).length ?? 0;
 
   return {
     id: inbox.id,

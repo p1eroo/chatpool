@@ -3,48 +3,54 @@ import { useConversationStore } from "@/store/conversationStore";
 import { ConversationCard } from "./ConversationCard";
 import { ConversationContextMenu } from "./ConversationContextMenu";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { useLabelStore } from "@/store/labelStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { filterAccessibleInboxes } from "@/lib/agentInboxAccess";
 import {
   Search,
   MessageCircle,
-  Tag,
   Settings,
 } from "lucide-react";
 import { InboxNotificationSettingsPopover } from "./InboxNotificationSettingsPopover";
 import type { AssigneeFilter } from "@/store/conversationStore";
 import type { Conversation } from "@/types";
-import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { cn } from "@/lib/utils";
 
+/**
+ * Mías / Sin asignar = cola de trabajo (solo abiertas).
+ * Todas = abiertas + cerradas (historial).
+ */
 const assigneeTabs = [
   { id: "mine", label: "Mías" },
   { id: "unassigned", label: "Sin asignar" },
-  { id: "all", label: "Todos" },
+  { id: "all", label: "Todas" },
 ] as const;
 
-const statusTabs = [
-  { id: "open", label: "Abiertos" },
-  { id: "resolved", label: "Resueltos" },
-  { id: "all", label: "Todos" },
-];
-
-function matchesAssignee(conversation: Conversation, assignee: AssigneeFilter, currentAgentId?: string) {
-  if (assignee === "mine") return Boolean(currentAgentId && conversation.assignee?.id === currentAgentId);
+function matchesAssignee(
+  conversation: Conversation,
+  assignee: AssigneeFilter,
+  currentAgentId?: string
+) {
+  if (assignee === "mine") {
+    return Boolean(currentAgentId && conversation.assignee?.id === currentAgentId);
+  }
   if (assignee === "unassigned") return !conversation.assignee;
   return true;
 }
 
-function matchesStatus(conversation: Conversation, status: string) {
-  if (status === "all") return true;
-  return conversation.status === status;
+function matchesAssigneeView(
+  conversation: Conversation,
+  assignee: AssigneeFilter,
+  currentAgentId?: string
+) {
+  if (!matchesAssignee(conversation, assignee, currentAgentId)) return false;
+  // Cola activa: solo abiertas. Todas incluye cerradas.
+  if (assignee !== "all" && conversation.status !== "open") return false;
+  return true;
 }
 
 export function ConversationList() {
   const currentAgent = useCurrentAgent();
-  const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
   const conversations = useConversationStore((s) => s.conversations);
   const allInboxes = useInboxStore((s) => s.inboxes);
   const inboxSettings = useInboxSettingsStore((s) => s.settings);
@@ -53,29 +59,23 @@ export function ConversationList() {
     [allInboxes, currentAgent?.id, inboxSettings]
   );
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
-  const filterStatus = useConversationStore((s) => s.filterStatus);
   const filterAssignee = useConversationStore((s) => s.filterAssignee);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
   const filterLabelId = useConversationStore((s) => s.filterLabelId);
   const openConversation = useConversationStore((s) => s.openConversation);
-  const setFilterStatus = useConversationStore((s) => s.setFilterStatus);
   const setFilterAssignee = useConversationStore((s) => s.setFilterAssignee);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
-  const setFilterLabelId = useConversationStore((s) => s.setFilterLabelId);
 
   const [search, setSearch] = useState("");
-  const [showInboxDropdown, setShowInboxDropdown] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     conversationId: string;
     x: number;
     y: number;
   } | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const headerRowRef = useRef<HTMLDivElement>(null);
 
   const activeInbox = inboxes.find((i) => i.id === filterInboxId);
-  const inboxLabels = filterInboxId ? getLabelsForInbox(filterInboxId) : [];
 
   useEffect(() => {
     if (inboxes.length === 0) {
@@ -90,14 +90,12 @@ export function ConversationList() {
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (headerRowRef.current && !headerRowRef.current.contains(e.target as Node)) {
-        setShowInboxDropdown(false);
         setSettingsOpen(false);
       }
     }
 
     function handleEscape(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        setShowInboxDropdown(false);
         setSettingsOpen(false);
       }
     }
@@ -115,53 +113,29 @@ export function ConversationList() {
     return conversations.filter((c) => c.inboxId === filterInboxId);
   }, [conversations, filterInboxId]);
 
-  const statusCounts = useMemo(() => {
-    const base = inboxFiltered.filter((c) => matchesAssignee(c, filterAssignee, currentAgent?.id));
-    return {
-      open: base.filter((c) => c.status === "open").length,
-      resolved: base.filter((c) => c.status === "resolved").length,
-      all: base.length,
-    };
-  }, [inboxFiltered, filterAssignee, currentAgent?.id]);
-
   const assigneeCounts = useMemo(() => {
-    const base = inboxFiltered.filter((c) => matchesStatus(c, filterStatus));
     return {
-      mine: base.filter((c) => currentAgent?.id && c.assignee?.id === currentAgent.id).length,
-      unassigned: base.filter((c) => !c.assignee).length,
-      all: base.length,
+      mine: inboxFiltered.filter((c) =>
+        matchesAssigneeView(c, "mine", currentAgent?.id)
+      ).length,
+      unassigned: inboxFiltered.filter((c) =>
+        matchesAssigneeView(c, "unassigned", currentAgent?.id)
+      ).length,
+      all: inboxFiltered.length,
     };
-  }, [inboxFiltered, filterStatus, currentAgent?.id]);
-
-  const labelBase = useMemo(() => {
-    return inboxFiltered.filter(
-      (c) =>
-        matchesAssignee(c, filterAssignee, currentAgent?.id) &&
-        matchesStatus(c, filterStatus)
-    );
-  }, [inboxFiltered, filterAssignee, filterStatus, currentAgent?.id]);
-
-  const labelCounts = useMemo(() => {
-    return inboxLabels.map((label) => ({
-      ...label,
-      count: labelBase.filter((c) => c.labels.some((l) => l.id === label.id)).length,
-    }));
-  }, [inboxLabels, labelBase]);
+  }, [inboxFiltered, currentAgent?.id]);
 
   const filtered = useMemo(() => {
     let result = conversations;
-    if (filterStatus !== "all") result = result.filter((c) => c.status === filterStatus);
-    if (filterAssignee === "mine" && currentAgent?.id) {
-      result = result.filter((c) => c.assignee?.id === currentAgent.id);
-    } else if (filterAssignee === "unassigned") {
-      result = result.filter((c) => !c.assignee);
-    }
+    result = result.filter((c) =>
+      matchesAssigneeView(c, filterAssignee, currentAgent?.id)
+    );
     if (filterInboxId) result = result.filter((c) => c.inboxId === filterInboxId);
     if (filterLabelId) {
       result = result.filter((c) => c.labels.some((label) => label.id === filterLabelId));
     }
     return result;
-  }, [conversations, filterStatus, filterAssignee, filterInboxId, filterLabelId, currentAgent?.id]);
+  }, [conversations, filterAssignee, filterInboxId, filterLabelId, currentAgent?.id]);
 
   const displayed = search
     ? filtered.filter(
@@ -177,51 +151,16 @@ export function ConversationList() {
 
   return (
     <div className="w-[320px] bg-[var(--color-bg-secondary)] border-r border-[var(--color-border-primary)] flex flex-col shrink-0 h-screen">
-      <div className="p-4 pb-2">
+      <div className="px-4 pt-4 pb-0">
         <div className="mb-3 flex items-center justify-between gap-2" ref={headerRowRef}>
-          <div className="relative min-w-0 flex-1" ref={dropdownRef}>
-            <button
-              onClick={() => {
-                setSettingsOpen(false);
-                setShowInboxDropdown((prev) => !prev);
-              }}
-              className="flex items-center gap-2 text-[var(--color-text-primary)] font-semibold text-[15px] hover:opacity-80 transition-opacity max-w-full"
-            >
-              <span className="truncate">
-                {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
-              </span>
-              <svg className="w-3.5 h-3.5 text-[var(--color-text-secondary)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6"/></svg>
-            </button>
-            {showInboxDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-56 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
-                {inboxes.map((inbox) => (
-                  <button
-                    key={inbox.id}
-                    onClick={() => { setFilterInboxId(inbox.id); setShowInboxDropdown(false); }}
-                    className={cn(
-                      "w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)] transition-colors flex items-center justify-between",
-                      filterInboxId === inbox.id ? "text-[var(--color-brand)]" : "text-[var(--color-text-primary)]"
-                    )}
-                  >
-                    <span>{inbox.name}</span>
-                    {inbox.unreadCount > 0 && (
-                      <span className="bg-[var(--color-brand)] text-white text-[10px] rounded-full w-[18px] h-[18px] flex items-center justify-center font-semibold">
-                        {inbox.unreadCount}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <h2 className="min-w-0 flex-1 truncate text-[var(--color-text-primary)] font-semibold text-[15px]">
+            {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
+          </h2>
 
           <div className="relative shrink-0">
             <button
               type="button"
-              onClick={() => {
-                setShowInboxDropdown(false);
-                setSettingsOpen((prev) => !prev);
-              }}
+              onClick={() => setSettingsOpen((prev) => !prev)}
               className={cn(
                 "flex items-center shrink-0 transition-opacity hover:opacity-80",
                 settingsOpen
@@ -249,118 +188,46 @@ export function ConversationList() {
           />
         </div>
 
-        <div className="flex gap-1 overflow-x-auto pb-1 mb-1">
-          {statusTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilterStatus(tab.id)}
-              className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors inline-flex items-center gap-1",
-                filterStatus === tab.id
-                  ? "bg-[var(--color-brand)] text-white"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-              )}
-            >
-              {tab.label}
-              <span
+        <div
+          className="grid grid-cols-3 gap-0.5 rounded-lg bg-[var(--color-bg-tertiary)] p-0.5"
+          role="tablist"
+          aria-label="Filtro por asignación"
+        >
+          {assigneeTabs.map((tab) => {
+            const active = filterAssignee === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setFilterAssignee(tab.id)}
                 className={cn(
-                  "tabular-nums",
-                  filterStatus === tab.id
-                    ? "text-white/75"
-                    : "text-[var(--color-text-muted)]"
+                  "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1.5 text-center transition-colors",
+                  active
+                    ? "bg-[var(--color-bg-secondary)] text-[var(--control-selected-fg)] shadow-sm"
+                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                 )}
               >
-                {statusCounts[tab.id as keyof typeof statusCounts]}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex gap-1 overflow-x-auto pb-1">
-          {assigneeTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilterAssignee(tab.id)}
-              className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors inline-flex items-center gap-1",
-                filterAssignee === tab.id
-                  ? "bg-[var(--color-brand)] text-white"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-              )}
-            >
-              {tab.label}
-              <span
-                className={cn(
-                  "tabular-nums",
-                  filterAssignee === tab.id
-                    ? "text-white/75"
-                    : "text-[var(--color-text-muted)]"
-                )}
-              >
-                {assigneeCounts[tab.id]}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {filterInboxId && labelCounts.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-[var(--color-border-primary)]">
-              <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
-                <Tag className="w-3 h-3 text-[var(--color-text-muted)]" />
-                <span className="text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
-                  Etiquetas
+                <span className="w-full truncate text-[11px] font-medium leading-tight">
+                  {tab.label}
                 </span>
-              </div>
-              <div className="flex gap-1 overflow-x-auto pb-1">
-                <button
-                  type="button"
-                  onClick={() => setFilterLabelId(null)}
+                <span
                   className={cn(
-                    "px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors",
-                    !filterLabelId
-                      ? "bg-[var(--color-brand)] text-white"
-                      : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                    "text-[10px] tabular-nums leading-none",
+                    active
+                      ? "text-[var(--control-selected-fg)]/70"
+                      : "text-[var(--color-text-muted)]"
                   )}
                 >
-                  Todas
-                </button>
-                {labelCounts.map((label) => (
-                  <button
-                    key={label.id}
-                    type="button"
-                    onClick={() =>
-                      setFilterLabelId(filterLabelId === label.id ? null : label.id)
-                    }
-                    className={cn(
-                      "px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors inline-flex items-center gap-1.5",
-                      filterLabelId === label.id
-                        ? "bg-[var(--color-brand)] text-white"
-                        : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-                    )}
-                  >
-                    <LabelColorDot
-                      color={label.color}
-                      className={cn(
-                        "w-1.5 h-1.5",
-                        filterLabelId === label.id && "ring-1 ring-white/80"
-                      )}
-                    />
-                    {label.name}
-                    <span
-                      className={cn(
-                        "tabular-nums",
-                        filterLabelId === label.id
-                          ? "text-white/75"
-                          : "text-[var(--color-text-muted)]"
-                      )}
-                    >
-                      {label.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-        )}
+                  {assigneeCounts[tab.id]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-3 border-b border-[var(--color-border-primary)]" />
       </div>
 
       <div className="flex-1 overflow-y-auto">

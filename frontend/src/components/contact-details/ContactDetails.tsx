@@ -7,8 +7,7 @@ import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { useAgentStore } from "@/store/agentStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useLabelStore } from "@/store/labelStore";
-import { useDeleteContact, useUpdateContact } from "@/hooks/useContacts";
-import { useHasPermission } from "@/hooks/useAgentPermissions";
+import { useUpdateContact } from "@/hooks/useContacts";
 import {
   downloadMessageFile,
   getConversationFiles,
@@ -27,7 +26,6 @@ import {
   Check,
   ChevronDown,
   Pencil,
-  Trash2,
   Ban,
 } from "lucide-react";
 import type { Conversation, ConversationStatus } from "@/types";
@@ -64,11 +62,8 @@ export function ContactDetails() {
     () => conversations.find((c) => c.id === activeConversationId) || null,
     [conversations, activeConversationId]
   );
-  const { contactSidebarOpen, setContactSidebarOpen, showToast } = useUIStore();
-  const canDelete = useHasPermission("deleteConversations");
-  const deleteContact = useDeleteContact();
+  const { contactSidebarOpen, setContactSidebarOpen } = useUIStore();
   const [editOpen, setEditOpen] = useState(false);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   if (!contactSidebarOpen) {
     return (
@@ -103,26 +98,12 @@ export function ContactDetails() {
     );
   }
 
-  const handleDelete = async () => {
-    try {
-      await deleteContact.mutateAsync(conversation.contact.id);
-      showToast("Contacto eliminado");
-      setDeleteConfirmOpen(false);
-      setEditOpen(false);
-      setContactSidebarOpen(false);
-    } catch {
-      showToast("No se pudo eliminar el contacto");
-    }
-  };
-
   return (
     <aside className="w-[340px] bg-[var(--color-bg-secondary)] border-l border-[var(--color-border-primary)] flex flex-col shrink-0 h-screen overflow-y-auto animate-slide-in-right">
       <ContactHero
         conversation={conversation}
         onClose={() => setContactSidebarOpen(false)}
         onEdit={() => setEditOpen(true)}
-        onDelete={() => setDeleteConfirmOpen(true)}
-        canDelete={canDelete}
       />
       <ContactSummary conversation={conversation} />
       <MediaSection conversationId={conversation.id} />
@@ -133,14 +114,6 @@ export function ContactDetails() {
           onClose={() => setEditOpen(false)}
         />
       )}
-      {deleteConfirmOpen && (
-        <DeleteContactDialog
-          contactName={conversation.contact.name}
-          busy={deleteContact.isPending}
-          onCancel={() => setDeleteConfirmOpen(false)}
-          onConfirm={() => void handleDelete()}
-        />
-      )}
     </aside>
   );
 }
@@ -149,14 +122,10 @@ function ContactHero({
   conversation,
   onClose,
   onEdit,
-  onDelete,
-  canDelete,
 }: {
   conversation: Conversation;
   onClose: () => void;
   onEdit: () => void;
-  onDelete: () => void;
-  canDelete: boolean;
 }) {
   const { contact } = conversation;
   const photoUrl = isImageUrl(contact.avatar) ? contact.avatar : null;
@@ -194,16 +163,6 @@ function ContactHero({
         >
           <Pencil className="w-3.5 h-3.5" />
         </button>
-        {canDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-black/35 text-white hover:bg-red-500/70 transition-colors backdrop-blur-sm"
-            title="Eliminar contacto"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )}
         <button
           type="button"
           onClick={onClose}
@@ -469,60 +428,6 @@ function ContactField({
         className="w-full h-9 px-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-brand)]"
       />
     </div>
-  );
-}
-
-function DeleteContactDialog({
-  contactName,
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  contactName: string;
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="Cerrar"
-        className="absolute inset-0 bg-black/50"
-        onClick={busy ? undefined : onCancel}
-      />
-      <div className="relative w-full max-w-sm rounded-xl bg-[var(--color-bg-secondary)] border border-[var(--color-border-primary)] shadow-xl p-5 space-y-4">
-        <div>
-          <h3 className="text-base font-semibold text-[var(--color-text-primary)]">
-            Eliminar contacto
-          </h3>
-          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-            Se eliminará permanentemente{" "}
-            <span className="font-medium text-[var(--color-text-primary)]">{contactName}</span>{" "}
-            y sus conversaciones. Esta acción no se puede deshacer.
-          </p>
-        </div>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="h-9 px-3 text-sm rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-60"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className="h-9 px-4 text-sm font-medium rounded-lg bg-[var(--color-danger)] text-white hover:opacity-90 transition-opacity disabled:opacity-60"
-          >
-            {busy ? "Eliminando…" : "Eliminar"}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
   );
 }
 

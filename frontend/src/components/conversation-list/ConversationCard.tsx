@@ -44,9 +44,20 @@ interface ConversationCardProps {
 }
 
 export function ConversationCard({ conversation, isActive, onClick, onContextMenu }: ConversationCardProps) {
-  const { contact, lastMessage, unreadCount, channelType, priority, assignee, isTyping, labels } = conversation;
+  const {
+    contact,
+    lastMessage,
+    unreadCount,
+    channelType,
+    priority,
+    assignee,
+    isTyping,
+    labels,
+    status,
+  } = conversation;
   const ChannelIcon = channelIcons[channelType] || Globe;
   const channelColor = channelColors[channelType] || "text-gray-400";
+  const isOpen = status === "open";
 
   return (
     <button
@@ -59,7 +70,9 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
         "w-full text-left px-4 py-3 border-b border-[var(--color-border-primary)] transition-all duration-150 group",
         isActive
           ? "bg-[var(--color-brand-bg)] border-l-[3px] border-l-[var(--color-brand)]"
-          : "border-l-[3px] border-l-transparent hover:bg-[var(--color-bg-hover)]"
+          : unreadCount > 0
+            ? "border-l-[3px] border-l-[var(--color-warning)] bg-[var(--color-warning)]/10 hover:bg-[var(--color-warning)]/15"
+            : "border-l-[3px] border-l-transparent hover:bg-[var(--color-bg-hover)]"
       )}
     >
       <div className="flex items-start gap-3">
@@ -142,8 +155,18 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
               </div>
             )}
             <div className="flex items-center gap-1.5 ml-auto shrink-0">
+              <span
+                className={cn(
+                  "text-[10px] font-medium px-1.5 py-0.5 rounded",
+                  isOpen
+                    ? "bg-[var(--control-selected-bg)] text-[var(--control-selected-fg)]"
+                    : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]"
+                )}
+              >
+                {isOpen ? "Abierta" : "Cerrada"}
+              </span>
               {assignee ? (
-                <Avatar name={assignee.name} size="sm" />
+                <Avatar name={assignee.name} size="xs" className="!h-5 !w-5 text-[9px]" />
               ) : (
                 <span className="text-[10px] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 rounded">
                   sin asignar

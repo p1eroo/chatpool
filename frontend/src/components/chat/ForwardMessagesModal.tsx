@@ -163,7 +163,7 @@ export function ForwardMessagesModal({
                         className={cn(
                           "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
                           selected
-                            ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white"
+                            ? "border-[var(--control-selected-fg)] bg-[var(--control-selected-bg)] text-[var(--control-selected-fg)]"
                             : "border-[var(--color-border-primary)]"
                         )}
                       >

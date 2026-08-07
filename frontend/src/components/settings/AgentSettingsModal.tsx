@@ -310,7 +310,7 @@ export function AgentSettingsModal({
                     className={cn(
                       "w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors",
                       selected
-                        ? "bg-[var(--color-brand)] border-[var(--color-brand)] text-white"
+                        ? "bg-[var(--control-selected-bg)] border-[var(--control-selected-fg)] text-[var(--control-selected-fg)]"
                         : "border-[var(--color-border-secondary)]"
                     )}
                   >

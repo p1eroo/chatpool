@@ -16,7 +16,8 @@ export function getEffectiveUnreadCount(): number {
       (conversation) => conversation.id === state.activeConversationId
     );
     if (active && active.unreadCount > 0) {
-      return Math.max(0, total - active.unreadCount);
+      // total = chats con no leídos; al ver uno activo restamos ese chat.
+      return Math.max(0, total - 1);
     }
   }
 

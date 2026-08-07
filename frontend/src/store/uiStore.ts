@@ -3,6 +3,8 @@ import type { Message } from "@/types";
 
 interface UIState {
   contactSidebarOpen: boolean;
+  /** Sidebar de navegación (NavRail). */
+  navRailOpen: boolean;
   isNoteMode: boolean;
   replyToMessage: Message | null;
   noteAboutMessage: Message | null;
@@ -16,6 +18,8 @@ interface UIState {
   forwardModalOpen: boolean;
   toggleContactSidebar: () => void;
   setContactSidebarOpen: (open: boolean) => void;
+  toggleNavRail: () => void;
+  setNavRailOpen: (open: boolean) => void;
   toggleNoteMode: () => void;
   setNoteMode: (note: boolean) => void;
   setReplyToMessage: (message: Message | null) => void;
@@ -37,6 +41,7 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   contactSidebarOpen: true,
+  navRailOpen: true,
   isNoteMode: false,
   replyToMessage: null,
   noteAboutMessage: null,
@@ -52,6 +57,9 @@ export const useUIStore = create<UIState>((set) => ({
   toggleContactSidebar: () =>
     set((state) => ({ contactSidebarOpen: !state.contactSidebarOpen })),
   setContactSidebarOpen: (open) => set({ contactSidebarOpen: open }),
+  toggleNavRail: () =>
+    set((state) => ({ navRailOpen: !state.navRailOpen })),
+  setNavRailOpen: (open) => set({ navRailOpen: open }),
   toggleNoteMode: () =>
     set((state) => {
       const next = !state.isNoteMode;

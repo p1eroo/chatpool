@@ -95,6 +95,40 @@ PUBLIC_BASE_URL=https://xxxx.ngrok-free.app
 | GET/POST | `/webhooks/meta` | Webhook global Meta |
 | GET/POST | `/webhooks/meta/:inboxId` | Webhook por bandeja |
 
+## Application API (n8n / Chatwoot-style)
+
+API de integración **sin autenticación** (pensada para n8n en red confiable).
+
+Base: `/api/v1/accounts/1` (el `accountId` del path se ignora; single-tenant)
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/conversations` | Listar conversaciones |
+| GET | `/conversations/:id` | Detalle |
+| POST | `/conversations` | Iniciar outbound WhatsApp (`inbox_id` + `phone`) |
+| GET | `/conversations/:id/messages` | Listar mensajes |
+| POST | `/conversations/:id/messages` | Enviar mensaje (o template WhatsApp) |
+| GET/POST | `/conversations/:id/labels` | Ver / reemplazar etiquetas por nombre |
+| POST | `/conversations/:id/toggle_status` | `open` \| `resolved` |
+| POST | `/conversations/:id/assignments` | Asignar agente (`assignee_id`) |
+| GET | `/contacts`, `/inboxes`, `/labels`, `/agents` | Catálogos |
+
+Ejemplo n8n (HTTP Request) — enviar mensaje:
+
+```bash
+curl -X POST "http://localhost:3001/api/v1/accounts/1/conversations/CONVERSATION_ID/messages" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Hola desde n8n","private":false}'
+```
+
+Etiquetas (sobrescribe la lista, como Chatwoot):
+
+```bash
+curl -X POST "http://localhost:3001/api/v1/accounts/1/conversations/CONVERSATION_ID/labels" \
+  -H "Content-Type: application/json" \
+  -d '{"labels":["soporte","vip"]}'
+```
+
 ## Meta Cloud API
 
 1. Crea bandeja WhatsApp en el frontend

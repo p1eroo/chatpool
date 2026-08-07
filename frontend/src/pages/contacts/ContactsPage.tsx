@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useConversationStore } from "@/store/conversationStore";
 import { useInboxStore } from "@/store/inboxStore";
@@ -106,7 +106,6 @@ export function ContactsPage() {
   const currentAgent = useCurrentAgent();
   const conversations = useConversationStore((s) => s.conversations);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
-  const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
   const openConversation = useConversationStore((s) => s.openConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
   const sendMessage = useConversationStore((s) => s.sendMessage);
@@ -121,9 +120,7 @@ export function ContactsPage() {
   const [search, setSearch] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("history");
-  const [showInboxDropdown, setShowInboxDropdown] = useState(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const canSendMessages = useHasPermission("sendMessages");
 
   const { data: allContacts = [], isLoading: contactsLoading } = useContacts();
@@ -133,16 +130,6 @@ export function ContactsPage() {
     if (!filterInboxId) return allContacts;
     return allContacts.filter((contact) => contact.inboxId === filterInboxId);
   }, [allContacts, filterInboxId]);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowInboxDropdown(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   const contactGroups = useMemo(() => {
     let contacts = inboxContacts;
@@ -245,37 +232,9 @@ export function ContactsPage() {
       >
         <div className="p-4 pb-3">
           <div className="mb-3">
-            <div className="relative" ref={dropdownRef}>
-              <button
-                onClick={() => setShowInboxDropdown(!showInboxDropdown)}
-                className="flex items-center gap-2 text-[var(--color-text-primary)] font-semibold text-[15px] hover:opacity-80 transition-opacity"
-              >
-                {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
-                <svg className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6"/></svg>
-              </button>
-              {showInboxDropdown && (
-                <div className="absolute top-full left-0 mt-1 w-56 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
-                  {inboxes.map((inbox) => (
-                    <button
-                      key={inbox.id}
-                      onClick={() => {
-                        setFilterInboxId(inbox.id);
-                        setShowInboxDropdown(false);
-                      }}
-                      className={cn(
-                        "w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)] transition-colors flex items-center justify-between",
-                        filterInboxId === inbox.id ? "text-[var(--color-brand)]" : "text-[var(--color-text-primary)]"
-                      )}
-                    >
-                      <span>{inbox.name}</span>
-                      <span className="text-[10px] text-[var(--color-text-muted)] tabular-nums">
-                        {allContacts.filter((contact) => contact.inboxId === inbox.id).length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <h2 className="truncate text-[var(--color-text-primary)] font-semibold text-[15px]">
+              {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
+            </h2>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative flex-1 min-w-0">

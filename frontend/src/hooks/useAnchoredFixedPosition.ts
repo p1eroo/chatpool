@@ -1,6 +1,10 @@
 import { useLayoutEffect, useState } from "react";
 
-export type AnchoredPopoverPlacement = "above-right" | "center-right" | "below-right";
+export type AnchoredPopoverPlacement =
+  | "above-right"
+  | "center-right"
+  | "below-right"
+  | "top-right";
 
 interface Position {
   left?: number;
@@ -39,6 +43,14 @@ export function useAnchoredFixedPosition(
         setPosition({
           left: rect.right + offsetX,
           bottom: window.innerHeight - rect.bottom,
+        });
+        return;
+      }
+
+      if (placement === "top-right") {
+        setPosition({
+          left: rect.right + offsetX,
+          top: rect.top,
         });
         return;
       }

@@ -12,6 +12,7 @@ import { LoginPage } from "@/pages/auth/LoginPage";
 import { InboxPage } from "@/pages/inbox/InboxPage";
 import { ContactsPage } from "@/pages/contacts/ContactsPage";
 import { ReportsPage } from "@/pages/reports/ReportsPage";
+import { DocumentationPage } from "@/pages/documentation/DocumentationPage";
 import {
   SettingsLayout,
   SettingsIndexRedirect,
@@ -25,6 +26,7 @@ import { IntegrationsSettingsPage } from "@/pages/settings/integrations/Integrat
 import { ProfileSettingsPage } from "@/pages/profile/ProfileSettingsPage";
 import { BrowserNotificationsBridge } from "@/components/notifications/BrowserNotificationsBridge";
 import { AppUpdateModal } from "@/components/system/AppUpdateModal";
+import { ApiProgressBar } from "@/components/system/ApiProgressBar";
 import { RealtimeProvider } from "@/providers/RealtimeProvider";
 
 function FallbackRedirect() {
@@ -37,6 +39,7 @@ export default function App() {
     <BrowserRouter>
       <AuthSessionProvider>
         <RealtimeProvider>
+        <ApiProgressBar />
         <BrowserNotificationsBridge />
         <AppUpdateModal />
         <Routes>
@@ -57,6 +60,9 @@ export default function App() {
             <Route path="/contacts" element={<ContactsPage />} />
             <Route element={<RequirePermission anyOf={["viewReports"]} />}>
               <Route path="/reports" element={<ReportsPage />} />
+            </Route>
+            <Route element={<RequireSettingsAccess />}>
+              <Route path="/documentation" element={<DocumentationPage />} />
             </Route>
             <Route path="/profile" element={<ProfileSettingsPage />} />
             <Route path="/settings" element={<RequireSettingsAccess />}>

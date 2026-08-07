@@ -19,8 +19,8 @@ export function InboxWizardStepper({ currentStep }: InboxWizardStepperProps) {
               <span
                 className={cn(
                   "w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold border-2 shrink-0",
-                  isComplete && "bg-[var(--color-brand)] border-[var(--color-brand)] text-white",
-                  isActive && "border-[var(--color-brand)] text-[var(--color-brand)] bg-[var(--color-brand-bg)]",
+                  isComplete && "border-[var(--control-selected-fg)] bg-[var(--control-selected-bg)] text-[var(--control-selected-fg)]",
+                  isActive && "border-[var(--control-selected-fg)] text-[var(--control-selected-fg)] bg-[var(--control-selected-bg)]",
                   !isComplete && !isActive && "border-[var(--color-border-secondary)] text-[var(--color-text-muted)]"
                 )}
               >

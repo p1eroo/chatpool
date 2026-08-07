@@ -6,7 +6,6 @@ import {
   Check,
   Tag,
   UserPlus,
-  Trash2,
   ChevronRight,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -87,7 +86,6 @@ export function ConversationContextMenu({
   const markAsUnread = useConversationStore((s) => s.markAsUnread);
   const toggleConversationLabel = useConversationStore((s) => s.toggleConversationLabel);
   const reassignConversation = useConversationStore((s) => s.reassignConversation);
-  const deleteConversation = useConversationStore((s) => s.deleteConversation);
   const allAgents = useAgentStore((s) => s.agents);
   const assignedAgentIds = useInboxSettingsStore(
     (s) => s.getByInboxId(conversation.inboxId)?.assignedAgentIds
@@ -230,18 +228,6 @@ export function ConversationContextMenu({
           hasSubmenu
           onMouseEnter={() => setActiveSubmenu("agents")}
         />
-      )}
-
-      {permissions.deleteConversations && (
-        <>
-          <div className="my-1 h-px bg-[var(--color-border-primary)]" />
-          <MenuItem
-            icon={Trash2}
-            label="Eliminar conversación"
-            destructive
-            onClick={() => runAction(() => deleteConversation(conversation.id))}
-          />
-        </>
       )}
 
       {activeSubmenu === "labels" && permissions.manageLabels && (
