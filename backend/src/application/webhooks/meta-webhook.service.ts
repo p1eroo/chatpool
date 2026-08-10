@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import {
   broadcastMessageCreated,
@@ -117,18 +118,63 @@ export function verifyMetaChallenge(params: {
   return params.challenge;
 }
 
+const inboxWebhookInclude = {
+  inbox: { include: { inboxAgents: true } },
+} as const;
+
+/** Elimina conversación vacía creada por doble webhook / carrera de wamid. */
+async function deleteEmptyConversationIfUnused(conversationId: string): Promise<void> {
+  const empty = await prisma.conversation.findFirst({
+    where: { id: conversationId, messages: { none: {} } },
+    select: { id: true, contactId: true },
+  });
+  if (!empty) return;
+
+  await prisma.conversation.delete({ where: { id: empty.id } });
+
+  const remaining = await prisma.conversation.count({
+    where: { contactId: empty.contactId },
+  });
+  if (remaining === 0) {
+    await prisma.contact.delete({ where: { id: empty.contactId } }).catch(() => undefined);
+  }
+}
+
+/**
+ * Resuelve la bandeja del webhook Meta.
+ * `phone_number_id` manda (como Chatwoot): evita que un evento de Facturación
+ * procesado en la URL de Call center cree un hilo fantasma en la bandeja equivocada.
+ */
 export async function resolveInboxForMetaWebhook(inboxId?: string, phoneNumberId?: string) {
-  if (inboxId) {
-    return prisma.inboxSettings.findUnique({
-      where: { inboxId },
-      include: { inbox: { include: { inboxAgents: true } } },
+  const normalizedPhoneNumberId = phoneNumberId?.trim() || undefined;
+  const normalizedInboxId = inboxId?.trim() || undefined;
+
+  if (normalizedPhoneNumberId) {
+    const byPhone = await prisma.inboxSettings.findFirst({
+      where: { phoneNumberId: normalizedPhoneNumberId },
+      include: inboxWebhookInclude,
     });
+
+    if (!byPhone) {
+      console.warn(
+        `[webhook] phone_number_id=${normalizedPhoneNumberId} sin bandeja; se ignora inboxId URL=${normalizedInboxId ?? "-"}`
+      );
+      return null;
+    }
+
+    if (normalizedInboxId && byPhone.inboxId !== normalizedInboxId) {
+      console.warn(
+        `[webhook] mismatch URL inboxId=${normalizedInboxId} vs phone_number_id=${normalizedPhoneNumberId} → bandeja ${byPhone.inbox.name} (${byPhone.inboxId})`
+      );
+    }
+
+    return byPhone;
   }
 
-  if (phoneNumberId) {
-    return prisma.inboxSettings.findFirst({
-      where: { phoneNumberId },
-      include: { inbox: { include: { inboxAgents: true } } },
+  if (normalizedInboxId) {
+    return prisma.inboxSettings.findUnique({
+      where: { inboxId: normalizedInboxId },
+      include: inboxWebhookInclude,
     });
   }
 
@@ -274,6 +320,14 @@ async function processInboundMetaMessage(params: {
   if (!message.id) return null;
   if (shouldIgnoreInboundMessageType(message.type)) return null;
 
+  // Deduplicar por wamid ANTES de crear contacto/conversación.
+  // Si el mismo evento llega a dos URLs de bandeja, evita cards "Sin mensajes".
+  const existing = await prisma.message.findUnique({
+    where: { externalId: message.id },
+    select: { id: true },
+  });
+  if (existing) return null;
+
   const matchedContact =
     contacts?.find(
       (c) =>
@@ -365,9 +419,8 @@ async function processInboundMetaMessage(params: {
     return { conversationId: conversation.id, conversationBase };
   };
 
-  const [{ conversationId, conversationBase }, existing, replyTarget] = await Promise.all([
+  const [{ conversationId, conversationBase }, replyTarget] = await Promise.all([
     resolveConversation(),
-    prisma.message.findUnique({ where: { externalId: message.id } }),
     message.context?.id
       ? prisma.message.findUnique({
           where: { externalId: message.context.id },
@@ -376,7 +429,15 @@ async function processInboundMetaMessage(params: {
       : Promise.resolve(null),
   ]);
 
-  if (existing) return null;
+  // Carrera: otro worker pudo persistir el mismo wamid mientras resolvíamos la conversación.
+  const existingAfterResolve = await prisma.message.findUnique({
+    where: { externalId: message.id },
+    select: { id: true },
+  });
+  if (existingAfterResolve) {
+    await deleteEmptyConversationIfUnused(conversationId);
+    return null;
+  }
 
   let replyToMessageId: string | null = null;
   if (replyTarget?.conversationId === conversationId) {
@@ -402,9 +463,16 @@ async function processInboundMetaMessage(params: {
     });
   }
 
-  const { createdMessage } = await runWithConversationMessageLock(
-    conversationId,
-    async () => {
+  let createdMessageId: string | null = null;
+
+  try {
+    const locked = await runWithConversationMessageLock(conversationId, async () => {
+      const raced = await prisma.message.findUnique({
+        where: { externalId: message.id },
+        select: { id: true },
+      });
+      if (raced) return { createdMessageId: null as string | null };
+
       const sortOrder = await computeInboundMessageSortOrder(
         conversationId,
         message.timestamp,
@@ -447,15 +515,30 @@ async function processInboundMetaMessage(params: {
         mapConversationMessageEmit(conversationRow, created)
       );
 
-      return { createdMessage: created };
+      return { createdMessageId: created.id as string | null };
+    });
+    createdMessageId = locked.createdMessageId;
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      await deleteEmptyConversationIfUnused(conversationId);
+      return null;
     }
-  );
+    throw error;
+  }
+
+  if (!createdMessageId) {
+    await deleteEmptyConversationIfUnused(conversationId);
+    return null;
+  }
 
   noteContactMessageAt(conversationId, messageAt);
 
   if (shouldHydrateMedia && mediaExternalId && accessToken) {
     scheduleIncomingMediaHydration({
-      messageId: createdMessage.id,
+      messageId: createdMessageId,
       conversationId,
       accessToken,
       mediaId: mediaExternalId,
@@ -465,7 +548,7 @@ async function processInboundMetaMessage(params: {
   }
 
   scheduleLinkPreviewEnrichment({
-    messageId: createdMessage.id,
+    messageId: createdMessageId,
     conversationId,
     content,
     contentType,
@@ -477,7 +560,7 @@ async function processInboundMetaMessage(params: {
     contactPhone: identity.phone || identity.identityKey,
     contentPreview: content.slice(0, 120),
     conversationId,
-    messageId: createdMessage.id,
+    messageId: createdMessageId,
     inboxId: settings.inboxId,
     inboxName: settings.inbox.name,
   };
