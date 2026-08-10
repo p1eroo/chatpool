@@ -1381,7 +1381,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     scheduleMarkReadWhileViewing(id, reason);
   },
 
-  clearActiveConversationSelection: () => set({ activeConversationId: null }),
+  clearActiveConversationSelection: () => {
+    get().selectConversation(null);
+  },
 
   setFilterStatus: (status) => set({ filterStatus: status }),
   setFilterAssignee: (assignee) => set({ filterAssignee: assignee }),

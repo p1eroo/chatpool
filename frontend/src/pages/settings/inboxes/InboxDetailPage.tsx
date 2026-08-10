@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Plus } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { CopyableValueRow } from "@/components/settings/CopyableValueRow";
 import { CreateLabelModal } from "@/components/settings/CreateLabelModal";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
@@ -186,17 +186,6 @@ export function InboxDetailPage() {
         <SettingsSection
           title="Integración"
           description="Conexión del canal con el proveedor externo"
-          action={
-            integration && (
-              <Link
-                to="/settings/integrations"
-                className="h-8 px-3 text-xs font-medium rounded-lg border border-[var(--color-border-primary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors inline-flex items-center gap-1.5"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Ver detalle global
-              </Link>
-            )
-          }
         >
           <SettingsField
             label="Proveedor"

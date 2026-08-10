@@ -437,6 +437,44 @@ export function DocumentationPage() {
             </pre>
           </div>
         </section>
+
+        <section className="mb-8 mt-8">
+          <SectionHeader
+            title="Webhooks salientes"
+            description="Chatpool notifica a URLs externas (n8n, Zapier, etc.). Configúralos en Ajustes → Integraciones → Webhook eligiendo la bandeja. Solo llegan eventos de esa bandeja (WhatsApp se configura en Bandejas)."
+          />
+          <div className="rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] p-4 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="text-[11px] font-medium text-[var(--color-text-muted)] uppercase tracking-wide mb-1.5">
+                  Eventos
+                </p>
+                <ul className="text-[12px] font-mono text-[var(--color-text-primary)] space-y-1">
+                  <li>message_created</li>
+                  <li>message_updated</li>
+                  <li>conversation_created</li>
+                  <li>conversation_updated</li>
+                  <li>conversation_status_changed</li>
+                </ul>
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-[var(--color-text-muted)] uppercase tracking-wide mb-1.5">
+                  Entrega
+                </p>
+                <ul className="text-[12px] text-[var(--color-text-primary)] space-y-1">
+                  <li>POST JSON a la URL configurada</li>
+                  <li className="font-mono">Header: X-Chatpool-Event</li>
+                  <li>Body: {"{ event, ...payload }"}</li>
+                </ul>
+              </div>
+            </div>
+            <p className="text-[12px] text-[var(--color-text-secondary)]">
+              En n8n usa el nodo <strong>Webhook</strong> con Authentication = None y la{" "}
+              <strong>Production URL</strong> (workflow Active). Solo llegan eventos de la bandeja
+              elegida al crear el webhook.
+            </p>
+          </div>
+        </section>
       </div>
     </div>
   );

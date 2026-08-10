@@ -474,6 +474,7 @@ export function ChatComposer() {
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         setSlashMenuDismissed(true);
         return;
       }
@@ -488,6 +489,13 @@ export function ChatComposer() {
         applySlashResponse(slashMatches[slashActiveIndex]);
         return;
       }
+    }
+
+    // Como WhatsApp Web: Esc cierra el detalle del chat (aunque el foco esté en el composer).
+    if (e.key === "Escape") {
+      e.preventDefault();
+      useConversationStore.getState().selectConversation(null);
+      return;
     }
 
     if (e.key === "Enter" && !e.shiftKey) {

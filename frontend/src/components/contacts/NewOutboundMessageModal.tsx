@@ -180,7 +180,7 @@ export function NewOutboundMessageModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[180] flex items-center justify-center p-4">
+    <div data-modal-overlay className="fixed inset-0 z-[180] flex items-center justify-center p-4">
       <button
         type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"

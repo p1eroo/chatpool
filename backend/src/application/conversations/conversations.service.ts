@@ -11,6 +11,8 @@ import { getLastContactMessageAt, isReplyWindowOpen } from "../../shared/whatsap
 import {
   broadcastMessageCreated,
   conversationRealtimeInclude,
+  emitConversationCreated,
+  emitConversationStatusChanged,
   emitConversationUpdated,
 } from "../realtime/realtime.service.js";
 import {
@@ -630,6 +632,14 @@ export async function updateConversation(
 
   await emitConversationUpdated(conversationId);
 
+  if (body.status !== undefined && body.status !== conversation.status) {
+    await emitConversationStatusChanged(
+      conversationId,
+      conversation.status,
+      body.status
+    );
+  }
+
   return mapConversation(updated);
 }
 
@@ -651,7 +661,7 @@ export async function findOrReopenConversationForContact(params: {
     });
 
     if (open) {
-      return { conversation: open, reopened: false as const };
+      return { conversation: open, reopened: false as const, created: false as const };
     }
 
     const resolved = await tx.conversation.findFirst({
@@ -668,7 +678,7 @@ export async function findOrReopenConversationForContact(params: {
         where: { id: resolved.id },
         data: { status: "open" },
       });
-      return { conversation, reopened: true as const };
+      return { conversation, reopened: true as const, created: false as const };
     }
 
     const conversation = await tx.conversation.create({
@@ -682,15 +692,26 @@ export async function findOrReopenConversationForContact(params: {
       },
     });
 
-    return { conversation, reopened: false as const };
+    return { conversation, reopened: false as const, created: true as const };
   });
 
   if (result.reopened) {
     await emitConversationUpdated(result.conversation.id);
+    await emitConversationStatusChanged(
+      result.conversation.id,
+      "resolved",
+      "open"
+    );
     await recordConversationAutoReopenedActivity(result.conversation.id);
+  } else if (result.created) {
+    await emitConversationCreated(result.conversation.id);
   }
 
-  return { conversation: result.conversation, reopened: result.reopened };
+  return {
+    conversation: result.conversation,
+    reopened: result.reopened,
+    created: result.created,
+  };
 }
 
 export async function deleteConversation(conversationId: string) {

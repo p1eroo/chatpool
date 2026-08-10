@@ -69,7 +69,9 @@ export function ForwardMessagesModal({
     if (!open) return;
 
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
     }
 
     document.addEventListener("keydown", onKey);
@@ -96,7 +98,7 @@ export function ForwardMessagesModal({
     messageIds.length === 1 ? "1 mensaje" : `${messageIds.length} mensajes`;
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+    <div data-modal-overlay className="fixed inset-0 z-[120] flex items-center justify-center p-4">
       <button
         type="button"
         className="absolute inset-0 bg-black/60"

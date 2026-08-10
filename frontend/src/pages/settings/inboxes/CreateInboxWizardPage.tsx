@@ -296,7 +296,7 @@ export function CreateInboxWizardPage() {
                 <p className="text-sm text-[var(--color-text-secondary)] mb-6">
                   Ya puedes recibir conversaciones en <strong>{name}</strong>.
                   {channelType && getProviderForChannel(channelType) === "meta"
-                    ? " Completa la verificación en Integraciones si quedó pendiente."
+                    ? " Completa la verificación Meta en esta bandeja si quedó pendiente."
                     : null}
                 </p>
                 <div className="flex gap-2">

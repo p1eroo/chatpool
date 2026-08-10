@@ -20,6 +20,7 @@ export function AppUpdateModal() {
       aria-modal="true"
       aria-labelledby="app-update-title"
       aria-describedby="app-update-description"
+      data-modal-overlay
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in"
     >
       <div className="absolute inset-0 bg-[var(--color-bg-primary)]/80 backdrop-blur-md" />

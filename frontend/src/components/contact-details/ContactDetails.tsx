@@ -229,7 +229,9 @@ function EditContactDrawer({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -274,7 +276,7 @@ function EditContactDrawer({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex justify-end">
+    <div data-modal-overlay className="fixed inset-0 z-[80] flex justify-end">
       <button
         type="button"
         aria-label="Cerrar"

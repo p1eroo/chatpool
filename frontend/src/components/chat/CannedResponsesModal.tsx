@@ -89,6 +89,7 @@ export function CannedResponsesModal({
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      e.preventDefault();
       if (mode !== "list") {
         setTitle("");
         setContent("");
@@ -251,7 +252,7 @@ export function CannedResponsesModal({
   const showImageSlot = Boolean(previewSrc) || (hasExistingImage && !removeExistingImage && !imageFile);
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+    <div data-modal-overlay className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       <button
         type="button"
         aria-label="Cerrar"

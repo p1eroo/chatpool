@@ -80,3 +80,37 @@ export interface IntegrationAccountDto {
   webhookUrl?: string;
   webhookVerifyToken?: string;
 }
+
+/** Eventos de webhooks salientes (estilo Chatwoot). */
+export type OutgoingWebhookEvent =
+  | "message_created"
+  | "message_updated"
+  | "conversation_created"
+  | "conversation_updated"
+  | "conversation_status_changed";
+
+export interface OutgoingWebhookDto {
+  id: string;
+  inboxId: string;
+  name: string | null;
+  url: string;
+  subscriptions: string[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateOutgoingWebhookRequest {
+  inboxId: string;
+  url: string;
+  name?: string | null;
+  subscriptions: OutgoingWebhookEvent[];
+  enabled?: boolean;
+}
+
+export interface UpdateOutgoingWebhookRequest {
+  url?: string;
+  name?: string | null;
+  subscriptions?: OutgoingWebhookEvent[];
+  enabled?: boolean;
+}

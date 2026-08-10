@@ -23,6 +23,7 @@ export function ComposerAttachmentPreview({
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        e.preventDefault();
         onClose();
         return;
       }
@@ -44,6 +45,7 @@ export function ComposerAttachmentPreview({
 
   return createPortal(
     <div
+      data-modal-overlay
       className="fixed inset-0 z-[200] flex flex-col bg-black/80 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
       role="dialog"

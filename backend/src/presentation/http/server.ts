@@ -12,6 +12,7 @@ import { conversationsRoutes } from "./routes/conversations.routes.js";
 import { contactsRoutes } from "./routes/contacts.routes.js";
 import { cannedResponsesRoutes } from "./routes/canned-responses.routes.js";
 import { integrationRoutes } from "./routes/integrations.routes.js";
+import { outgoingWebhooksRoutes } from "./routes/outgoing-webhooks.routes.js";
 import { rolesRoutes } from "./routes/roles.routes.js";
 import { webhookRoutes } from "./routes/webhooks.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
@@ -63,6 +64,7 @@ export async function buildApp() {
   await app.register(contactsRoutes);
   await app.register(cannedResponsesRoutes);
   await app.register(integrationRoutes);
+  await app.register(outgoingWebhooksRoutes);
   await app.register(webhookRoutes);
   await app.register(realtimeRoutes);
   await app.register(linkPreviewRoutes);

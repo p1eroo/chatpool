@@ -125,18 +125,19 @@ model SavedSticker {
 }
 
 model Inbox {
-  id              String           @id @default(cuid())
-  name            String
-  channelType     ChannelType      @map("channel_type")
-  icon            String
-  settings        InboxSettings?
-  inboxAgents     InboxAgent[]
-  contacts        Contact[]
-  conversations   Conversation[]
-  labels          Label[]
-  cannedResponses CannedResponse[]
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  id               String            @id @default(cuid())
+  name             String
+  channelType      ChannelType       @map("channel_type")
+  icon             String
+  settings         InboxSettings?
+  inboxAgents      InboxAgent[]
+  contacts         Contact[]
+  conversations    Conversation[]
+  labels           Label[]
+  cannedResponses  CannedResponse[]
+  outgoingWebhooks OutgoingWebhook[]
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
 
   @@map("inboxes")
 }
@@ -297,4 +298,20 @@ model CannedResponse {
 
   @@index([inboxId])
   @@map("canned_responses")
+}
+
+/// Webhooks salientes a URLs externas, por bandeja.
+model OutgoingWebhook {
+  id            String   @id @default(cuid())
+  inboxId       String   @map("inbox_id")
+  inbox         Inbox    @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  name          String?
+  url           String
+  subscriptions String[]
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([inboxId])
+  @@map("outgoing_webhooks")
 }

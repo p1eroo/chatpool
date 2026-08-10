@@ -63,6 +63,7 @@ export function ImageLightbox() {
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        e.preventDefault();
         closeLightbox();
         return;
       }
@@ -121,7 +122,7 @@ export function ImageLightbox() {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-md animate-fade-in">
+    <div data-modal-overlay className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-md animate-fade-in">
       <div className="absolute inset-x-0 top-0 z-10 flex h-12 items-center justify-center border-b border-white/10 bg-black/45 px-14">
         <p className="max-w-[50%] truncate text-sm text-white/90">{fileName}</p>
 

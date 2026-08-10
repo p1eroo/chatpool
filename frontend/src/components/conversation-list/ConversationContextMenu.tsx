@@ -147,7 +147,10 @@ export function ConversationContextMenu({
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
     }
 
     function handlePointerDown(e: MouseEvent) {

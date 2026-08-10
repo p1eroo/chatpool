@@ -23,7 +23,7 @@ export function SettingsModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+    <div data-modal-overlay className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <button
         type="button"
         aria-label="Cerrar"

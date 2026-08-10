@@ -5,6 +5,7 @@ import { ConversationList } from "@/components/conversation-list/ConversationLis
 import { getCurrentAgentId } from "@/lib/authSession";
 import { loadActiveConversation } from "@/lib/activeConversationSession";
 import { useConversationStore } from "@/store/conversationStore";
+import { useUIStore } from "@/store/uiStore";
 
 export function InboxPage() {
   useEffect(() => {
@@ -35,6 +36,33 @@ export function InboxPage() {
       document.removeEventListener("visibilitychange", onVisibility);
       store.setInboxViewActive(false);
     };
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+
+      const ui = useUIStore.getState();
+      if (ui.lightboxMessageId || ui.forwardModalOpen) return;
+
+      if (ui.forwardSelectionMode) {
+        e.preventDefault();
+        ui.clearForwardFlow();
+        return;
+      }
+
+      // Solo bloquear si hay un modal/overlay marcado explícitamente.
+      if (document.querySelector("[data-modal-overlay]")) return;
+
+      const { activeConversationId, selectConversation } = useConversationStore.getState();
+      if (!activeConversationId) return;
+
+      e.preventDefault();
+      selectConversation(null);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   return (
