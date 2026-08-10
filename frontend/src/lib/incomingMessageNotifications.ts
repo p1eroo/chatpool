@@ -24,6 +24,15 @@ function claimNotificationSoundKey(key: string): boolean {
   return true;
 }
 
+/** Reproduce tras el paint para que el mensaje ya esté visible. */
+function playSoundAfterPaint(): void {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      playMessageNotificationSound();
+    });
+  });
+}
+
 export function getEffectiveUnreadCount(): number {
   const state = useConversationStore.getState();
   const total = state.getTotalUnread();
@@ -55,11 +64,23 @@ export function syncBrowserUnreadTitle(): void {
  */
 export function shouldPlayIncomingMessageSound(
   message: Message,
-  conversationId: string
+  conversationId: string,
+  inboxId?: string | null
 ): boolean {
   if (message.senderType !== "contact") return false;
 
-  const { activeConversationId, messages } = useConversationStore.getState();
+  const { activeConversationId, filterInboxId, messages, conversations } =
+    useConversationStore.getState();
+
+  const messageInboxId =
+    inboxId ??
+    conversations.find((conversation) => conversation.id === conversationId)?.inboxId;
+
+  // Solo notificar mensajes de la bandeja que el agente está viendo.
+  if (filterInboxId && messageInboxId && messageInboxId !== filterInboxId) {
+    return false;
+  }
+
   const isViewingConversation =
     activeConversationId === conversationId &&
     document.visibilityState === "visible";
@@ -69,7 +90,7 @@ export function shouldPlayIncomingMessageSound(
   const existing = messages[conversationId] ?? [];
   if (existing.some((item) => item.id === message.id)) return false;
 
-  // Persisted message replacing a provisional: sound already played.
+  // Persistido que reemplaza provisional: el sonido ya se programó con el provisional.
   if (
     message.externalId &&
     !isProvisionalInboundId(message.id) &&
@@ -88,14 +109,15 @@ export function shouldPlayIncomingMessageSound(
 export function notifyIncomingMessage(
   message: Message,
   conversationId: string,
-  options?: { playSound?: boolean }
+  options?: { playSound?: boolean; inboxId?: string | null }
 ): void {
   syncBrowserUnreadTitle();
 
   const playSound =
-    options?.playSound ?? shouldPlayIncomingMessageSound(message, conversationId);
+    options?.playSound ??
+    shouldPlayIncomingMessageSound(message, conversationId, options?.inboxId);
 
   if (playSound) {
-    playMessageNotificationSound();
+    playSoundAfterPaint();
   }
 }

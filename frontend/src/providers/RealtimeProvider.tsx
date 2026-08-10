@@ -57,9 +57,16 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         const conversation = parseConversation(event.payload.conversation as never);
 
         // Evaluar antes de aplicar: el persistido reemplaza al provisional en el store.
-        const playSound = shouldPlayIncomingMessageSound(message, conversation.id);
+        const playSound = shouldPlayIncomingMessageSound(
+          message,
+          conversation.id,
+          conversation.inboxId
+        );
         useConversationStore.getState().applyRealtimeMessage(message, conversation);
-        notifyIncomingMessage(message, conversation.id, { playSound });
+        notifyIncomingMessage(message, conversation.id, {
+          playSound,
+          inboxId: conversation.inboxId,
+        });
         return;
       }
 
