@@ -51,7 +51,7 @@ const CATALOG_ENDPOINTS: ApiEndpoint[] = [
     path: "/contacts",
     title: "Contactos",
     purpose:
-      "Lista contactos. Filtra por bandeja con inbox_id cuando tu automatización trabaja sobre un canal concreto.",
+      "Lista contactos. Con varias bandejas (Call center, Facturación, etc.) filtra siempre con inbox_id para no mezclar canales.",
     queryExample: "?inbox_id=INBOX_ID",
   },
   {
@@ -70,7 +70,7 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
     path: "/conversations",
     title: "Listar conversaciones",
     purpose:
-      "Obtiene conversaciones con filtros. Útil para colas, reportes o disparar acciones sobre chats abiertos / sin asignar.",
+      "Obtiene conversaciones con filtros. Usa inbox_id obligatorio en n8n si hay varias bandejas, para no mezclar Call center con Facturación, etc.",
     queryExample: "?status=open&inbox_id=INBOX_ID&assignee_type=unassigned",
   },
   {
@@ -106,7 +106,7 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
     path: "/conversations/:id/messages",
     title: "Enviar mensaje",
     purpose:
-      "Envía un mensaje de texto (o nota privada) al contacto. También admite templates WhatsApp con template_params en el mismo endpoint.",
+      "Envía un mensaje de texto (o nota privada). Usa el CONVERSATION_ID del payload del webhook saliente: la conversación ya pertenece a una bandeja (no hace falta inbox_id aquí). También admite templates con template_params.",
     pathExample: "/conversations/CONVERSATION_ID/messages",
     body: `{
   "content": "Hola desde n8n",
@@ -321,7 +321,11 @@ function SectionHeader({
 
 export function DocumentationPage() {
   const apiBase = env.apiUrl.replace(/\/$/, "");
-  const accountBase = useMemo(() => `${apiBase}/api/v1/accounts/1`, [apiBase]);
+  const accountId = env.apiAccountId;
+  const accountBase = useMemo(
+    () => `${apiBase}/api/v1/accounts/${accountId}`,
+    [apiBase, accountId]
+  );
 
   return (
     <div className="flex-1 flex flex-col h-screen bg-[var(--color-bg-primary)] overflow-y-auto">
@@ -333,7 +337,8 @@ export function DocumentationPage() {
             </h1>
             <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5 max-w-2xl">
               APIs externas estilo Chatwoot para automatizaciones con n8n. Sin autenticación;
-              pensadas para red confiable.
+              pensadas para red confiable. El aislamiento entre canales es por bandeja
+              (<code className="font-mono text-[12px]"> inbox_id</code>).
             </p>
           </div>
           <div className="flex items-center gap-2 min-w-0 lg:max-w-xl w-full lg:w-auto">
@@ -360,10 +365,12 @@ export function DocumentationPage() {
           </div>
           <div className="rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] p-3">
             <p className="text-[11px] font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
-              Account
+              Account / bandejas
             </p>
             <p className="text-[13px] text-[var(--color-text-primary)] mt-1">
-              <code className="font-mono text-[12px]">/accounts/1</code> fijo (single-tenant).
+              <code className="font-mono text-[12px]">/accounts/{accountId}</code> = instalación
+              (<code className="font-mono text-[11px]">API_ACCOUNT_ID</code>). Call center,
+              Facturación, Flota… se separan con <code className="font-mono text-[11px]">inbox_id</code>.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] p-3">
@@ -441,7 +448,7 @@ export function DocumentationPage() {
         <section className="mb-8 mt-8">
           <SectionHeader
             title="Webhooks salientes"
-            description="Chatpool notifica a URLs externas (n8n, Zapier, etc.). Configúralos en Ajustes → Integraciones → Webhook eligiendo la bandeja. Solo llegan eventos de esa bandeja (WhatsApp se configura en Bandejas)."
+            description="Chatpool notifica a URLs externas (n8n, Zapier, etc.). Configúralos en Ajustes → Integraciones → Webhook eligiendo la bandeja. Un webhook de Call center no recibe eventos de Facturación."
           />
           <div className="rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] p-4 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -465,13 +472,17 @@ export function DocumentationPage() {
                   <li>POST JSON a la URL configurada</li>
                   <li className="font-mono">Header: X-Chatpool-Event</li>
                   <li>Body: {"{ event, ...payload }"}</li>
+                  <li className="font-mono">conversation_id (top-level)</li>
+                  <li className="font-mono">inbox.id / conversation.inbox_id</li>
                 </ul>
               </div>
             </div>
             <p className="text-[12px] text-[var(--color-text-secondary)]">
               En n8n usa el nodo <strong>Webhook</strong> con Authentication = None y la{" "}
-              <strong>Production URL</strong> (workflow Active). Solo llegan eventos de la bandeja
-              elegida al crear el webhook.
+              <strong>Production URL</strong> (workflow Active). Para responder, usa{" "}
+              <code className="font-mono text-[11px]">conversation_id</code> del JSON en{" "}
+              <code className="font-mono text-[11px]">POST .../conversations/:id/messages</code>:
+              así el mensaje vuelve a la misma bandeja.
             </p>
           </div>
         </section>

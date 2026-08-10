@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { env } from "../../../config/env.js";
 import { resolveApiActorAgentId } from "../../../application/api/api-agent.service.js";
 import {
   listConversationLabelNames,
@@ -18,7 +19,7 @@ import {
 import { startOutboundConversation } from "../../../application/conversations/start-outbound.service.js";
 import { listInboxes } from "../../../application/inboxes/inboxes.service.js";
 import { listAllLabels } from "../../../application/labels/labels.service.js";
-import { AppError } from "../../../domain/errors.js";
+import { AppError, NotFoundError } from "../../../domain/errors.js";
 
 const createMessageSchema = z
   .object({
@@ -98,6 +99,14 @@ function orderedParamsFromRecord(record?: Record<string, string>): string[] | un
 }
 
 export async function applicationApiRoutes(app: FastifyInstance) {
+  app.addHook("preHandler", async (request) => {
+    const { accountId } = request.params as { accountId?: string };
+    if (accountId == null) return;
+    if (accountId !== env.API_ACCOUNT_ID) {
+      throw new NotFoundError("Cuenta no encontrada");
+    }
+  });
+
   app.get("/api/v1/accounts/:accountId/profile", async (_request, reply) => {
     const agentId = await resolveApiActorAgentId();
     const agents = await listAgents();

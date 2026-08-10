@@ -32,10 +32,19 @@ export function broadcastMessageCreated(message: Message, conversation: Conversa
   // Los provisionals solo van por WS; el webhook externo espera el mensaje persistido.
   if (message.id.startsWith(PROVISIONAL_INBOUND_PREFIX)) return;
 
+  const inboxId = conversation.inboxId;
+  if (!inboxId) {
+    console.warn(
+      `[outbound-webhook] skip message_created: missing inboxId conversation=${conversation.id}`
+    );
+    return;
+  }
+
   dispatchOutgoingWebhook(
     "message_created",
     {
       id: message.id,
+      conversation_id: conversation.id,
       content: message.content,
       content_type: message.contentType,
       message_type:
@@ -54,12 +63,12 @@ export function broadcastMessageCreated(message: Message, conversation: Conversa
       },
       conversation: {
         id: conversation.id,
-        inbox_id: conversation.inboxId,
+        inbox_id: inboxId,
         status: conversation.status,
         channel_type: conversation.channelType,
       },
       inbox: {
-        id: conversation.inboxId,
+        id: inboxId,
         channel_type: conversation.channelType,
       },
       contact: {
@@ -68,7 +77,7 @@ export function broadcastMessageCreated(message: Message, conversation: Conversa
         phone: conversation.contact.phone ?? null,
       },
     },
-    conversation.inboxId
+    inboxId
   );
 }
 
@@ -176,9 +185,17 @@ export async function emitConversationUpdated(conversationId: string): Promise<v
     },
   });
 
+  if (!mapped.inboxId) {
+    console.warn(
+      `[outbound-webhook] skip conversation_updated: missing inboxId conversation=${mapped.id}`
+    );
+    return;
+  }
+
   dispatchOutgoingWebhook(
     "conversation_updated",
     {
+      conversation_id: mapped.id,
       ...(mapped as unknown as Record<string, unknown>),
     },
     mapped.inboxId
@@ -190,9 +207,17 @@ export async function emitConversationCreated(conversationId: string): Promise<v
   if (!conversation) return;
 
   const mapped = mapConversation(conversation);
+  if (!mapped.inboxId) {
+    console.warn(
+      `[outbound-webhook] skip conversation_created: missing inboxId conversation=${mapped.id}`
+    );
+    return;
+  }
+
   dispatchOutgoingWebhook(
     "conversation_created",
     {
+      conversation_id: mapped.id,
       ...(mapped as unknown as Record<string, unknown>),
     },
     mapped.inboxId
@@ -210,9 +235,17 @@ export async function emitConversationStatusChanged(
   if (!conversation) return;
 
   const mapped = mapConversation(conversation);
+  if (!mapped.inboxId) {
+    console.warn(
+      `[outbound-webhook] skip conversation_status_changed: missing inboxId conversation=${mapped.id}`
+    );
+    return;
+  }
+
   dispatchOutgoingWebhook(
     "conversation_status_changed",
     {
+      conversation_id: mapped.id,
       ...(mapped as unknown as Record<string, unknown>),
       changed_attributes: [
         {
