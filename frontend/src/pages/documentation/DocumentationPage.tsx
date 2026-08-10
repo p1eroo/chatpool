@@ -154,6 +154,17 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
   "assignee_id": "AGENT_ID"
 }`,
   },
+  {
+    method: "POST",
+    path: "/conversations/:id/toggle_bot",
+    title: "Apagar / encender bot",
+    purpose:
+      "Pausa o reactiva el bot en esa conversación. Con status off usa los minutos de la bandeja (o minutes opcional). Mientras esté off, POST /messages responde 422 BOT_PAUSED. Ideal si n8n detecta handoff a humano.",
+    pathExample: "/conversations/CONVERSATION_ID/toggle_bot",
+    body: `{
+  "status": "off"
+}`,
+  },
 ];
 
 const TEMPLATE_BODY = `{
@@ -402,7 +413,7 @@ export function DocumentationPage() {
         <section className="mb-8">
           <SectionHeader
             title="Conversaciones y mensajes"
-            description="Núcleo operativo: leer hilos, enviar WhatsApp, etiquetar, resolver y asignar"
+            description="Núcleo operativo: leer hilos, enviar WhatsApp, etiquetar, resolver, asignar y pausar el bot"
           />
           <div className="grid gap-3 md:grid-cols-2">
             {CONVERSATION_ENDPOINTS.map((endpoint) => (

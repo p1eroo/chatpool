@@ -14,6 +14,7 @@ import {
   listConversations,
   sendAgentMessage,
   sendWhatsAppTemplate,
+  setConversationBotStatus,
   updateConversation,
 } from "../../../application/conversations/conversations.service.js";
 import { startOutboundConversation } from "../../../application/conversations/start-outbound.service.js";
@@ -21,7 +22,11 @@ import { listInboxes } from "../../../application/inboxes/inboxes.service.js";
 import { listAllLabels } from "../../../application/labels/labels.service.js";
 import { AppError, NotFoundError } from "../../../domain/errors.js";
 import { prisma } from "../../../infrastructure/database/prisma.client.js";
-import { assertBotNotPaused } from "../../../shared/bot-pause.js";
+import {
+  assertBotNotPaused,
+  BOT_PAUSE_MINUTES_MAX,
+  BOT_PAUSE_MINUTES_MIN,
+} from "../../../shared/bot-pause.js";
 
 const createMessageSchema = z
   .object({
@@ -73,6 +78,16 @@ const labelsBodySchema = z.object({
 
 const toggleStatusSchema = z.object({
   status: z.enum(["open", "resolved", "pending", "snoozed"]),
+});
+
+const toggleBotSchema = z.object({
+  status: z.enum(["on", "off"]),
+  minutes: z
+    .number()
+    .int()
+    .min(BOT_PAUSE_MINUTES_MIN)
+    .max(BOT_PAUSE_MINUTES_MAX)
+    .optional(),
 });
 
 const assignmentSchema = z.object({
@@ -360,6 +375,28 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       );
 
       return reply.send(conversation.assignee ?? { id: null });
+    }
+  );
+
+  app.post(
+    "/api/v1/accounts/:accountId/conversations/:id/toggle_bot",
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = toggleBotSchema.parse(request.body ?? {});
+      const result = await setConversationBotStatus(id, {
+        status: body.status,
+        minutes: body.minutes,
+      });
+
+      return reply.send({
+        meta: {},
+        payload: {
+          success: true,
+          bot_status: result.botStatus,
+          bot_paused_until: result.botPausedUntil,
+          conversation_id: result.conversationId,
+        },
+      });
     }
   );
 }

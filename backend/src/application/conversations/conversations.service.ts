@@ -49,6 +49,8 @@ import {
   scheduleWhatsAppMessageDelivery,
 } from "./message-delivery.service.js";
 import {
+  BOT_PAUSE_MINUTES_MAX,
+  BOT_PAUSE_MINUTES_MIN,
   DEFAULT_BOT_PAUSE_MINUTES,
   nextBotPausedUntil,
 } from "../../shared/bot-pause.js";
@@ -742,6 +744,56 @@ export async function findOrReopenConversationForContact(params: {
     conversation: result.conversation,
     reopened: result.reopened,
     created: result.created,
+  };
+}
+
+/** Enciende o apaga el bot en una conversación (Application API / n8n). */
+export async function setConversationBotStatus(
+  conversationId: string,
+  params: { status: "on" | "off"; minutes?: number }
+) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: {
+      id: true,
+      inbox: { select: { settings: { select: { botPauseMinutes: true } } } },
+    },
+  });
+  if (!conversation) throw new NotFoundError("Conversación no encontrada");
+
+  let botPausedUntil: Date | null = null;
+
+  if (params.status === "off") {
+    let minutes =
+      conversation.inbox.settings?.botPauseMinutes ?? DEFAULT_BOT_PAUSE_MINUTES;
+    if (params.minutes !== undefined) {
+      if (
+        !Number.isInteger(params.minutes) ||
+        params.minutes < BOT_PAUSE_MINUTES_MIN ||
+        params.minutes > BOT_PAUSE_MINUTES_MAX
+      ) {
+        throw new AppError(
+          `minutes debe estar entre ${BOT_PAUSE_MINUTES_MIN} y ${BOT_PAUSE_MINUTES_MAX}`,
+          400,
+          "INVALID_BOT_PAUSE_MINUTES"
+        );
+      }
+      minutes = params.minutes;
+    }
+    botPausedUntil = nextBotPausedUntil(new Date(), minutes);
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { botPausedUntil },
+  });
+
+  await emitConversationUpdated(conversationId);
+
+  return {
+    conversationId,
+    botStatus: params.status,
+    botPausedUntil: botPausedUntil?.toISOString() ?? null,
   };
 }
 
