@@ -1,6 +1,5 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { env } from "../../../config/env.js";
 import { resolveApiActorAgentId } from "../../../application/api/api-agent.service.js";
 import {
   listConversationLabelNames,
@@ -18,8 +17,8 @@ import {
   updateConversation,
 } from "../../../application/conversations/conversations.service.js";
 import { startOutboundConversation } from "../../../application/conversations/start-outbound.service.js";
-import { listInboxes } from "../../../application/inboxes/inboxes.service.js";
-import { listAllLabels } from "../../../application/labels/labels.service.js";
+import { getInboxById } from "../../../application/inboxes/inboxes.service.js";
+import { listLabelsForInbox } from "../../../application/labels/labels.service.js";
 import { AppError, NotFoundError } from "../../../domain/errors.js";
 import { prisma } from "../../../infrastructure/database/prisma.client.js";
 import {
@@ -104,6 +103,44 @@ const createConversationSchema = z.object({
   name: z.string().optional(),
 });
 
+type InboxParams = { inboxId: string };
+
+function getPathInboxId(request: FastifyRequest): string {
+  const { inboxId } = request.params as InboxParams;
+  return inboxId;
+}
+
+async function assertInboxExists(inboxId: string) {
+  const inbox = await prisma.inbox.findUnique({
+    where: { id: inboxId },
+    select: { id: true },
+  });
+  if (!inbox) throw new NotFoundError("Bandeja no encontrada");
+  return inbox.id;
+}
+
+async function assertConversationInInbox(conversationId: string, inboxId: string) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { id: true, inboxId: true, botPausedUntil: true },
+  });
+  if (!conversation || conversation.inboxId !== inboxId) {
+    throw new NotFoundError("Conversación no encontrada");
+  }
+  return conversation;
+}
+
+async function assertContactInInbox(contactId: string, inboxId: string) {
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: { id: true, inboxId: true },
+  });
+  if (!contact || contact.inboxId !== inboxId) {
+    throw new NotFoundError("Contacto no encontrado");
+  }
+  return contact;
+}
+
 function orderedParamsFromRecord(record?: Record<string, string>): string[] | undefined {
   if (!record) return undefined;
   const entries = Object.entries(record).sort(([a], [b]) => {
@@ -117,14 +154,12 @@ function orderedParamsFromRecord(record?: Record<string, string>): string[] | un
 
 export async function applicationApiRoutes(app: FastifyInstance) {
   app.addHook("preHandler", async (request) => {
-    const { accountId } = request.params as { accountId?: string };
-    if (accountId == null) return;
-    if (accountId !== env.API_ACCOUNT_ID) {
-      throw new NotFoundError("Cuenta no encontrada");
-    }
+    const { inboxId } = request.params as { inboxId?: string };
+    if (inboxId == null) return;
+    await assertInboxExists(inboxId);
   });
 
-  app.get("/api/v1/accounts/:accountId/profile", async (_request, reply) => {
+  app.get("/api/v1/inboxes/:inboxId/profile", async (_request, reply) => {
     const agentId = await resolveApiActorAgentId();
     const agents = await listAgents();
     const agent = agents.find((item) => item.id === agentId);
@@ -138,38 +173,39 @@ export async function applicationApiRoutes(app: FastifyInstance) {
     });
   });
 
-  app.get("/api/v1/accounts/:accountId/inboxes", async (_request, reply) => {
-    const payload = await listInboxes();
+  app.get("/api/v1/inboxes/:inboxId", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
+    const { inbox } = await getInboxById(inboxId);
+    return reply.send(inbox);
+  });
+
+  app.get("/api/v1/inboxes/:inboxId/labels", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
+    const payload = await listLabelsForInbox(inboxId);
     return reply.send({ payload });
   });
 
-  app.get("/api/v1/accounts/:accountId/labels", async (_request, reply) => {
-    const payload = await listAllLabels();
-    return reply.send({ payload });
-  });
-
-  app.get("/api/v1/accounts/:accountId/agents", async (_request, reply) => {
+  app.get("/api/v1/inboxes/:inboxId/agents", async (_request, reply) => {
     const payload = await listAgents();
     return reply.send(payload);
   });
 
-  app.get("/api/v1/accounts/:accountId/contacts", async (request, reply) => {
-    const query = request.query as { inbox_id?: string; inboxId?: string };
-    const payload = await listContacts({
-      inboxId: query.inbox_id ?? query.inboxId,
-    });
+  app.get("/api/v1/inboxes/:inboxId/contacts", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
+    const payload = await listContacts({ inboxId });
     return reply.send({ payload });
   });
 
-  app.get("/api/v1/accounts/:accountId/contacts/:id", async (request, reply) => {
+  app.get("/api/v1/inboxes/:inboxId/contacts/:id", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
     const { id } = request.params as { id: string };
+    await assertContactInInbox(id, inboxId);
     return reply.send(await getContactById(id));
   });
 
-  app.get("/api/v1/accounts/:accountId/conversations", async (request, reply) => {
+  app.get("/api/v1/inboxes/:inboxId/conversations", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
     const query = request.query as {
-      inbox_id?: string;
-      inboxId?: string;
       status?: string;
       assignee_type?: "me" | "unassigned" | "all";
       label_id?: string;
@@ -185,7 +221,7 @@ export async function applicationApiRoutes(app: FastifyInstance) {
 
     const agentId = await resolveApiActorAgentId();
     const data = await listConversations({
-      inboxId: query.inbox_id ?? query.inboxId,
+      inboxId,
       status: query.status,
       assignee,
       agentId: query.assignee_type === "me" ? agentId : undefined,
@@ -200,13 +236,22 @@ export async function applicationApiRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post("/api/v1/accounts/:accountId/conversations", async (request, reply) => {
+  app.post("/api/v1/inboxes/:inboxId/conversations", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
     const body = createConversationSchema.parse(request.body ?? {});
-    const inboxId = body.inbox_id ?? body.inboxId;
-    const phone = body.phone ?? body.source_id;
-    if (!inboxId || !phone) {
+    const bodyInboxId = body.inbox_id ?? body.inboxId;
+    if (bodyInboxId && bodyInboxId !== inboxId) {
       throw new AppError(
-        "inbox_id y phone (o source_id) son obligatorios",
+        "inbox_id del body debe coincidir con el inboxId del path",
+        400,
+        "INVALID_CREATE_CONVERSATION"
+      );
+    }
+
+    const phone = body.phone ?? body.source_id;
+    if (!phone) {
+      throw new AppError(
+        "phone (o source_id) es obligatorio",
         400,
         "INVALID_CREATE_CONVERSATION"
       );
@@ -223,32 +268,33 @@ export async function applicationApiRoutes(app: FastifyInstance) {
     return reply.status(200).send(conversation);
   });
 
-  app.get("/api/v1/accounts/:accountId/conversations/:id", async (request, reply) => {
+  app.get("/api/v1/inboxes/:inboxId/conversations/:id", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
     const { id } = request.params as { id: string };
+    await assertConversationInInbox(id, inboxId);
     return reply.send(await getConversationById(id));
   });
 
   app.get(
-    "/api/v1/accounts/:accountId/conversations/:id/messages",
+    "/api/v1/inboxes/:inboxId/conversations/:id/messages",
     async (request, reply) => {
+      const inboxId = getPathInboxId(request);
       const { id } = request.params as { id: string };
+      await assertConversationInInbox(id, inboxId);
       const payload = await getConversationMessages(id);
       return reply.send({ payload });
     }
   );
 
   app.post(
-    "/api/v1/accounts/:accountId/conversations/:id/messages",
+    "/api/v1/inboxes/:inboxId/conversations/:id/messages",
     async (request, reply) => {
+      const inboxId = getPathInboxId(request);
       const { id } = request.params as { id: string };
       const body = createMessageSchema.parse(request.body ?? {});
       const agentId = await resolveApiActorAgentId();
 
-      const conversation = await prisma.conversation.findUnique({
-        where: { id },
-        select: { id: true, botPausedUntil: true },
-      });
-      if (!conversation) throw new NotFoundError("Conversación no encontrada");
+      const conversation = await assertConversationInInbox(id, inboxId);
       assertBotNotPaused(conversation.botPausedUntil);
 
       if (body.template_params) {
@@ -301,18 +347,22 @@ export async function applicationApiRoutes(app: FastifyInstance) {
   );
 
   app.get(
-    "/api/v1/accounts/:accountId/conversations/:id/labels",
+    "/api/v1/inboxes/:inboxId/conversations/:id/labels",
     async (request, reply) => {
+      const inboxId = getPathInboxId(request);
       const { id } = request.params as { id: string };
+      await assertConversationInInbox(id, inboxId);
       const payload = await listConversationLabelNames(id);
       return reply.send({ payload });
     }
   );
 
   app.post(
-    "/api/v1/accounts/:accountId/conversations/:id/labels",
+    "/api/v1/inboxes/:inboxId/conversations/:id/labels",
     async (request, reply) => {
+      const inboxId = getPathInboxId(request);
       const { id } = request.params as { id: string };
+      await assertConversationInInbox(id, inboxId);
       const body = labelsBodySchema.parse(request.body ?? {});
       const agentId = await resolveApiActorAgentId();
       const result = await setConversationLabelsByNames({
@@ -325,9 +375,11 @@ export async function applicationApiRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    "/api/v1/accounts/:accountId/conversations/:id/toggle_status",
+    "/api/v1/inboxes/:inboxId/conversations/:id/toggle_status",
     async (request, reply) => {
+      const inboxId = getPathInboxId(request);
       const { id } = request.params as { id: string };
+      await assertConversationInInbox(id, inboxId);
       const body = toggleStatusSchema.parse(request.body ?? {});
 
       if (body.status === "pending" || body.status === "snoozed") {
@@ -353,9 +405,11 @@ export async function applicationApiRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    "/api/v1/accounts/:accountId/conversations/:id/assignments",
+    "/api/v1/inboxes/:inboxId/conversations/:id/assignments",
     async (request, reply) => {
+      const inboxId = getPathInboxId(request);
       const { id } = request.params as { id: string };
+      await assertConversationInInbox(id, inboxId);
       const body = assignmentSchema.parse(request.body ?? {});
       const assigneeId = body.assignee_id ?? body.assigneeId;
 
@@ -379,9 +433,11 @@ export async function applicationApiRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    "/api/v1/accounts/:accountId/conversations/:id/toggle_bot",
+    "/api/v1/inboxes/:inboxId/conversations/:id/toggle_bot",
     async (request, reply) => {
+      const inboxId = getPathInboxId(request);
       const { id } = request.params as { id: string };
+      await assertConversationInInbox(id, inboxId);
       const body = toggleBotSchema.parse(request.body ?? {});
       const result = await setConversationBotStatus(id, {
         status: body.status,

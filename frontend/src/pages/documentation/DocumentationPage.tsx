@@ -27,17 +27,17 @@ const CATALOG_ENDPOINTS: ApiEndpoint[] = [
   },
   {
     method: "GET",
-    path: "/inboxes",
-    title: "Bandejas",
+    path: "",
+    title: "Detalle de bandeja",
     purpose:
-      "Lista las bandejas (canales) disponibles. Úsalo en n8n para obtener el inbox_id antes de crear conversaciones o filtrar contactos.",
+      "Devuelve la bandeja del inboxId del path. Útil para validar que estás apuntando a Call center, Facturación, etc.",
   },
   {
     method: "GET",
     path: "/labels",
     title: "Etiquetas",
     purpose:
-      "Lista todas las etiquetas de la instalación. Sirve para conocer los nombres exactos antes de asignarlas a una conversación.",
+      "Lista las etiquetas de esa bandeja. Sirve para conocer los nombres exactos antes de asignarlas a una conversación.",
   },
   {
     method: "GET",
@@ -51,15 +51,14 @@ const CATALOG_ENDPOINTS: ApiEndpoint[] = [
     path: "/contacts",
     title: "Contactos",
     purpose:
-      "Lista contactos. Con varias bandejas (Call center, Facturación, etc.) filtra siempre con inbox_id para no mezclar canales.",
-    queryExample: "?inbox_id=INBOX_ID",
+      "Lista contactos de la bandeja del path. Call center y Facturación usan inboxIds distintos.",
   },
   {
     method: "GET",
     path: "/contacts/:id",
     title: "Detalle de contacto",
     purpose:
-      "Obtiene un contacto por ID (nombre, teléfono, ciudad, empresa, bloqueo). Ideal para enriquecer un flujo con datos del cliente.",
+      "Obtiene un contacto por ID si pertenece a esa bandeja (nombre, teléfono, ciudad, empresa, bloqueo).",
     pathExample: "/contacts/CONTACT_ID",
   },
 ];
@@ -70,15 +69,15 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
     path: "/conversations",
     title: "Listar conversaciones",
     purpose:
-      "Obtiene conversaciones con filtros. Usa inbox_id obligatorio en n8n si hay varias bandejas, para no mezclar Call center con Facturación, etc.",
-    queryExample: "?status=open&inbox_id=INBOX_ID&assignee_type=unassigned",
+      "Obtiene conversaciones de la bandeja del path. Puedes filtrar por status y assignee_type.",
+    queryExample: "?status=open&assignee_type=unassigned",
   },
   {
     method: "GET",
     path: "/conversations/:id",
     title: "Detalle de conversación",
     purpose:
-      "Devuelve una conversación con contacto, etiquetas, assignee y último mensaje. Úsalo como paso previo a enviar o etiquetar.",
+      "Devuelve una conversación con contacto, etiquetas, assignee y último mensaje. Solo si pertenece a esa bandeja.",
     pathExample: "/conversations/CONVERSATION_ID",
   },
   {
@@ -86,9 +85,8 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
     path: "/conversations",
     title: "Iniciar conversación WhatsApp",
     purpose:
-      "Crea o reabre una conversación outbound por número. Luego envía un template (ventana 24h) con el endpoint de mensajes.",
+      "Crea o reabre una conversación outbound en la bandeja del path. Luego envía un template (ventana 24h) con el endpoint de mensajes.",
     body: `{
-  "inbox_id": "INBOX_ID",
   "phone": "51987654321",
   "name": "Nombre opcional"
 }`,
@@ -106,7 +104,7 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
     path: "/conversations/:id/messages",
     title: "Enviar mensaje",
     purpose:
-      "Envía un mensaje de texto (o nota privada). Usa el CONVERSATION_ID del payload del webhook saliente: la conversación ya pertenece a una bandeja (no hace falta inbox_id aquí). También admite templates con template_params.",
+      "Envía un mensaje de texto (o nota privada). Usa el CONVERSATION_ID del payload del webhook saliente. También admite templates con template_params.",
     pathExample: "/conversations/CONVERSATION_ID/messages",
     body: `{
   "content": "Hola desde n8n",
@@ -255,7 +253,7 @@ function EndpointCard({
             {endpoint.title}
           </h3>
           <code className="text-[11px] font-mono text-[var(--color-text-muted)] break-all">
-            {endpoint.path}
+            {endpoint.path || "/"}
             {endpoint.queryExample ? " + query" : ""}
           </code>
         </div>
@@ -332,10 +330,10 @@ function SectionHeader({
 
 export function DocumentationPage() {
   const apiBase = env.apiUrl.replace(/\/$/, "");
-  const accountId = env.apiAccountId;
-  const accountBase = useMemo(
-    () => `${apiBase}/api/v1/accounts/${accountId}`,
-    [apiBase, accountId]
+  const inboxId = env.apiInboxId;
+  const inboxBase = useMemo(
+    () => `${apiBase}/api/v1/inboxes/${inboxId}`,
+    [apiBase, inboxId]
   );
 
   return (
@@ -347,9 +345,9 @@ export function DocumentationPage() {
               Documentación
             </h1>
             <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5 max-w-2xl">
-              APIs externas estilo Chatwoot para automatizaciones con n8n. Sin autenticación;
-              pensadas para red confiable. El aislamiento entre canales es por bandeja
-              (<code className="font-mono text-[12px]"> inbox_id</code>).
+              APIs externas para automatizaciones con n8n. Sin autenticación; pensadas para red
+              confiable. Cada bandeja tiene su propia base URL con su{" "}
+              <code className="font-mono text-[12px]">inboxId</code>.
             </p>
           </div>
           <div className="flex items-center gap-2 min-w-0 lg:max-w-xl w-full lg:w-auto">
@@ -358,10 +356,10 @@ export function DocumentationPage() {
                 Base URL
               </p>
               <code className="text-[12px] font-mono text-[var(--color-text-primary)] break-all">
-                {accountBase}
+                {inboxBase}
               </code>
             </div>
-            <CopyButton text={accountBase} />
+            <CopyButton text={inboxBase} />
           </div>
         </div>
 
@@ -376,12 +374,12 @@ export function DocumentationPage() {
           </div>
           <div className="rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] p-3">
             <p className="text-[11px] font-medium text-[var(--color-text-muted)] uppercase tracking-wide">
-              Account / bandejas
+              Inbox = bandeja
             </p>
             <p className="text-[13px] text-[var(--color-text-primary)] mt-1">
-              <code className="font-mono text-[12px]">/accounts/{accountId}</code> = instalación
-              (<code className="font-mono text-[11px]">API_ACCOUNT_ID</code>). Call center,
-              Facturación, Flota… se separan con <code className="font-mono text-[11px]">inbox_id</code>.
+              Sustituye <code className="font-mono text-[11px]">INBOX_ID</code> por el id de
+              Ajustes → Bandejas (ej. Call center, Facturación). Cada flujo n8n usa su propia
+              base URL.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-secondary)] p-3">
@@ -397,13 +395,13 @@ export function DocumentationPage() {
         <section className="mb-8">
           <SectionHeader
             title="Catálogos"
-            description="Datos de referencia para armar flujos: bandejas, agentes, contactos y etiquetas"
+            description="Datos de referencia para armar flujos: bandeja, agentes, contactos y etiquetas"
           />
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {CATALOG_ENDPOINTS.map((endpoint) => (
               <EndpointCard
-                key={`${endpoint.method}-${endpoint.path}`}
-                basePath={accountBase}
+                key={`${endpoint.method}-${endpoint.path || "root"}`}
+                basePath={inboxBase}
                 endpoint={endpoint}
               />
             ))}
@@ -419,7 +417,7 @@ export function DocumentationPage() {
             {CONVERSATION_ENDPOINTS.map((endpoint) => (
               <EndpointCard
                 key={`${endpoint.method}-${endpoint.path}`}
-                basePath={accountBase}
+                basePath={inboxBase}
                 endpoint={endpoint}
               />
             ))}
@@ -439,7 +437,7 @@ export function DocumentationPage() {
                 del body se mapean en orden a las variables del template.
               </p>
               <CopyButton
-                text={buildCurl(accountBase, {
+                text={buildCurl(inboxBase, {
                   method: "POST",
                   path: "/conversations/:id/messages",
                   pathExample: "/conversations/CONVERSATION_ID/messages",

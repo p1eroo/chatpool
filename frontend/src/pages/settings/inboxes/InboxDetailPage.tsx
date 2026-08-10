@@ -159,7 +159,7 @@ export function InboxDetailPage() {
             void navigator.clipboard.writeText(inbox.id);
             showToast("Inbox ID copiado");
           }}
-          hint="Úsalo en las APIs de n8n como inbox_id"
+          hint="Úsalo en n8n como inboxId del path (/api/v1/inboxes/{id}/...)"
         />
         <SettingsField label="Identificador" value={config.detail} mono />
         <SettingsField label="Estado" value={<InboxStatusBadge status={config.status} />} />
