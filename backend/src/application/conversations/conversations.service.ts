@@ -48,6 +48,10 @@ import {
   buildTemplateDeliveryPayload,
   scheduleWhatsAppMessageDelivery,
 } from "./message-delivery.service.js";
+import {
+  DEFAULT_BOT_PAUSE_MINUTES,
+  nextBotPausedUntil,
+} from "../../shared/bot-pause.js";
 
 const conversationInclude = conversationRealtimeInclude;
 
@@ -172,8 +176,9 @@ export async function sendAgentMessage(
   conversationId: string,
   agentId: string,
   body: SendMessageBody,
-  _options?: { mediaBuffer?: Buffer }
+  options?: { mediaBuffer?: Buffer; senderType?: "agent" | "bot" }
 ) {
+  const senderType = options?.senderType ?? "agent";
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     select: conversationSendContextSelect,
@@ -192,7 +197,10 @@ export async function sendAgentMessage(
     !body.isPrivate && conversation.inbox.channelType === "whatsapp";
   const needsWhatsAppDelivery = needsWhatsAppWindow;
   const clientMessageId = body.clientMessageId?.trim() || null;
-  const willAutoAssign = shouldAutoAssignOnReply(conversation.assigneeId, body.isPrivate);
+  // Bot (Application API / n8n): no auto-asignar al actor de API.
+  const willAutoAssign =
+    senderType === "agent" &&
+    shouldAutoAssignOnReply(conversation.assigneeId, body.isPrivate);
 
   const [lastContactAt, agent, replyTarget, existingByClientId, assigneeForEmit] =
     await Promise.all([
@@ -257,9 +265,9 @@ export async function sendAgentMessage(
       data: {
         conversationId,
         content: body.content,
-        senderType: "agent",
+        senderType,
         senderAgentId: agentId,
-        senderName: agent.name,
+        senderName: senderType === "bot" ? "Bot" : agent.name,
         isPrivate: body.isPrivate ?? false,
         contentType: body.contentType ?? "text",
         fileName: body.fileName ?? null,
@@ -278,11 +286,19 @@ export async function sendAgentMessage(
       include: messageCreateInclude(replyTarget?.id),
     });
 
+    const shouldPauseBot =
+      senderType === "agent" && !(body.isPrivate ?? false);
+    const pauseMinutes =
+      conversation.inbox.settings?.botPauseMinutes ?? DEFAULT_BOT_PAUSE_MINUTES;
+
     const conversationRow = await prisma.conversation.update({
       where: { id: conversationId },
       data: {
         lastMessageAt: createdAt,
         ...(autoAssign ? { assigneeId: agentId } : {}),
+        ...(shouldPauseBot
+          ? { botPausedUntil: nextBotPausedUntil(createdAt, pauseMinutes) }
+          : {}),
       },
       select: conversationMessageEmitSelect,
     });
@@ -384,8 +400,10 @@ export async function sendAgentMessageWithFile(
 export async function sendWhatsAppTemplate(
   conversationId: string,
   agentId: string,
-  body: SendTemplateBody
+  body: SendTemplateBody,
+  options?: { senderType?: "agent" | "bot" }
 ) {
+  const senderType = options?.senderType ?? "agent";
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     select: {
@@ -393,7 +411,12 @@ export async function sendWhatsAppTemplate(
       inboxId: true,
       assigneeId: true,
       contact: { select: { isBlocked: true } },
-      inbox: { select: { channelType: true } },
+      inbox: {
+        select: {
+          channelType: true,
+          settings: { select: { botPauseMinutes: true } },
+        },
+      },
     },
   });
   if (!conversation) throw new NotFoundError("Conversación no encontrada");
@@ -418,7 +441,8 @@ export async function sendWhatsAppTemplate(
 
   const clientMessageId = body.clientMessageId?.trim() || null;
 
-  const willAutoAssign = shouldAutoAssignOnReply(conversation.assigneeId, false);
+  const willAutoAssign =
+    senderType === "agent" && shouldAutoAssignOnReply(conversation.assigneeId, false);
   const previousAssigneeId = conversation.assigneeId;
   const createdAt = new Date();
 
@@ -511,9 +535,9 @@ export async function sendWhatsAppTemplate(
       data: {
         conversationId,
         content,
-        senderType: "agent",
+        senderType,
         senderAgentId: agentId,
-        senderName: agent.name,
+        senderName: senderType === "bot" ? "Bot" : agent.name,
         isPrivate: false,
         contentType: "text",
         externalId: null,
@@ -526,11 +550,18 @@ export async function sendWhatsAppTemplate(
       include: messageCreateInclude(),
     });
 
+    const shouldPauseBot = senderType === "agent";
+    const pauseMinutes =
+      conversation.inbox.settings?.botPauseMinutes ?? DEFAULT_BOT_PAUSE_MINUTES;
+
     const conversationRow = await prisma.conversation.update({
       where: { id: conversationId },
       data: {
         lastMessageAt: createdAt,
         ...(autoAssign ? { assigneeId: agentId } : {}),
+        ...(shouldPauseBot
+          ? { botPausedUntil: nextBotPausedUntil(createdAt, pauseMinutes) }
+          : {}),
       },
       select: conversationMessageEmitSelect,
     });

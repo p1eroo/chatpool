@@ -16,10 +16,13 @@ import type { AssigneeFilter } from "@/store/conversationStore";
 import type { Conversation } from "@/types";
 import { cn } from "@/lib/utils";
 
-/**
- * Mías / Sin asignar = cola de trabajo (solo abiertas).
- * Todas = abiertas + cerradas (historial).
- */
+const statusTabs = [
+  { id: "open", label: "Abierto" },
+  { id: "resolved", label: "Cerrado" },
+] as const;
+
+type StatusFilter = (typeof statusTabs)[number]["id"];
+
 const assigneeTabs = [
   { id: "mine", label: "Mías" },
   { id: "unassigned", label: "Sin asignar" },
@@ -38,15 +41,8 @@ function matchesAssignee(
   return true;
 }
 
-function matchesAssigneeView(
-  conversation: Conversation,
-  assignee: AssigneeFilter,
-  currentAgentId?: string
-) {
-  if (!matchesAssignee(conversation, assignee, currentAgentId)) return false;
-  // Cola activa: solo abiertas. Todas incluye cerradas.
-  if (assignee !== "all" && conversation.status !== "open") return false;
-  return true;
+function matchesStatus(conversation: Conversation, status: StatusFilter) {
+  return conversation.status === status;
 }
 
 export function ConversationList() {
@@ -62,9 +58,13 @@ export function ConversationList() {
   const filterAssignee = useConversationStore((s) => s.filterAssignee);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
   const filterLabelId = useConversationStore((s) => s.filterLabelId);
+  const filterStatusRaw = useConversationStore((s) => s.filterStatus);
+  const filterStatus: StatusFilter =
+    filterStatusRaw === "resolved" ? "resolved" : "open";
   const openConversation = useConversationStore((s) => s.openConversation);
   const setFilterAssignee = useConversationStore((s) => s.setFilterAssignee);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
+  const setFilterStatus = useConversationStore((s) => s.setFilterStatus);
 
   const [search, setSearch] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -113,29 +113,42 @@ export function ConversationList() {
     return conversations.filter((c) => c.inboxId === filterInboxId);
   }, [conversations, filterInboxId]);
 
+  const statusFiltered = useMemo(
+    () => inboxFiltered.filter((c) => matchesStatus(c, filterStatus)),
+    [inboxFiltered, filterStatus]
+  );
+
   const assigneeCounts = useMemo(() => {
     return {
-      mine: inboxFiltered.filter((c) =>
-        matchesAssigneeView(c, "mine", currentAgent?.id)
+      mine: statusFiltered.filter((c) =>
+        matchesAssignee(c, "mine", currentAgent?.id)
       ).length,
-      unassigned: inboxFiltered.filter((c) =>
-        matchesAssigneeView(c, "unassigned", currentAgent?.id)
+      unassigned: statusFiltered.filter((c) =>
+        matchesAssignee(c, "unassigned", currentAgent?.id)
       ).length,
-      all: inboxFiltered.length,
+      all: statusFiltered.length,
     };
-  }, [inboxFiltered, currentAgent?.id]);
+  }, [statusFiltered, currentAgent?.id]);
 
   const filtered = useMemo(() => {
     let result = conversations;
+    result = result.filter((c) => matchesStatus(c, filterStatus));
     result = result.filter((c) =>
-      matchesAssigneeView(c, filterAssignee, currentAgent?.id)
+      matchesAssignee(c, filterAssignee, currentAgent?.id)
     );
     if (filterInboxId) result = result.filter((c) => c.inboxId === filterInboxId);
     if (filterLabelId) {
       result = result.filter((c) => c.labels.some((label) => label.id === filterLabelId));
     }
     return result;
-  }, [conversations, filterAssignee, filterInboxId, filterLabelId, currentAgent?.id]);
+  }, [
+    conversations,
+    filterStatus,
+    filterAssignee,
+    filterInboxId,
+    filterLabelId,
+    currentAgent?.id,
+  ]);
 
   const displayed = search
     ? filtered.filter(
@@ -153,9 +166,38 @@ export function ConversationList() {
     <div className="w-[320px] bg-[var(--color-bg-secondary)] border-r border-[var(--color-border-primary)] flex flex-col shrink-0 h-screen">
       <div className="px-4 pt-4 pb-0">
         <div className="mb-3 flex items-center justify-between gap-2" ref={headerRowRef}>
-          <h2 className="min-w-0 flex-1 truncate text-[var(--color-text-primary)] font-semibold text-[15px]">
-            {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
-          </h2>
+          <div className="min-w-0 flex-1 flex items-center gap-2">
+            <h2 className="min-w-0 truncate text-[var(--color-text-primary)] font-semibold text-[15px]">
+              {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
+            </h2>
+
+            <div
+              className="flex shrink-0 rounded-full bg-[var(--color-bg-tertiary)] p-0.5"
+              role="tablist"
+              aria-label="Filtro por estado"
+            >
+              {statusTabs.map((tab) => {
+                const active = filterStatus === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setFilterStatus(tab.id)}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-[11px] font-medium leading-none transition-colors",
+                      active
+                        ? "bg-[var(--color-bg-secondary)] text-[var(--control-selected-fg)] shadow-sm"
+                        : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="relative shrink-0">
             <button

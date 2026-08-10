@@ -74,6 +74,8 @@ export interface InboxSettings {
   phoneNumberId?: string;
   businessAccountId?: string;
   apiKey?: string;
+  /** Minutos de pausa del bot tras mensaje público de agente (1–1440). */
+  botPauseMinutes: number;
 }
 
 export interface IntegrationAccount {
@@ -187,6 +189,8 @@ export interface Conversation {
   createdAt: Date;
   updatedAt: Date;
   lastMessageAt: Date | null;
+  /** Hasta cuándo el bot está pausado; null = bot activo. */
+  botPausedUntil: Date | null;
   isTyping: boolean;
   channelType: ChannelType;
 }

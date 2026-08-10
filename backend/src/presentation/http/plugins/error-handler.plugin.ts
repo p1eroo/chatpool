@@ -13,6 +13,7 @@ export function registerErrorHandler(app: FastifyInstance) {
       return reply.status(error.statusCode).send({
         message: error.message,
         code: error.code,
+        ...error.details,
       });
     }
 

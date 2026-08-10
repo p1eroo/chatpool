@@ -28,6 +28,7 @@ import { contactApiService } from "@/services/contactApiService";
 import { stickerApiService } from "@/services/stickerApiService";
 import { useUIStore } from "@/store/uiStore";
 import { useInboxStore } from "@/store/inboxStore";
+import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 
 export type AssigneeFilter = "mine" | "unassigned" | "all";
 
@@ -444,10 +445,15 @@ function appendMessageToState(
     !isPrivate &&
     newMessage.senderType === "agent" &&
     Boolean(newMessage.senderId);
+  const shouldPauseBot =
+    !isPrivate && newMessage.senderType === "agent";
   const conversationBefore = get().conversations.find((c) => c.id === conversationId);
   const willAutoAssign = Boolean(
     shouldAutoAssign && conversationBefore && !conversationBefore.assignee && newMessage.senderId
   );
+  const pauseMinutes =
+    useInboxSettingsStore.getState().getByInboxId(conversationBefore?.inboxId ?? "")
+      ?.botPauseMinutes ?? 15;
 
   set((state) => ({
     messages: {
@@ -474,6 +480,9 @@ function appendMessageToState(
             affectsSort && appendedToEnd
               ? newMessage.createdAt
               : c.lastMessageAt,
+          botPausedUntil: shouldPauseBot
+            ? new Date(newMessage.createdAt.getTime() + pauseMinutes * 60 * 1000)
+            : c.botPausedUntil,
           updatedAt: new Date(),
         };
       })
@@ -784,7 +793,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messagesLoadedFromApi: {},
   messagesLoading: {},
   templateWindowOverrides: {},
-  filterStatus: "all",
+  filterStatus: "open",
   filterAssignee: "mine",
   filterInboxId: getInitialInboxFilter(),
   conversationsInboxId: null,
@@ -1399,7 +1408,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       conversationsInboxId: null,
       filterLabelId: null,
       activeConversationId: null,
-      filterStatus: "all",
+      filterStatus: "open",
       filterAssignee: "all",
     });
 
@@ -1427,6 +1436,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       contact,
       lastMessage: null,
       lastMessageAt: null,
+      botPausedUntil: null,
       unreadCount: 0,
       status: "open",
       priority: "none",
@@ -1914,16 +1924,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   getFilteredConversations: () => {
-    const { conversations, filterAssignee, filterInboxId, filterLabelId } = get();
+    const { conversations, filterAssignee, filterInboxId, filterLabelId, filterStatus } =
+      get();
     let filtered = conversations;
-    // Mías / Sin asignar = solo abiertas. Todas = abiertas + cerradas.
+    if (filterStatus === "open" || filterStatus === "resolved") {
+      filtered = filtered.filter((c) => c.status === filterStatus);
+    }
     if (filterAssignee === "mine") {
       const agentId = getCurrentAgentId();
-      filtered = filtered.filter(
-        (c) => agentId && c.assignee?.id === agentId && c.status === "open"
-      );
+      filtered = filtered.filter((c) => agentId && c.assignee?.id === agentId);
     } else if (filterAssignee === "unassigned") {
-      filtered = filtered.filter((c) => !c.assignee && c.status === "open");
+      filtered = filtered.filter((c) => !c.assignee);
     }
     if (filterInboxId) {
       filtered = filtered.filter((c) => c.inboxId === filterInboxId);

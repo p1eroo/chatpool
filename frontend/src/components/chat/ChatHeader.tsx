@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { Conversation } from "@/types";
 import { useAgentPermissions } from "@/hooks/useAgentPermissions";
+import { useBotPauseCountdown } from "@/hooks/useBotPauseCountdown";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const botPauseLabel = useBotPauseCountdown(conversation?.botPausedUntil);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -95,6 +97,14 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
               <ChannelIcon className="w-3 h-3" />
               {channelLabels[channelType]}
             </span>
+            {botPauseLabel && (
+              <span
+                className="text-[11px] font-medium text-sky-600 dark:text-sky-300 bg-sky-500/15 px-1.5 py-0.5 rounded-full tabular-nums"
+                title="El bot no responderá hasta que expire el tiempo"
+              >
+                Bot pausado · {botPauseLabel}
+              </span>
+            )}
           </div>
           {contact.isBlocked ? (
             <p className="text-[11px] text-red-400/80">Contacto bloqueado</p>

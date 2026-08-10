@@ -5,7 +5,12 @@ import {
   getInboxById,
   listInboxes,
   listInboxSettings,
+  updateInboxSettings,
 } from "../../../application/inboxes/inboxes.service.js";
+import {
+  BOT_PAUSE_MINUTES_MAX,
+  BOT_PAUSE_MINUTES_MIN,
+} from "../../../shared/bot-pause.js";
 import {
   createLabelForInbox,
   listAllLabels,
@@ -41,6 +46,15 @@ const createLabelSchema = z.object({
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
 });
 
+const updateInboxSettingsSchema = z.object({
+  botPauseMinutes: z
+    .number()
+    .int()
+    .min(BOT_PAUSE_MINUTES_MIN)
+    .max(BOT_PAUSE_MINUTES_MAX)
+    .optional(),
+});
+
 export async function inboxesRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authenticate);
 
@@ -65,6 +79,16 @@ export async function inboxesRoutes(app: FastifyInstance) {
     const body = createInboxSchema.parse(request.body);
     return reply.status(201).send(await createInbox(body));
   });
+
+  app.patch(
+    "/inboxes/:id/settings",
+    { preHandler: requirePermission("manageInboxes") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = updateInboxSettingsSchema.parse(request.body ?? {});
+      return reply.send(await updateInboxSettings(id, body));
+    }
+  );
 
   app.get("/inboxes/:inboxId/labels", async (request, reply) => {
     const { inboxId } = request.params as { inboxId: string };

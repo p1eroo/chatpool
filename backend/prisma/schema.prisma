@@ -156,6 +156,8 @@ model InboxSettings {
   phoneNumberId      String?             @map("phone_number_id")
   businessAccountId  String?             @map("business_account_id")
   accessToken        String?             @map("access_token")
+  /// Minutos que el bot queda pausado tras un mensaje público de agente.
+  botPauseMinutes    Int                 @default(15) @map("bot_pause_minutes")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
@@ -224,6 +226,8 @@ model Conversation {
   createdAt   DateTime            @default(now()) @map("created_at")
   updatedAt   DateTime            @updatedAt @map("updated_at")
   lastMessageAt DateTime?         @map("last_message_at")
+  /// Hasta cuándo el bot (Application API) está pausado; null = bot activo.
+  botPausedUntil DateTime?        @map("bot_paused_until")
 
   /// Una sola conversación open por contacto/bandeja (índice parcial en migración SQL).
   @@map("conversations")

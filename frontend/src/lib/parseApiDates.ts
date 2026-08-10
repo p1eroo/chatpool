@@ -13,11 +13,17 @@ export function parseMessage(
   };
 }
 
+function parseOptionalDate(value: string | Date | null | undefined): Date | null {
+  if (value == null) return null;
+  return value instanceof Date ? value : new Date(value);
+}
+
 export function parseConversation(
   raw: Conversation & {
     createdAt: string | Date;
     updatedAt: string | Date;
     lastMessageAt?: string | Date | null;
+    botPausedUntil?: string | Date | null;
     lastMessage: (Message & { createdAt: string | Date }) | null;
   }
 ): Conversation {
@@ -25,12 +31,8 @@ export function parseConversation(
     ...raw,
     createdAt: raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt),
     updatedAt: raw.updatedAt instanceof Date ? raw.updatedAt : new Date(raw.updatedAt),
-    lastMessageAt:
-      raw.lastMessageAt == null
-        ? null
-        : raw.lastMessageAt instanceof Date
-          ? raw.lastMessageAt
-          : new Date(raw.lastMessageAt),
+    lastMessageAt: parseOptionalDate(raw.lastMessageAt),
+    botPausedUntil: parseOptionalDate(raw.botPausedUntil),
     lastMessage: raw.lastMessage ? parseMessage(raw.lastMessage) : null,
   };
 }

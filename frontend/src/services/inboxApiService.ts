@@ -13,6 +13,16 @@ export const inboxApiService = {
     return apiRequest<InboxSettings[]>("/inboxes/settings");
   },
 
+  async updateSettings(
+    inboxId: string,
+    patch: Pick<InboxSettings, "botPauseMinutes">
+  ): Promise<InboxSettings> {
+    return apiRequest<InboxSettings>(`/inboxes/${inboxId}/settings`, {
+      method: "PATCH",
+      body: patch,
+    });
+  },
+
   async listWhatsAppTemplates(inboxId: string): Promise<WhatsAppTemplate[]> {
     return apiRequest<WhatsAppTemplate[]>(`/inboxes/${inboxId}/whatsapp-templates`);
   },

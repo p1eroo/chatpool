@@ -122,6 +122,7 @@ export function CreateInboxWizardPage() {
       phoneNumberId: phoneNumberId.trim() || undefined,
       businessAccountId: businessAccountId.trim() || undefined,
       apiKey: apiKey.trim() || undefined,
+      botPauseMinutes: 15,
     });
 
     setCreatedInboxId(inboxId);

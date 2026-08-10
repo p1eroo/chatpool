@@ -50,7 +50,7 @@ export function broadcastMessageCreated(message: Message, conversation: Conversa
       message_type:
         message.senderType === "contact"
           ? "incoming"
-          : message.senderType === "agent"
+          : message.senderType === "agent" || message.senderType === "bot"
             ? "outgoing"
             : "activity",
       private: message.isPrivate,
@@ -66,6 +66,7 @@ export function broadcastMessageCreated(message: Message, conversation: Conversa
         inbox_id: inboxId,
         status: conversation.status,
         channel_type: conversation.channelType,
+        bot_paused_until: conversation.botPausedUntil ?? null,
       },
       inbox: {
         id: inboxId,

@@ -13,11 +13,16 @@ import { useAgentStore } from "@/store/agentStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useUIStore } from "@/store/uiStore";
+import { inboxApiService } from "@/services/inboxApiService";
+import { env } from "@/config/env";
 import {
   InboxStatusBadge,
   SettingsField,
   SettingsSection,
 } from "@/components/settings/SettingsSection";
+
+const BOT_PAUSE_MIN = 1;
+const BOT_PAUSE_MAX = 1440;
 
 const channelLabels: Record<string, string> = {
   whatsapp: "WhatsApp",
@@ -37,8 +42,11 @@ export function InboxDetailPage() {
   const { inboxId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [botPauseMinutes, setBotPauseMinutes] = useState("");
+  const [savingBot, setSavingBot] = useState(false);
   const showToast = useUIStore((s) => s.showToast);
   const getByInboxId = useInboxSettingsStore((s) => s.getByInboxId);
+  const updateSettings = useInboxSettingsStore((s) => s.updateSettings);
   const getInboxById = useInboxStore((s) => s.getInboxById);
   const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
   const createLabel = useLabelStore((s) => s.createLabel);
@@ -59,9 +67,44 @@ export function InboxDetailPage() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (config) {
+      setBotPauseMinutes(String(config.botPauseMinutes ?? 15));
+    }
+  }, [config?.inboxId, config?.botPauseMinutes]);
+
   if (!inbox || !config) {
     return <Navigate to="/settings/inboxes" replace />;
   }
+
+  const handleSaveBotPause = async () => {
+    const parsed = Number(botPauseMinutes);
+    if (
+      !Number.isInteger(parsed) ||
+      parsed < BOT_PAUSE_MIN ||
+      parsed > BOT_PAUSE_MAX
+    ) {
+      showToast(`Ingresa un número entero entre ${BOT_PAUSE_MIN} y ${BOT_PAUSE_MAX}`);
+      return;
+    }
+
+    setSavingBot(true);
+    try {
+      if (env.useMock) {
+        updateSettings(inboxId, { botPauseMinutes: parsed });
+      } else {
+        const updated = await inboxApiService.updateSettings(inboxId, {
+          botPauseMinutes: parsed,
+        });
+        updateSettings(inboxId, { botPauseMinutes: updated.botPauseMinutes });
+      }
+      showToast("Configuración del bot guardada");
+    } catch {
+      showToast("No se pudo guardar la configuración del bot");
+    } finally {
+      setSavingBot(false);
+    }
+  };
 
   const copyWebhook = () => {
     if (!config.webhookUrl) return;
@@ -121,6 +164,41 @@ export function InboxDetailPage() {
         <SettingsField label="Identificador" value={config.detail} mono />
         <SettingsField label="Estado" value={<InboxStatusBadge status={config.status} />} />
         {config.description && <SettingsField label="Descripción" value={config.description} />}
+      </SettingsSection>
+
+      <SettingsSection
+        title="Bot"
+        description="Tras un mensaje del agente, el bot no responde durante este tiempo"
+        action={
+          <button
+            type="button"
+            onClick={() => void handleSaveBotPause()}
+            disabled={savingBot}
+            className="h-8 px-3 text-xs font-medium bg-[var(--color-brand)] text-white rounded-lg hover:bg-[var(--color-brand-light)] transition-colors disabled:opacity-50"
+          >
+            {savingBot ? "Guardando…" : "Guardar"}
+          </button>
+        }
+      >
+        <label className="flex items-start justify-between gap-4 py-2.5">
+          <span className="text-[13px] text-[var(--color-text-muted)] shrink-0 pt-2">
+            Minutos de pausa
+          </span>
+          <div className="flex flex-col items-end gap-1 min-w-0">
+            <input
+              type="number"
+              min={BOT_PAUSE_MIN}
+              max={BOT_PAUSE_MAX}
+              step={1}
+              value={botPauseMinutes}
+              onChange={(e) => setBotPauseMinutes(e.target.value)}
+              className="w-28 bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-sm rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)] text-right tabular-nums"
+            />
+            <span className="text-[11px] text-[var(--color-text-muted)]">
+              Entre {BOT_PAUSE_MIN} y {BOT_PAUSE_MAX} minutos
+            </span>
+          </div>
+        </label>
       </SettingsSection>
 
       <SettingsSection

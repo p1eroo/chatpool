@@ -155,6 +155,11 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
               </div>
             )}
             <div className="flex items-center gap-1.5 ml-auto shrink-0">
+              {lastMessage?.senderType === "bot" && !lastMessage.isPrivate && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-600 dark:text-sky-300">
+                  Bot
+                </span>
+              )}
               <span
                 className={cn(
                   "text-[10px] font-medium px-1.5 py-0.5 rounded",

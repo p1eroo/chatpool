@@ -33,7 +33,7 @@ export function messageSenderDisplayName(
     // Mismo nombre que el listado / ficha del contacto (no el profile.name de WhatsApp por mensaje).
     return contactFallback?.trim() || message.senderName?.trim() || "Contacto";
   }
-  if (message.senderName?.trim()) return message.senderName.trim();
   if (message.senderType === "bot") return "Bot";
+  if (message.senderName?.trim()) return message.senderName.trim();
   return "Agente";
 }

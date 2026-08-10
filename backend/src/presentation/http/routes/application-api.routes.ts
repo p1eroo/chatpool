@@ -20,6 +20,8 @@ import { startOutboundConversation } from "../../../application/conversations/st
 import { listInboxes } from "../../../application/inboxes/inboxes.service.js";
 import { listAllLabels } from "../../../application/labels/labels.service.js";
 import { AppError, NotFoundError } from "../../../domain/errors.js";
+import { prisma } from "../../../infrastructure/database/prisma.client.js";
+import { assertBotNotPaused } from "../../../shared/bot-pause.js";
 
 const createMessageSchema = z
   .object({
@@ -227,6 +229,13 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       const body = createMessageSchema.parse(request.body ?? {});
       const agentId = await resolveApiActorAgentId();
 
+      const conversation = await prisma.conversation.findUnique({
+        where: { id },
+        select: { id: true, botPausedUntil: true },
+      });
+      if (!conversation) throw new NotFoundError("Conversación no encontrada");
+      assertBotNotPaused(conversation.botPausedUntil);
+
       if (body.template_params) {
         const template = body.template_params;
         const bodyParameters = orderedParamsFromRecord(template.processed_params?.body);
@@ -240,25 +249,37 @@ export async function applicationApiRoutes(app: FastifyInstance) {
           })
           .filter((item): item is { index: number; text: string } => Boolean(item));
 
-        const message = await sendWhatsAppTemplate(id, agentId, {
-          templateName: template.name,
-          language: template.language,
-          content: body.content,
-          bodyParameters,
-          headerParameters,
-          buttonUrlParameters: buttonUrlParameters?.length ? buttonUrlParameters : undefined,
-          clientMessageId: body.client_message_id ?? body.clientMessageId,
-        });
+        const message = await sendWhatsAppTemplate(
+          id,
+          agentId,
+          {
+            templateName: template.name,
+            language: template.language,
+            content: body.content,
+            bodyParameters,
+            headerParameters,
+            buttonUrlParameters: buttonUrlParameters?.length
+              ? buttonUrlParameters
+              : undefined,
+            clientMessageId: body.client_message_id ?? body.clientMessageId,
+          },
+          { senderType: "bot" }
+        );
 
         return reply.status(200).send(message);
       }
 
-      const message = await sendAgentMessage(id, agentId, {
-        content: body.content,
-        isPrivate: body.private ?? body.isPrivate,
-        replyToMessageId: body.reply_to_message_id ?? body.replyToMessageId,
-        clientMessageId: body.client_message_id ?? body.clientMessageId,
-      });
+      const message = await sendAgentMessage(
+        id,
+        agentId,
+        {
+          content: body.content,
+          isPrivate: body.private ?? body.isPrivate,
+          replyToMessageId: body.reply_to_message_id ?? body.replyToMessageId,
+          clientMessageId: body.client_message_id ?? body.clientMessageId,
+        },
+        { senderType: "bot" }
+      );
 
       return reply.status(200).send(message);
     }

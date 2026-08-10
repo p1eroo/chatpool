@@ -58,9 +58,12 @@ export function MessageBubble({
   }
 
   const isAgent = isOutboundMessage(message);
+  const isBot = message.senderType === "bot";
   const isPrivate = message.isPrivate;
   const isAttachedNote = isPrivate && !!message.attachedToMessageId;
-  const noteAlignEnd = attachedToMessage?.senderType === "agent";
+  const noteAlignEnd =
+    attachedToMessage?.senderType === "agent" ||
+    attachedToMessage?.senderType === "bot";
   const showSenderAvatar = isLastInGroup && !isPrivate;
   const senderLabel = messageSenderDisplayName(message, contactName);
 
@@ -197,9 +200,11 @@ export function MessageBubble({
                     ? "p-1.5"
                     : "px-3.5 py-2.5",
               message.contentType !== "sticker" &&
-                (isAgent
-                  ? "bg-[var(--color-bubble-out)] text-white rounded-2xl rounded-br-md"
-                  : "bg-[var(--color-bubble-in)] text-[var(--color-text-primary)] rounded-2xl rounded-bl-md")
+                (isBot
+                  ? "bg-[var(--color-bubble-bot)] text-white rounded-2xl rounded-br-md"
+                  : isAgent
+                    ? "bg-[var(--color-bubble-out)] text-white rounded-2xl rounded-br-md"
+                    : "bg-[var(--color-bubble-in)] text-[var(--color-text-primary)] rounded-2xl rounded-bl-md")
             )}
           >
             {message.replyTo && (
@@ -264,6 +269,7 @@ function MessageMenuButton({
 }
 
 function getReplyAuthorLabel(reply: MessageReply, contactName?: string): string {
+  if (reply.senderType === "bot") return "Bot";
   if (reply.senderType === "agent") return reply.senderName || "Agente";
   return contactName?.trim() || reply.senderName || "Contacto";
 }

@@ -100,6 +100,8 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;
+  /** ISO hasta cuándo el bot está pausado; null = bot activo. */
+  botPausedUntil: string | null;
   isTyping: boolean;
   channelType: ChannelType;
 }
@@ -125,6 +127,12 @@ export interface InboxSettings {
   whatsappProvider?: "meta-cloud";
   phoneNumberId?: string;
   businessAccountId?: string;
+  /** Minutos de pausa del bot tras mensaje público de agente (1–1440). */
+  botPauseMinutes: number;
+}
+
+export interface UpdateInboxSettingsBody {
+  botPauseMinutes?: number;
 }
 
 export interface CreateAgentBody {

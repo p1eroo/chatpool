@@ -187,6 +187,7 @@ export function mapConversation(
     createdAt: Date;
     updatedAt: Date;
     lastMessageAt: Date | null;
+    botPausedUntil?: Date | null;
     contact: Parameters<typeof mapContact>[0];
     assignee: Parameters<typeof mapAgentProfile>[0] | null;
     inbox: { channelType: string };
@@ -210,6 +211,7 @@ export function mapConversation(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
+    botPausedUntil: row.botPausedUntil?.toISOString() ?? null,
     isTyping: row.isTyping,
     channelType: row.inbox.channelType as ChannelType,
   };
@@ -258,6 +260,7 @@ export function mapInboxSettings(settings: {
   whatsappProvider: string | null;
   phoneNumberId: string | null;
   businessAccountId: string | null;
+  botPauseMinutes?: number | null;
   assignedAgentIds?: string[];
 }): InboxSettings {
   return {
@@ -272,6 +275,7 @@ export function mapInboxSettings(settings: {
     whatsappProvider: (settings.whatsappProvider as InboxSettings["whatsappProvider"]) ?? undefined,
     phoneNumberId: settings.phoneNumberId ?? undefined,
     businessAccountId: settings.businessAccountId ?? undefined,
+    botPauseMinutes: settings.botPauseMinutes ?? 15,
     assignedAgentIds: settings.assignedAgentIds ?? [],
   };
 }

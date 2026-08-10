@@ -27,9 +27,10 @@
   --color-success: #06d6a0;
   --color-warning: #ffd166;
   --color-danger: #ef476f;
-  /* Burbujas: saliente suave (menos saturado que el brand) */
+  /* Burbujas: saliente suave (menos saturado que el brand); bot = azul distinto del agente */
   --color-bubble-in: #e9ecef;
   --color-bubble-out: #6a8f78;
+  --color-bubble-bot: #5b7c99;
   --color-note-bg: #fff8e1;
   --color-note-border: #ffd54f;
   --color-note-text: #795548;
@@ -64,9 +65,10 @@
   --color-success: #06d6a0;
   --color-warning: #ffd166;
   --color-danger: #ef476f;
-  /* Entrante = gris UI; saliente = sage oscuro (menos cansado que verde vivo) */
+  /* Entrante = gris UI; saliente = sage oscuro; bot = azul pizarra */
   --color-bubble-in: #383838;
   --color-bubble-out: #3d5648;
+  --color-bubble-bot: #3d5570;
   --color-note-bg: #3a3518;
   --color-note-border: #a68a2e;
   --color-note-text: #ffd54f;
