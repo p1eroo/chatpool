@@ -1,6 +1,11 @@
 import { metaApiClient } from "../../infrastructure/meta/meta-api.client.js";
 import { uploadConversationMedia } from "./media-storage.service.js";
 import type { MessageContentType } from "@prisma/client";
+import {
+  formatLocationContent,
+  parseMessageLocation,
+  type MessageLocationPayload,
+} from "../../shared/message-location.js";
 
 interface MetaMediaPayload {
   id?: string;
@@ -16,6 +21,7 @@ interface ParsedIncomingMedia {
   fileName: string;
   mimeType: string;
   mediaId: string;
+  location?: MessageLocationPayload;
 }
 
 function extensionFromMime(mimeType: string): string {
@@ -50,6 +56,12 @@ export function parseIncomingMetaMedia(
     voice?: MetaMediaPayload;
     video?: MetaMediaPayload;
     sticker?: MetaMediaPayload;
+    location?: {
+      latitude?: number | string;
+      longitude?: number | string;
+      name?: string;
+      address?: string;
+    };
   }
 ): ParsedIncomingMedia | null {
   switch (type) {
@@ -64,6 +76,18 @@ export function parseIncomingMetaMedia(
         };
       }
       return null;
+    case "location": {
+      const location = parseMessageLocation(payload.location);
+      if (!location) return null;
+      return {
+        contentType: "location",
+        content: formatLocationContent(location),
+        fileName: "",
+        mimeType: "application/geo+json",
+        mediaId: "",
+        location,
+      };
+    }
     case "document": {
       const media = payload.document;
       if (!media?.id) return null;

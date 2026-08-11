@@ -55,6 +55,8 @@ const updateInboxSettingsSchema = z.object({
     .min(BOT_PAUSE_MINUTES_MIN)
     .max(BOT_PAUSE_MINUTES_MAX)
     .optional(),
+  autoAssignEnabled: z.boolean().optional(),
+  autoAssignAgentIds: z.array(z.string()).optional(),
 });
 
 export async function inboxesRoutes(app: FastifyInstance) {

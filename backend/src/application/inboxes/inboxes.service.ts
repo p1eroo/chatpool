@@ -14,6 +14,23 @@ import {
   clampBotPauseMinutes,
 } from "../../shared/bot-pause.js";
 
+type InboxAgentRow = { agentId: string; autoAssign: boolean };
+
+function mapSettingsWithAgents(
+  settings: Parameters<typeof mapInboxSettings>[0] & {
+    autoAssignEnabled?: boolean | null;
+  },
+  inboxAgents: InboxAgentRow[]
+) {
+  return mapInboxSettings({
+    ...settings,
+    assignedAgentIds: inboxAgents.map((row) => row.agentId),
+    autoAssignAgentIds: inboxAgents
+      .filter((row) => row.autoAssign)
+      .map((row) => row.agentId),
+  });
+}
+
 export async function listInboxes() {
   const inboxes = await prisma.inbox.findMany({
     include: {
@@ -42,12 +59,7 @@ export async function listInboxSettings() {
     }
   }
 
-  return settings.map((item) =>
-    mapInboxSettings({
-      ...item,
-      assignedAgentIds: item.inbox.inboxAgents.map((row) => row.agentId),
-    })
-  );
+  return settings.map((item) => mapSettingsWithAgents(item, item.inbox.inboxAgents));
 }
 
 export async function getInboxById(inboxId: string) {
@@ -64,16 +76,30 @@ export async function getInboxById(inboxId: string) {
 
   return {
     inbox: mapInbox({ ...inbox, conversations: inbox.conversations }),
-    settings: mapInboxSettings({
-      ...inbox.settings,
-      assignedAgentIds: inbox.inboxAgents.map((row) => row.agentId),
-    }),
+    settings: mapSettingsWithAgents(inbox.settings, inbox.inboxAgents),
   };
 }
 
 export async function createInbox(input: CreateInboxBody) {
   if (!isImplementedChannelType(input.channelType)) {
     throw new AppError("Este canal aún no está disponible para crear bandejas");
+  }
+
+  const assignedAgentIds = [
+    ...new Set((input.assignedAgentIds ?? []).map((id) => id.trim()).filter(Boolean)),
+  ];
+  if (assignedAgentIds.length > 0) {
+    const existingAgents = await prisma.agent.findMany({
+      where: { id: { in: assignedAgentIds } },
+      select: { id: true },
+    });
+    if (existingAgents.length !== assignedAgentIds.length) {
+      throw new AppError(
+        "Uno o más agentes asignados no existen",
+        422,
+        "INVALID_ASSIGNED_AGENTS"
+      );
+    }
   }
 
   const provider = getProviderForChannel(input.channelType);
@@ -94,10 +120,11 @@ export async function createInbox(input: CreateInboxBody) {
           phoneNumberId: input.phoneNumberId?.trim(),
           businessAccountId: input.businessAccountId?.trim(),
           accessToken: input.accessToken?.trim(),
+          autoAssignEnabled: false,
         },
       },
       inboxAgents: {
-        create: (input.assignedAgentIds ?? []).map((agentId) => ({ agentId })),
+        create: assignedAgentIds.map((agentId) => ({ agentId, autoAssign: true })),
       },
     },
     include: {
@@ -120,10 +147,7 @@ export async function createInbox(input: CreateInboxBody) {
 
   return {
     inbox: mapInbox({ ...inbox, conversations: inbox.conversations }),
-    settings: mapInboxSettings({
-      ...inbox.settings!,
-      assignedAgentIds: inbox.inboxAgents.map((row) => row.agentId),
-    }),
+    settings: mapSettingsWithAgents(inbox.settings!, inbox.inboxAgents),
   };
 }
 
@@ -137,7 +161,9 @@ export async function updateInboxSettings(
   });
   if (!existing) throw new NotFoundError("Bandeja no encontrada");
 
-  const data: { botPauseMinutes?: number } = {};
+  const membershipIds = new Set(existing.inbox.inboxAgents.map((row) => row.agentId));
+  const data: { botPauseMinutes?: number; autoAssignEnabled?: boolean } = {};
+
   if (body.botPauseMinutes !== undefined) {
     if (
       !Number.isFinite(body.botPauseMinutes) ||
@@ -153,21 +179,52 @@ export async function updateInboxSettings(
     data.botPauseMinutes = clampBotPauseMinutes(body.botPauseMinutes);
   }
 
-  if (Object.keys(data).length === 0) {
-    return mapInboxSettings({
-      ...existing,
-      assignedAgentIds: existing.inbox.inboxAgents.map((row) => row.agentId),
-    });
+  if (body.autoAssignEnabled !== undefined) {
+    data.autoAssignEnabled = body.autoAssignEnabled;
   }
 
-  const updated = await prisma.inboxSettings.update({
-    where: { inboxId },
-    data,
-    include: { inbox: { include: { inboxAgents: true } } },
-  });
+  if (body.autoAssignAgentIds !== undefined) {
+    const uniquePoolIds = [
+      ...new Set(body.autoAssignAgentIds.map((id) => id.trim()).filter(Boolean)),
+    ];
+    for (const agentId of uniquePoolIds) {
+      if (!membershipIds.has(agentId)) {
+        throw new AppError(
+          "Uno o más agentes del pool no pertenecen a esta bandeja",
+          422,
+          "INVALID_AUTO_ASSIGN_AGENTS"
+        );
+      }
+    }
 
-  return mapInboxSettings({
-    ...updated,
-    assignedAgentIds: updated.inbox.inboxAgents.map((row) => row.agentId),
-  });
+    const inPool = new Set(uniquePoolIds);
+    await prisma.$transaction(
+      existing.inbox.inboxAgents.map((row) =>
+        prisma.inboxAgent.update({
+          where: {
+            inboxId_agentId: { inboxId, agentId: row.agentId },
+          },
+          data: { autoAssign: inPool.has(row.agentId) },
+        })
+      )
+    );
+  }
+
+  if (Object.keys(data).length === 0 && body.autoAssignAgentIds === undefined) {
+    return mapSettingsWithAgents(existing, existing.inbox.inboxAgents);
+  }
+
+  const updated =
+    Object.keys(data).length > 0
+      ? await prisma.inboxSettings.update({
+          where: { inboxId },
+          data,
+          include: { inbox: { include: { inboxAgents: true } } },
+        })
+      : await prisma.inboxSettings.findUniqueOrThrow({
+          where: { inboxId },
+          include: { inbox: { include: { inboxAgents: true } } },
+        });
+
+  return mapSettingsWithAgents(updated, updated.inbox.inboxAgents);
 }

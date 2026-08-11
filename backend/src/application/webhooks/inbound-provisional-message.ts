@@ -36,6 +36,12 @@ interface InboundWebhookMessage {
   voice?: { id?: string; mime_type?: string };
   video?: { id?: string; mime_type?: string; caption?: string };
   sticker?: { id?: string; mime_type?: string };
+  location?: {
+    latitude?: number | string;
+    longitude?: number | string;
+    name?: string;
+    address?: string;
+  };
 }
 
 export function parseInboundWebhookContent(
@@ -47,6 +53,7 @@ export function parseInboundWebhookContent(
   fileName: string | null;
   mimeType: string | null;
   mediaExternalId: string | null;
+  location: Message["location"] | null;
 } {
   const parsed = parseIncomingMetaMedia(message.type, messageId, message);
   const fallbackContent = `[${message.type ?? "mensaje"}]`;
@@ -58,6 +65,7 @@ export function parseInboundWebhookContent(
       fileName: null,
       mimeType: null,
       mediaExternalId: null,
+      location: null,
     };
   }
 
@@ -68,15 +76,17 @@ export function parseInboundWebhookContent(
       fileName: null,
       mimeType: null,
       mediaExternalId: null,
+      location: null,
     };
   }
 
   return {
     content: parsed.content || parsed.fileName || fallbackContent,
     contentType: parsed.contentType,
-    fileName: parsed.fileName,
-    mimeType: parsed.mimeType,
+    fileName: parsed.fileName || null,
+    mimeType: parsed.mimeType || null,
     mediaExternalId: parsed.mediaId || null,
+    location: parsed.location ?? null,
   };
 }
 
@@ -88,10 +98,8 @@ export function buildInboundProvisionalMessage(params: {
   contactName: string;
   message: InboundWebhookMessage;
 }): Message {
-  const { content, contentType, fileName, mimeType, mediaExternalId } = parseInboundWebhookContent(
-    params.externalId,
-    params.message
-  );
+  const { content, contentType, fileName, mimeType, mediaExternalId, location } =
+    parseInboundWebhookContent(params.externalId, params.message);
   const createdAt = parseMetaMessageTimestamp(params.message.timestamp);
 
   return {
@@ -104,10 +112,11 @@ export function buildInboundProvisionalMessage(params: {
     isPrivate: false,
     contentType,
     fileName: fileName ?? undefined,
+    location: location ?? undefined,
     externalId: params.externalId,
     createdAt: createdAt.toISOString(),
     status: "delivered",
-    ...(mediaExternalId && contentType !== "text"
+    ...(mediaExternalId && contentType !== "text" && contentType !== "location"
       ? {
           attachmentUrl: `/conversations/${params.conversationId}/messages/${provisionalInboundMessageId(params.externalId)}/attachment`,
         }

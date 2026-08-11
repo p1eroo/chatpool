@@ -69,6 +69,9 @@ export interface InboxSettings {
   /** Verify token para el challenge GET de Meta (webhook por bandeja). */
   webhookVerifyToken?: string;
   assignedAgentIds: string[];
+  /** Subconjunto de assignedAgentIds que participan en autoasignación. */
+  autoAssignAgentIds: string[];
+  autoAssignEnabled: boolean;
   description?: string;
   whatsappProvider?: "meta-cloud";
   phoneNumberId?: string;
@@ -119,6 +122,13 @@ export interface LinkPreview {
   siteName?: string;
 }
 
+export interface MessageLocation {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
+}
+
 export interface Message {
   id: string;
   /** Id estable en UI (p. ej. pending-*) para no remontar al confirmar el envío. */
@@ -133,13 +143,14 @@ export interface Message {
   isPrivate: boolean;
   attachedToMessageId?: string;
   replyTo?: MessageReply;
-  contentType: "text" | "image" | "file" | "audio" | "sticker";
+  contentType: "text" | "image" | "file" | "audio" | "sticker" | "location";
   audioUrl?: string;
   audioDuration?: number;
   fileName?: string;
   fileSize?: number;
   fileUrl?: string;
   attachmentUrl?: string;
+  location?: MessageLocation;
   externalId?: string;
   sortOrder?: number;
   createdAt: Date;

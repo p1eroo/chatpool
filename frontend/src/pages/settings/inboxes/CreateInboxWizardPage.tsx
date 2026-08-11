@@ -117,6 +117,8 @@ export function CreateInboxWizardPage() {
       providerResource: trimmedDetail,
       webhookUrl: provider === "meta" ? buildInboxWebhookUrl("meta", inboxId) : undefined,
       assignedAgentIds: selectedAgentIds,
+      autoAssignAgentIds: selectedAgentIds,
+      autoAssignEnabled: false,
       description: description.trim() || undefined,
       whatsappProvider: channelType === "whatsapp" ? "meta-cloud" : undefined,
       phoneNumberId: phoneNumberId.trim() || undefined,

@@ -11,7 +11,7 @@ import {
   isOutboundMessage,
   messageSenderDisplayName,
 } from "@/lib/messageSenderGroup";
-import { Check, CheckCheck, Clock, Mic, MoreVertical, Pause, Play } from "lucide-react";
+import { Check, CheckCheck, Clock, MapPin, Mic, MoreVertical, Pause, Play } from "lucide-react";
 import { FileAttachmentCard } from "./FileAttachmentCard";
 import { WAVEFORM_BAR_COUNT, formatVoiceTime } from "@/hooks/useVoiceRecorder";
 
@@ -196,7 +196,7 @@ export function MessageBubble({
                 ? "p-0 bg-transparent"
                 : message.contentType === "file"
                   ? "p-1"
-                  : message.contentType === "image"
+                  : message.contentType === "image" || message.contentType === "location"
                     ? "p-1.5"
                     : "px-3.5 py-2.5",
               message.contentType !== "sticker" &&
@@ -311,9 +311,93 @@ function TextMessageContent({
   );
 }
 
+function mapsUrl(latitude: number, longitude: number): string {
+  return `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
+
+function LocationMessageContent({ message, isAgent }: { message: Message; isAgent: boolean }) {
+  const location = message.location;
+  const title =
+    location?.name?.trim() ||
+    message.content?.trim() ||
+    "Ubicación";
+  const subtitle =
+    location?.address?.trim() ||
+    (location
+      ? `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`
+      : message.content === "[location]"
+        ? "Ubicación no disponible"
+        : undefined);
+  const href =
+    location != null ? mapsUrl(location.latitude, location.longitude) : undefined;
+
+  const card = (
+    <div
+      className={cn(
+        "flex items-start gap-2.5 min-w-[200px] max-w-[260px] rounded-xl px-3 py-2.5",
+        isAgent ? "bg-black/15" : "bg-[var(--color-bg-primary)]/50"
+      )}
+    >
+      <div
+        className={cn(
+          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+          isAgent ? "bg-white/15 text-white" : "bg-[var(--color-brand)]/15 text-[var(--color-brand)]"
+        )}
+      >
+        <MapPin className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "text-sm font-medium truncate",
+            isAgent ? "text-white" : "text-[var(--color-text-primary)]"
+          )}
+        >
+          {title === "[location]" ? "Ubicación" : title}
+        </p>
+        {subtitle ? (
+          <p
+            className={cn(
+              "text-[11px] mt-0.5 line-clamp-2",
+              isAgent ? "text-white/70" : "text-[var(--color-text-secondary)]"
+            )}
+          >
+            {subtitle}
+          </p>
+        ) : null}
+        {href ? (
+          <span
+            className={cn(
+              "inline-block text-[11px] font-medium mt-1.5",
+              isAgent ? "text-white/90 underline" : "text-[var(--color-brand)]"
+            )}
+          >
+            Abrir en Maps
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (!href) return card;
+
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="block">
+      {card}
+    </a>
+  );
+}
+
 function MessageContent({ message, isAgent }: { message: Message; isAgent: boolean }) {
   const openLightbox = useUIStore((s) => s.openLightbox);
   const linkClassName = isAgent ? outgoingLinkClassName : incomingLinkClassName;
+
+  if (
+    message.contentType === "location" ||
+    message.content?.trim() === "[location]"
+  ) {
+    return <LocationMessageContent message={message} isAgent={isAgent} />;
+  }
 
   if (message.contentType === "audio") {
     return <AudioMessageContent message={message} isAgent={isAgent} />;

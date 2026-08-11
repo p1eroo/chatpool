@@ -28,6 +28,7 @@ import {
 import { authenticate } from "../plugins/error-handler.plugin.js";
 import { requirePermission } from "../plugins/require-permission.plugin.js";
 import { assertAgentPermission } from "../../../application/permissions/permissions.service.js";
+import { assertAgentCanAccessConversation } from "../../../application/inboxes/inbox-access.service.js";
 
 const sendMessageSchema = z.object({
   content: z.string().min(1),
@@ -344,6 +345,8 @@ export async function conversationsRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const user = request.user as { sub: string };
     const body = updateConversationSchema.parse(request.body);
+
+    await assertAgentCanAccessConversation(user.sub, id);
 
     if (body.status !== undefined) {
       await assertAgentPermission(user.sub, "resolveConversations");

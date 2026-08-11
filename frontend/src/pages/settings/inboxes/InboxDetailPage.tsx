@@ -4,7 +4,7 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { CopyableValueRow } from "@/components/settings/CopyableValueRow";
 import { CreateLabelModal } from "@/components/settings/CreateLabelModal";
 import { MetaInboxIntegrationPanel } from "@/components/settings/MetaInboxIntegrationPanel";
-import { SettingsModal } from "@/components/settings/SettingsModal";
+import { SettingsModal, SettingsToggle } from "@/components/settings/SettingsModal";
 import { LabelChip } from "@/components/ui/LabelChip";
 import { useIntegrationStore } from "@/store/integrationStore";
 import { useLabelStore } from "@/store/labelStore";
@@ -49,6 +49,9 @@ export function InboxDetailPage() {
   const [labelPendingDelete, setLabelPendingDelete] = useState<Label | null>(null);
   const [botPauseMinutes, setBotPauseMinutes] = useState("");
   const [savingBot, setSavingBot] = useState(false);
+  const [autoAssignEnabled, setAutoAssignEnabled] = useState(false);
+  const [autoAssignAgentIds, setAutoAssignAgentIds] = useState<string[]>([]);
+  const [savingAutoAssign, setSavingAutoAssign] = useState(false);
   const showToast = useUIStore((s) => s.showToast);
   const getByInboxId = useInboxSettingsStore((s) => s.getByInboxId);
   const updateSettings = useInboxSettingsStore((s) => s.updateSettings);
@@ -86,8 +89,18 @@ export function InboxDetailPage() {
   useEffect(() => {
     if (config) {
       setBotPauseMinutes(String(config.botPauseMinutes ?? 15));
+      setAutoAssignEnabled(config.autoAssignEnabled ?? false);
+      setAutoAssignAgentIds(
+        config.autoAssignAgentIds ?? config.assignedAgentIds ?? []
+      );
     }
-  }, [config?.inboxId, config?.botPauseMinutes]);
+  }, [
+    config?.inboxId,
+    config?.botPauseMinutes,
+    config?.autoAssignEnabled,
+    config?.autoAssignAgentIds,
+    config?.assignedAgentIds,
+  ]);
 
   if (!inbox || !config) {
     return <Navigate to="/settings/inboxes" replace />;
@@ -119,6 +132,44 @@ export function InboxDetailPage() {
       showToast("No se pudo guardar la configuración del bot");
     } finally {
       setSavingBot(false);
+    }
+  };
+
+  const toggleAutoAssignAgent = (agentId: string) => {
+    setAutoAssignAgentIds((prev) =>
+      prev.includes(agentId)
+        ? prev.filter((id) => id !== agentId)
+        : [...prev, agentId]
+    );
+  };
+
+  const handleSaveAutoAssign = async () => {
+    const poolIds = autoAssignAgentIds.filter((id) =>
+      config.assignedAgentIds.includes(id)
+    );
+
+    setSavingAutoAssign(true);
+    try {
+      if (env.useMock) {
+        updateSettings(inboxId, {
+          autoAssignEnabled,
+          autoAssignAgentIds: poolIds,
+        });
+      } else {
+        const updated = await inboxApiService.updateSettings(inboxId, {
+          autoAssignEnabled,
+          autoAssignAgentIds: poolIds,
+        });
+        updateSettings(inboxId, {
+          autoAssignEnabled: updated.autoAssignEnabled,
+          autoAssignAgentIds: updated.autoAssignAgentIds,
+        });
+      }
+      showToast("Asignación automática guardada");
+    } catch {
+      showToast("No se pudo guardar la asignación automática");
+    } finally {
+      setSavingAutoAssign(false);
     }
   };
 
@@ -322,6 +373,70 @@ export function InboxDetailPage() {
             </div>
           ))}
         </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Asignación automática"
+        description="Al llegar un chat nuevo o reabrirse uno resuelto, se asigna al agente del pool con menos conversaciones abiertas"
+        action={
+          <button
+            type="button"
+            onClick={() => void handleSaveAutoAssign()}
+            disabled={savingAutoAssign}
+            className="h-8 px-3 text-xs font-medium bg-[var(--color-brand)] text-white rounded-lg hover:bg-[var(--color-brand-light)] transition-colors disabled:opacity-50"
+          >
+            {savingAutoAssign ? "Guardando…" : "Guardar"}
+          </button>
+        }
+      >
+        <SettingsToggle
+          checked={autoAssignEnabled}
+          onChange={setAutoAssignEnabled}
+          label="Activar autoasignación"
+          description="Solo aplica a mensajes entrantes. El acceso a la bandeja no cambia."
+        />
+
+        {assignedAgents.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-secondary)] pt-2">
+            Asigna agentes a esta bandeja en Ajustes → Agentes para armar el pool.
+          </p>
+        ) : (
+          <div className="pt-2 space-y-2">
+            <p className="text-[12px] text-[var(--color-text-muted)]">
+              Participan en el reparto (puedes excluir admins o agentes de vacaciones)
+            </p>
+            {assignedAgents.map((agent) => {
+              const inPool = autoAssignAgentIds.includes(agent.id);
+              const inactive = agent.active === false;
+              return (
+                <label
+                  key={agent.id}
+                  className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)] cursor-pointer"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-[var(--color-text-primary)] truncate">
+                      {agent.name}
+                      {inactive ? (
+                        <span className="ml-2 text-[11px] text-[var(--color-text-muted)]">
+                          (inactivo)
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="text-[11px] text-[var(--color-text-muted)]">
+                      {getRoleName(agent.roleId)}
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={inPool}
+                    onChange={() => toggleAutoAssignAgent(agent.id)}
+                    className="h-4 w-4 rounded border-[var(--color-border-primary)] accent-[var(--color-brand)]"
+                  />
+                </label>
+              );
+            })}
+          </div>
+        )}
       </SettingsSection>
 
       <section ref={integrationRef}>

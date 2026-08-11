@@ -29,6 +29,7 @@ import {
   assertAgentCanAccessInbox,
   listInboxIdsForAgent,
 } from "../inboxes/inbox-access.service.js";
+import { pickLeastLoadedAutoAssignAgent } from "../inboxes/auto-assign.service.js";
 import {
   assertTemplateParameters,
   buildTemplatePreview,
@@ -613,16 +614,24 @@ export async function updateConversation(
     unreadCount?: number;
   } = {};
 
+  const resolving =
+    body.status === "resolved" && conversation.status !== "resolved";
+
   if (body.status !== undefined) data.status = body.status;
-  if (body.assigneeId !== undefined) data.assigneeId = body.assigneeId;
+  if (body.assigneeId !== undefined) {
+    data.assigneeId = body.assigneeId;
+  } else if (resolving && conversation.assigneeId) {
+    // Resolver libera al agente para que la próxima apertura arranque sin assignee.
+    data.assigneeId = null;
+  }
   if (body.unreadCount !== undefined) data.unreadCount = body.unreadCount;
 
-  if (body.assigneeId) {
+  if (data.assigneeId) {
     const membership = await prisma.inboxAgent.findUnique({
       where: {
         inboxId_agentId: {
           inboxId: conversation.inboxId,
-          agentId: body.assigneeId,
+          agentId: data.assigneeId,
         },
       },
     });
@@ -654,6 +663,8 @@ export async function updateConversation(
     });
   }
 
+  // Solo actividad de assignee si el cliente lo pidió explícitamente
+  // (la limpieza al resolver no genera mensaje de "desasignada").
   if (body.assigneeId !== undefined) {
     await recordConversationAssigneeActivity({
       conversationId,
@@ -679,6 +690,8 @@ export async function updateConversation(
 export async function findOrReopenConversationForContact(params: {
   inboxId: string;
   contactId: string;
+  /** Solo flujos entrantes: asigna del pool si la bandeja lo tiene activo. */
+  autoAssign?: boolean;
 }) {
   const result = await prisma.$transaction(async (tx) => {
     // Serializa webhooks concurrentes del mismo contacto (evita 2 "open").
@@ -740,8 +753,31 @@ export async function findOrReopenConversationForContact(params: {
     await emitConversationCreated(result.conversation.id);
   }
 
+  let conversation = result.conversation;
+
+  if (
+    params.autoAssign &&
+    (result.created || result.reopened) &&
+    !conversation.assigneeId
+  ) {
+    const agentId = await pickLeastLoadedAutoAssignAgent(params.inboxId);
+    if (agentId) {
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { assigneeId: agentId },
+      });
+      await recordConversationAssigneeActivity({
+        conversationId: conversation.id,
+        previousAssigneeId: null,
+        nextAssigneeId: agentId,
+        actorAgentId: null,
+      });
+      await emitConversationUpdated(conversation.id);
+    }
+  }
+
   return {
-    conversation: result.conversation,
+    conversation,
     reopened: result.reopened,
     created: result.created,
   };

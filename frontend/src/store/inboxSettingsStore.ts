@@ -5,6 +5,17 @@ import type { InboxSettings, InboxStatus } from "@/types";
 
 const STORAGE_KEY = "chatpool-inbox-settings";
 
+function normalizeSettings(item: InboxSettings): InboxSettings {
+  const assignedAgentIds = item.assignedAgentIds ?? [];
+  return {
+    ...item,
+    assignedAgentIds,
+    autoAssignEnabled: item.autoAssignEnabled ?? false,
+    autoAssignAgentIds: item.autoAssignAgentIds ?? assignedAgentIds,
+    botPauseMinutes: item.botPauseMinutes ?? 15,
+  };
+}
+
 function loadSettings(): InboxSettings[] {
   if (typeof window === "undefined") return seedInboxSettings;
 
@@ -12,7 +23,7 @@ function loadSettings(): InboxSettings[] {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved) as InboxSettings[];
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.map(normalizeSettings);
     }
   } catch {
     // ignore invalid storage
@@ -41,12 +52,12 @@ interface InboxSettingsState {
 export const useInboxSettingsStore = create<InboxSettingsState>((set, get) => ({
   settings: env.useMock ? loadSettings() : [],
 
-  setSettings: (settings) => set({ settings }),
+  setSettings: (settings) => set({ settings: settings.map(normalizeSettings) }),
 
   getByInboxId: (inboxId) => get().settings.find((item) => item.inboxId === inboxId),
 
   addSettings: (settings) => {
-    const next = [settings, ...get().settings];
+    const next = [normalizeSettings(settings), ...get().settings];
     saveSettings(next);
     set({ settings: next });
   },
@@ -80,14 +91,22 @@ export const useInboxSettingsStore = create<InboxSettingsState>((set, get) => ({
     const settings = get().settings.map((item) => {
       const hasAccess = allowed.has(item.inboxId);
       const currentlyHas = item.assignedAgentIds.includes(agentId);
+      const autoAssignAgentIds = item.autoAssignAgentIds ?? [];
 
       if (hasAccess && !currentlyHas) {
-        return { ...item, assignedAgentIds: [...item.assignedAgentIds, agentId] };
+        return {
+          ...item,
+          assignedAgentIds: [...item.assignedAgentIds, agentId],
+          autoAssignAgentIds: autoAssignAgentIds.includes(agentId)
+            ? autoAssignAgentIds
+            : [...autoAssignAgentIds, agentId],
+        };
       }
       if (!hasAccess && currentlyHas) {
         return {
           ...item,
           assignedAgentIds: item.assignedAgentIds.filter((id) => id !== agentId),
+          autoAssignAgentIds: autoAssignAgentIds.filter((id) => id !== agentId),
         };
       }
       return item;
@@ -100,6 +119,7 @@ export const useInboxSettingsStore = create<InboxSettingsState>((set, get) => ({
     const settings = get().settings.map((item) => ({
       ...item,
       assignedAgentIds: item.assignedAgentIds.filter((id) => id !== agentId),
+      autoAssignAgentIds: (item.autoAssignAgentIds ?? []).filter((id) => id !== agentId),
     }));
     saveSettings(settings);
     set({ settings });

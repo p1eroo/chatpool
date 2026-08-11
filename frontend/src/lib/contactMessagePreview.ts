@@ -16,9 +16,16 @@ export function getContactMessagePreview(message: Message): string {
       return text ? stripWhatsAppFormatting(text) : "Imagen";
     case "sticker":
       return "Sticker";
+    case "location":
+      return (
+        message.location?.name?.trim() ||
+        message.location?.address?.trim() ||
+        (text && text !== "[location]" ? stripWhatsAppFormatting(text) : "Ubicación")
+      );
     case "file":
       return message.fileName?.trim() || (text ? stripWhatsAppFormatting(text) : "Archivo");
     default:
+      if (text === "[location]") return "Ubicación";
       return text ? stripWhatsAppFormatting(text) : "Mensaje";
   }
 }

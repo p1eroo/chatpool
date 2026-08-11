@@ -12,6 +12,7 @@ import type {
 import type { Prisma } from "@prisma/client";
 import { resolvePublicFileUrl } from "./media/media-storage.service.js";
 import { parseLinkPreviewDeliveryPayload, isLinkPreviewSuppressed } from "../shared/link-preview.js";
+import { parseMessageLocation } from "../shared/message-location.js";
 
 export const messageInclude = {
   senderAgent: { select: { name: true } },
@@ -120,6 +121,7 @@ export function mapMessage(message: {
   fileKey: string | null;
   mimeType: string | null;
   mediaExternalId: string | null;
+  location?: unknown;
   externalId: string | null;
   clientMessageId: string | null;
   deliveryPayload?: unknown;
@@ -131,8 +133,10 @@ export function mapMessage(message: {
   replyToMessage?: Parameters<typeof mapMessageReply>[0];
 }): Message {
   const fileUrl = resolvePublicFileUrl(message.fileKey);
+  const location = parseMessageLocation(message.location) ?? undefined;
   const hasAttachment =
     message.contentType !== "text" &&
+    message.contentType !== "location" &&
     Boolean(
       message.fileKey ||
         message.mediaExternalId ||
@@ -162,6 +166,7 @@ export function mapMessage(message: {
       ? `/conversations/${message.conversationId}/messages/${message.id}/attachment`
       : undefined,
     mimeType: message.mimeType ?? undefined,
+    location,
     externalId: message.externalId ?? undefined,
     clientMessageId: message.clientMessageId ?? undefined,
     sortOrder: message.sortOrder,
@@ -261,7 +266,9 @@ export function mapInboxSettings(settings: {
   phoneNumberId: string | null;
   businessAccountId: string | null;
   botPauseMinutes?: number | null;
+  autoAssignEnabled?: boolean | null;
   assignedAgentIds?: string[];
+  autoAssignAgentIds?: string[];
 }): InboxSettings {
   return {
     inboxId: settings.inboxId,
@@ -276,6 +283,8 @@ export function mapInboxSettings(settings: {
     phoneNumberId: settings.phoneNumberId ?? undefined,
     businessAccountId: settings.businessAccountId ?? undefined,
     botPauseMinutes: settings.botPauseMinutes ?? 15,
+    autoAssignEnabled: settings.autoAssignEnabled ?? false,
     assignedAgentIds: settings.assignedAgentIds ?? [],
+    autoAssignAgentIds: settings.autoAssignAgentIds ?? [],
   };
 }

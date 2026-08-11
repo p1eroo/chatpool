@@ -153,7 +153,8 @@ function mergeConversationOnRealtimeMessage(
     ...incoming,
     labels: incoming.labels?.length ? incoming.labels : existing.labels,
     contact: incoming.contact ?? existing.contact,
-    assignee: incoming.assignee ?? existing.assignee,
+    // Confiar en el snapshot del servidor: undefined = desasignada (no conservar el anterior).
+    assignee: incoming.assignee,
     channelType: incoming.channelType ?? existing.channelType,
     lastMessage,
     lastMessageAt: mergeConversationLastMessageAt(
@@ -175,7 +176,8 @@ function mergeConversationOnRealtimeUpdate(
     ...incoming,
     labels: incoming.labels?.length ? incoming.labels : existing.labels,
     contact: incoming.contact ?? existing.contact,
-    assignee: incoming.assignee ?? existing.assignee,
+    // Confiar en el snapshot del servidor: undefined = desasignada (no conservar el anterior).
+    assignee: incoming.assignee,
     channelType: incoming.channelType ?? existing.channelType,
     lastMessage: pickLatestPreviewMessage(existing.lastMessage, incoming.lastMessage),
     lastMessageAt: mergeConversationLastMessageAt(existing, incoming),
@@ -1678,7 +1680,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     set((state) => ({
       conversations: state.conversations.map((c) =>
-        c.id === id ? { ...c, status } : c
+        c.id === id
+          ? {
+              ...c,
+              status,
+              ...(status === "resolved" ? { assignee: undefined } : {}),
+            }
+          : c
       ),
       activeConversationId:
         status === "resolved" && state.activeConversationId === id
@@ -1737,7 +1745,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       removePendingActivityMessage(set, id, pendingActivityId);
       set((state) => ({
         conversations: state.conversations.map((c) =>
-          c.id === id ? { ...c, status: previous.status } : c
+          c.id === id
+            ? { ...c, status: previous.status, assignee: previous.assignee }
+            : c
         ),
         activeConversationId: previousActiveId,
       }));

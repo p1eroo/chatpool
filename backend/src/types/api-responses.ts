@@ -55,6 +55,13 @@ export interface LinkPreview {
   siteName?: string;
 }
 
+export interface MessageLocation {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -65,12 +72,13 @@ export interface Message {
   isPrivate: boolean;
   attachedToMessageId?: string;
   replyTo?: MessageReply;
-  contentType: "text" | "image" | "file" | "audio" | "sticker";
+  contentType: "text" | "image" | "file" | "audio" | "sticker" | "location";
   fileName?: string;
   fileSize?: number;
   fileUrl?: string;
   attachmentUrl?: string;
   mimeType?: string;
+  location?: MessageLocation;
   externalId?: string;
   sortOrder?: number;
   createdAt: string;
@@ -123,6 +131,9 @@ export interface InboxSettings {
   webhookUrl?: string;
   webhookVerifyToken?: string;
   assignedAgentIds: string[];
+  /** Agentes del pool de autoasignación (subconjunto de assignedAgentIds). */
+  autoAssignAgentIds: string[];
+  autoAssignEnabled: boolean;
   description?: string;
   whatsappProvider?: "meta-cloud";
   phoneNumberId?: string;
@@ -133,6 +144,8 @@ export interface InboxSettings {
 
 export interface UpdateInboxSettingsBody {
   botPauseMinutes?: number;
+  autoAssignEnabled?: boolean;
+  autoAssignAgentIds?: string[];
 }
 
 export interface CreateAgentBody {

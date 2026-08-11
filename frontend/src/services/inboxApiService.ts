@@ -15,7 +15,9 @@ export const inboxApiService = {
 
   async updateSettings(
     inboxId: string,
-    patch: Pick<InboxSettings, "botPauseMinutes">
+    patch: Partial<
+      Pick<InboxSettings, "botPauseMinutes" | "autoAssignEnabled" | "autoAssignAgentIds">
+    >
   ): Promise<InboxSettings> {
     return apiRequest<InboxSettings>(`/inboxes/${inboxId}/settings`, {
       method: "PATCH",

@@ -63,6 +63,7 @@ enum MessageContentType {
   file
   audio
   sticker
+  location
 }
 
 enum MessageStatus {
@@ -158,6 +159,8 @@ model InboxSettings {
   accessToken        String?             @map("access_token")
   /// Minutos que el bot queda pausado tras un mensaje público de agente.
   botPauseMinutes    Int                 @default(15) @map("bot_pause_minutes")
+  /// Si true, al crear/reabrir por mensaje entrante se asigna un agente del pool.
+  autoAssignEnabled  Boolean             @default(false) @map("auto_assign_enabled")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
@@ -165,10 +168,12 @@ model InboxSettings {
 }
 
 model InboxAgent {
-  inboxId String @map("inbox_id")
-  agentId String @map("agent_id")
-  inbox   Inbox  @relation(fields: [inboxId], references: [id], onDelete: Cascade)
-  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  inboxId    String  @map("inbox_id")
+  agentId    String  @map("agent_id")
+  /// Participa en el pool de autoasignación de esta bandeja (independiente del acceso).
+  autoAssign Boolean @default(true) @map("auto_assign")
+  inbox      Inbox   @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  agent      Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@id([inboxId, agentId])
   @@map("inbox_agents")
@@ -255,6 +260,8 @@ model Message {
   fileKey             String?            @map("file_key")
   mimeType            String?            @map("mime_type")
   mediaExternalId     String?            @map("media_external_id")
+  /// Coordenadas/nombre de ubicación WhatsApp: { latitude, longitude, name?, address? }
+  location            Json?
   externalId          String?            @unique @map("external_id")
   clientMessageId     String?            @map("client_message_id")
   deliveryPayload     Json?              @map("delivery_payload")

@@ -398,6 +398,7 @@ async function processInboundMetaMessage(params: {
     const { conversation } = await findOrReopenConversationForContact({
       inboxId: settings.inboxId,
       contactId: contact.id,
+      autoAssign: true,
     });
 
     const conversationBase = await prisma.conversation.findUnique({
@@ -444,11 +445,11 @@ async function processInboundMetaMessage(params: {
     replyToMessageId = replyTarget.id;
   }
 
-  const { content, contentType, fileName, mimeType, mediaExternalId } = parseInboundWebhookContent(
-    message.id,
-    message
+  const { content, contentType, fileName, mimeType, mediaExternalId, location } =
+    parseInboundWebhookContent(message.id, message);
+  const shouldHydrateMedia = Boolean(
+    mediaExternalId && accessToken && contentType !== "location"
   );
-  const shouldHydrateMedia = Boolean(mediaExternalId && accessToken);
 
   const messageAt = parseMetaMessageTimestamp(message.timestamp);
 
@@ -492,6 +493,14 @@ async function processInboundMetaMessage(params: {
           fileKey: null,
           mimeType,
           mediaExternalId,
+          location: location
+            ? {
+                latitude: location.latitude,
+                longitude: location.longitude,
+                ...(location.name ? { name: location.name } : {}),
+                ...(location.address ? { address: location.address } : {}),
+              }
+            : undefined,
           externalId: message.id,
           replyToMessageId,
           status: "delivered",

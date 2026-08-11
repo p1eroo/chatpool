@@ -9,6 +9,7 @@ import { useAgentStore } from "@/store/agentStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useLabelStore } from "@/store/labelStore";
 import { useUpdateContact } from "@/hooks/useContacts";
+import { useAgentPermissions } from "@/hooks/useAgentPermissions";
 import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import {
   downloadMessageFile,
@@ -437,6 +438,8 @@ function ContactField({
 
 function ContactSummary({ conversation }: { conversation: Conversation }) {
   const { contact } = conversation;
+  const permissions = useAgentPermissions();
+  const canAssignConversations = permissions.assignConversations;
   const reassignConversation = useConversationStore((s) => s.reassignConversation);
   const setConversationStatus = useConversationStore((s) => s.setConversationStatus);
   const toggleConversationLabel = useConversationStore((s) => s.toggleConversationLabel);
@@ -469,6 +472,10 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
   const labelsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!canAssignConversations) setAssignOpen(false);
+  }, [canAssignConversations]);
+
+  useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (assignRef.current && !assignRef.current.contains(e.target as Node)) {
         setAssignOpen(false);
@@ -486,6 +493,7 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
   }, []);
 
   const handleAssign = async (agentId: string | undefined) => {
+    if (!canAssignConversations) return;
     const ok = await reassignConversation(conversation.id, agentId);
     setAssignOpen(false);
     if (!ok) showToast("No se pudo actualizar el agente");
@@ -532,65 +540,80 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
       <div className="flex items-center justify-between gap-3 text-[13px]">
         <span className="text-[var(--color-text-muted)] shrink-0">Agente</span>
         <div className="relative min-w-0" ref={assignRef}>
-          <button
-            type="button"
-            onClick={() => setAssignOpen(!assignOpen)}
-            className={cn(
-              "flex items-center gap-2 min-w-0 rounded-lg px-2 py-1 -mr-2 transition-colors",
-              assignOpen
-                ? "bg-[var(--color-bg-tertiary)]"
-                : "hover:bg-[var(--color-bg-tertiary)]"
-            )}
-          >
-            {conversation.assignee ? (
-              <>
-                <Avatar name={conversation.assignee.name} size="sm" />
-                <span className="text-[var(--color-text-primary)] truncate">
-                  {conversation.assignee.name}
-                </span>
-              </>
-            ) : (
-              <span className="text-[var(--color-text-secondary)]">Sin asignar</span>
-            )}
-            <ChevronDown
-              className={cn(
-                "w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0 transition-transform",
-                assignOpen && "rotate-180"
-              )}
-            />
-          </button>
-
-          {assignOpen && (
-            <div className="absolute top-full right-0 mt-1 w-56 max-h-72 overflow-y-auto bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
+          {canAssignConversations ? (
+            <>
               <button
                 type="button"
-                onClick={() => handleAssign(undefined)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-              >
-                <Avatar name="N" size="sm" />
-                <span className="flex-1 truncate">Ninguno</span>
-                {!conversation.assignee && (
-                  <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
+                onClick={() => setAssignOpen(!assignOpen)}
+                className={cn(
+                  "flex items-center gap-2 min-w-0 rounded-lg px-2 py-1 -mr-2 transition-colors",
+                  assignOpen
+                    ? "bg-[var(--color-bg-tertiary)]"
+                    : "hover:bg-[var(--color-bg-tertiary)]"
                 )}
+              >
+                {conversation.assignee ? (
+                  <>
+                    <Avatar name={conversation.assignee.name} size="sm" />
+                    <span className="text-[var(--color-text-primary)] truncate">
+                      {conversation.assignee.name}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[var(--color-text-secondary)]">Sin asignar</span>
+                )}
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0 transition-transform",
+                    assignOpen && "rotate-180"
+                  )}
+                />
               </button>
-              {agents.map((agent) => {
-                const isSelected = conversation.assignee?.id === agent.id;
-                return (
+
+              {assignOpen && (
+                <div className="absolute top-full right-0 mt-1 w-56 max-h-72 overflow-y-auto bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
                   <button
-                    key={agent.id}
                     type="button"
-                    onClick={() => handleAssign(agent.id)}
+                    onClick={() => handleAssign(undefined)}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
                   >
-                    <Avatar name={agent.name} size="sm" />
-                    <span className="flex-1 truncate">{agent.name}</span>
-                    {isSelected && (
+                    <Avatar name="N" size="sm" />
+                    <span className="flex-1 truncate">Ninguno</span>
+                    {!conversation.assignee && (
                       <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
                     )}
                   </button>
-                );
-              })}
+                  {agents.map((agent) => {
+                    const isSelected = conversation.assignee?.id === agent.id;
+                    return (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => handleAssign(agent.id)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+                      >
+                        <Avatar name={agent.name} size="sm" />
+                        <span className="flex-1 truncate">{agent.name}</span>
+                        {isSelected && (
+                          <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : conversation.assignee ? (
+            <div className="flex items-center gap-2 min-w-0 px-2 py-1 -mr-2">
+              <Avatar name={conversation.assignee.name} size="sm" />
+              <span className="text-[var(--color-text-primary)] truncate">
+                {conversation.assignee.name}
+              </span>
             </div>
+          ) : (
+            <span className="px-2 py-1 -mr-2 text-[var(--color-text-secondary)]">
+              Sin asignar
+            </span>
           )}
         </div>
       </div>
