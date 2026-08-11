@@ -21,8 +21,11 @@ export const LABEL_PRESET_COLORS = [
   "#630303",
   "#E805AF",
   "#A855F7",
-  "#64748B",
+  "#14B8A6",
 ] as const;
+
+/** Colores vivos para pastillas (sin grises). */
+const VIVID_LABEL_COLORS = LABEL_PRESET_COLORS;
 
 export function isHexColor(value: string): boolean {
   return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(value);
@@ -109,4 +112,101 @@ export function cnColor(color: string): string {
     orange: "bg-orange-500",
   };
   return colors[color] || "bg-gray-500";
+}
+
+function hashSeed(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+/** Grises / casi sin saturación → no sirven como color de etiqueta. */
+export function isNeutralLabelColor(color: string): boolean {
+  const { s } = hexToHsl(normalizeHexColor(color));
+  return s < 14;
+}
+
+/**
+ * Si la etiqueta quedó en gris, asigna un color vivo estable según el nombre/id.
+ */
+export function resolveLabelAccentColor(color: string, seed = ""): string {
+  const hex = normalizeHexColor(color);
+  if (!isNeutralLabelColor(hex)) return hex;
+
+  const key = seed.trim() || hex;
+  return VIVID_LABEL_COLORS[hashSeed(key) % VIVID_LABEL_COLORS.length];
+}
+
+function buildExpandedPalette(count: number): string[] {
+  const palette = [...VIVID_LABEL_COLORS];
+  let i = 0;
+  while (palette.length < count) {
+    const hue = (i * 47 + 13) % 360;
+    const candidate = hslToHex(hue, 72, 55);
+    if (!palette.includes(candidate)) {
+      palette.push(candidate);
+    }
+    i += 1;
+  }
+  return palette;
+}
+
+/**
+ * Asigna un color único por etiqueta dentro de un conjunto (p. ej. una bandeja).
+ * Conserva colores propios no grises cuando no chocan; el resto toma huecos de la paleta.
+ */
+export function assignUniqueLabelAccentColors(
+  labels: Array<{ id: string; name: string; color: string }>
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  const used = new Set<string>();
+  const pending: Array<{ id: string; name: string; color: string }> = [];
+
+  const sorted = [...labels].sort((a, b) => a.id.localeCompare(b.id));
+
+  for (const label of sorted) {
+    const hex = normalizeHexColor(label.color);
+    if (!isNeutralLabelColor(hex) && !used.has(hex)) {
+      result[label.id] = hex;
+      used.add(hex);
+    } else {
+      pending.push(label);
+    }
+  }
+
+  const palette = buildExpandedPalette(labels.length + 4);
+  const remaining = palette.filter((color) => !used.has(color));
+
+  for (const label of pending) {
+    const pick =
+      remaining.shift() ??
+      hslToHex(hashSeed(label.id || label.name) % 360, 72, 55);
+    result[label.id] = pick;
+    used.add(pick);
+  }
+
+  return result;
+}
+
+/**
+ * Estilo de pastilla con fondo tintado visible y texto legible en tema oscuro.
+ */
+export function getLabelChipStyle(
+  color: string,
+  seed = "",
+  accentOverride?: string
+): { backgroundColor: string; color: string; accentColor: string } {
+  const accentColor = accentOverride || resolveLabelAccentColor(color, seed);
+  const { h, s } = hexToHsl(accentColor);
+  const saturation = Math.min(Math.max(s, 45), 72);
+
+  return {
+    accentColor,
+    // Fondo sólido con tono bajo del color (mejor contraste que alpha).
+    backgroundColor: hslToHex(h, saturation, 26),
+    // Texto claro del mismo matiz.
+    color: hslToHex(h, Math.min(saturation + 8, 80), 84),
+  };
 }

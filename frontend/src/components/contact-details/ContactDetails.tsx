@@ -4,10 +4,12 @@ import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { Avatar, getAvatarColorClass, getAvatarInitials, isImageUrl } from "@/components/ui/Avatar";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
+import { LabelChip } from "@/components/ui/LabelChip";
 import { useAgentStore } from "@/store/agentStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useLabelStore } from "@/store/labelStore";
 import { useUpdateContact } from "@/hooks/useContacts";
+import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import {
   downloadMessageFile,
   getConversationFiles,
@@ -457,6 +459,7 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
     () => labels.filter((label) => label.inboxId === conversation.inboxId),
     [labels, conversation.inboxId]
   );
+  const labelAccentById = useInboxLabelAccentMap(conversation.inboxId);
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -643,18 +646,15 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
         <span className="text-[var(--color-text-muted)] shrink-0 pt-1">Etiquetas</span>
         <div className="relative flex flex-wrap justify-end gap-1.5 min-w-0 max-w-[220px]" ref={labelsRef}>
           {conversation.labels.map((label) => (
-            <button
+            <LabelChip
               key={label.id}
-              type="button"
+              label={label}
+              accentColor={labelAccentById[label.id]}
               onClick={async () => {
                 const ok = await toggleConversationLabel(conversation.id, label.id);
                 if (!ok) showToast("No se pudo actualizar la etiqueta");
               }}
-              className="text-[11px] px-2 py-1 rounded-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] flex items-center gap-1 hover:bg-[var(--color-bg-hover)] transition-colors"
-            >
-              <LabelColorDot color={label.color} className="w-1.5 h-1.5" />
-              {label.name}
-            </button>
+            />
           ))}
 
           {conversation.labels.length < inboxLabels.length && (
@@ -682,7 +682,10 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
                         }}
                         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
                       >
-                        <LabelColorDot color={label.color} className="w-2 h-2" />
+                        <LabelColorDot
+                          color={labelAccentById[label.id] ?? label.color}
+                          className="w-2 h-2"
+                        />
                         <span className="truncate">{label.name}</span>
                       </button>
                     ))}

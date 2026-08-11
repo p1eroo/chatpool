@@ -1,5 +1,7 @@
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
+import { LabelChip } from "@/components/ui/LabelChip";
+import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import { cn, formatTime } from "@/lib/utils";
 import { stripWhatsAppFormatting } from "@/lib/whatsappFormatting";
 import { LastMessageDirectionIcon } from "@/components/conversation-list/LastMessageDirectionIcon";
@@ -58,6 +60,7 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
   const ChannelIcon = channelIcons[channelType] || Globe;
   const channelColor = channelColors[channelType] || "text-gray-400";
   const isOpen = status === "open";
+  const labelAccentById = useInboxLabelAccentMap(conversation.inboxId);
 
   return (
     <button
@@ -140,12 +143,12 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
             {labels.length > 0 && (
               <div className="flex items-center gap-1 flex-1 min-w-0">
                 {labels.slice(0, 2).map((label) => (
-                  <span
+                  <LabelChip
                     key={label.id}
-                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate"
-                  >
-                    {label.name}
-                  </span>
+                    label={label}
+                    accentColor={labelAccentById[label.id]}
+                    size="sm"
+                  />
                 ))}
                 {labels.length > 2 && (
                   <span className="text-[10px] text-[var(--color-text-muted)]">

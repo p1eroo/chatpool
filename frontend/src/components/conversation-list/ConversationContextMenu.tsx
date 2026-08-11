@@ -15,6 +15,7 @@ import { useLabelStore } from "@/store/labelStore";
 import { useAgentStore } from "@/store/agentStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
+import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
 
@@ -101,6 +102,7 @@ export function ConversationContextMenu({
   }, [allAgents, assignedAgentIds, conversation.assignee?.id]);
   const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
   const inboxLabels = getLabelsForInbox(conversation.inboxId);
+  const labelAccentById = useInboxLabelAccentMap(conversation.inboxId);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -246,7 +248,10 @@ export function ConversationContextMenu({
                 }
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
               >
-                <LabelColorDot color={label.color} className="w-2.5 h-2.5" />
+                <LabelColorDot
+                  color={labelAccentById[label.id] ?? label.color}
+                  className="w-2.5 h-2.5"
+                />
                 <span className="flex-1 truncate">{label.name}</span>
                 {isSelected && (
                   <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />

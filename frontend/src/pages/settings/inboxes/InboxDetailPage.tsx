@@ -3,11 +3,13 @@ import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Plus } from "lucide-react";
 import { CopyableValueRow } from "@/components/settings/CopyableValueRow";
 import { CreateLabelModal } from "@/components/settings/CreateLabelModal";
-import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { MetaInboxIntegrationPanel } from "@/components/settings/MetaInboxIntegrationPanel";
+import { SettingsModal } from "@/components/settings/SettingsModal";
+import { LabelChip } from "@/components/ui/LabelChip";
 import { useIntegrationStore } from "@/store/integrationStore";
 import { useLabelStore } from "@/store/labelStore";
-import { normalizeHexColor } from "@/lib/labelColorUtils";
+import { useConversationStore } from "@/store/conversationStore";
+import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import { useRoleStore } from "@/store/roleStore";
 import { useAgentStore } from "@/store/agentStore";
 import { useInboxStore } from "@/store/inboxStore";
@@ -15,6 +17,7 @@ import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useUIStore } from "@/store/uiStore";
 import { inboxApiService } from "@/services/inboxApiService";
 import { env } from "@/config/env";
+import type { Label } from "@/types";
 import {
   InboxStatusBadge,
   SettingsField,
@@ -42,20 +45,27 @@ export function InboxDetailPage() {
   const { inboxId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [labelPendingDelete, setLabelPendingDelete] = useState<Label | null>(null);
   const [botPauseMinutes, setBotPauseMinutes] = useState("");
   const [savingBot, setSavingBot] = useState(false);
   const showToast = useUIStore((s) => s.showToast);
   const getByInboxId = useInboxSettingsStore((s) => s.getByInboxId);
   const updateSettings = useInboxSettingsStore((s) => s.updateSettings);
   const getInboxById = useInboxStore((s) => s.getInboxById);
-  const getLabelsForInbox = useLabelStore((s) => s.getLabelsForInbox);
   const createLabel = useLabelStore((s) => s.createLabel);
+  const deleteLabel = useLabelStore((s) => s.deleteLabel);
+  const labels = useLabelStore((s) => s.labels);
+  const inboxLabels = labels.filter((label) => label.inboxId === inboxId);
+  const labelAccentById = useInboxLabelAccentMap(inboxId);
+  const removeLabelFromAllConversations = useConversationStore(
+    (s) => s.removeLabelFromAllConversations
+  );
+  const [deletingLabelId, setDeletingLabelId] = useState<string | null>(null);
   const getAccountByProvider = useIntegrationStore((s) => s.getAccountByProvider);
   const integrationRef = useRef<HTMLElement>(null);
 
   const inbox = getInboxById(inboxId);
   const config = getByInboxId(inboxId);
-  const inboxLabels = getLabelsForInbox(inboxId);
   const integration = config ? getAccountByProvider(config.provider) : undefined;
   const getRoleName = useRoleStore((s) => s.getRoleName);
   const agents = useAgentStore((s) => s.agents);
@@ -126,6 +136,25 @@ export function InboxDetailPage() {
       showToast("Etiqueta creada");
     }
     return ok;
+  };
+
+  const handleConfirmDeleteLabel = async () => {
+    const label = labelPendingDelete;
+    if (!label) return;
+
+    setDeletingLabelId(label.id);
+    try {
+      const ok = await deleteLabel(inboxId, label.id);
+      if (!ok) {
+        showToast("No se pudo eliminar la etiqueta");
+        return;
+      }
+      removeLabelFromAllConversations(label.id);
+      setLabelPendingDelete(null);
+      showToast("Etiqueta eliminada");
+    } finally {
+      setDeletingLabelId(null);
+    }
   };
 
   return (
@@ -220,16 +249,13 @@ export function InboxDetailPage() {
         ) : (
           <div className="flex flex-wrap gap-2">
             {inboxLabels.map((label) => (
-              <span
+              <LabelChip
                 key={label.id}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
-              >
-                <LabelColorDot color={label.color} className="w-2 h-2" />
-                {label.name}
-                <span className="text-[10px] text-[var(--color-text-muted)] font-mono">
-                  {normalizeHexColor(label.color)}
-                </span>
-              </span>
+                label={label}
+                accentColor={labelAccentById[label.id]}
+                deleting={deletingLabelId === label.id}
+                onDelete={() => setLabelPendingDelete(label)}
+              />
             ))}
           </div>
         )}
@@ -314,6 +340,41 @@ export function InboxDetailPage() {
         onClose={() => setLabelModalOpen(false)}
         onCreate={handleCreateLabel}
       />
+
+      <SettingsModal
+        open={labelPendingDelete !== null}
+        onClose={() => {
+          if (deletingLabelId) return;
+          setLabelPendingDelete(null);
+        }}
+        title="Eliminar etiqueta"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setLabelPendingDelete(null)}
+              disabled={deletingLabelId !== null}
+              className="h-9 px-4 text-sm font-medium rounded-lg border border-[var(--color-border-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirmDeleteLabel()}
+              disabled={deletingLabelId !== null}
+              className="h-9 px-4 text-sm font-medium rounded-lg border border-[var(--color-danger)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-colors disabled:opacity-60"
+            >
+              {deletingLabelId ? "Eliminando…" : "Eliminar"}
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          {labelPendingDelete
+            ? `¿Eliminar la etiqueta “${labelPendingDelete.name}”? Se quitará de todas las conversaciones de esta bandeja.`
+            : null}
+        </p>
+      </SettingsModal>
     </div>
   );
 }

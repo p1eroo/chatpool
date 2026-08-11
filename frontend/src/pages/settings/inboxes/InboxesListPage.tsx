@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { LabelColorDot } from "@/components/settings/LabelColorDot";
-import { cn } from "@/lib/utils";
+import { LabelChip } from "@/components/ui/LabelChip";
+import { assignUniqueLabelAccentColors } from "@/lib/labelColorUtils";
 import { useLabelStore } from "@/store/labelStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
@@ -39,6 +39,7 @@ export function InboxesListPage() {
         {inboxes.map((inbox) => {
           const config = getByInboxId(inbox.id);
           const inboxLabels = getLabelsForInbox(inbox.id);
+          const labelAccentById = assignUniqueLabelAccentColors(inboxLabels);
           const status = config?.status ?? "active";
 
           return (
@@ -72,13 +73,12 @@ export function InboxesListPage() {
                   {inboxLabels.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2.5">
                       {inboxLabels.map((label) => (
-                        <span
+                        <LabelChip
                           key={label.id}
-                          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
-                        >
-                          <LabelColorDot color={label.color} className="w-1.5 h-1.5" />
-                          {label.name}
-                        </span>
+                          label={label}
+                          accentColor={labelAccentById[label.id]}
+                          size="sm"
+                        />
                       ))}
                     </div>
                   )}

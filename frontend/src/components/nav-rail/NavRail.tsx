@@ -22,6 +22,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
+import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import { ProfileMenuPopover } from "@/components/nav-rail/ProfileMenuPopover";
 import { useConversationStore } from "@/store/conversationStore";
 import { useAuthStore } from "@/store/authStore";
@@ -97,6 +98,8 @@ export function NavRail() {
     () => (filterInboxId ? allLabels.filter((label) => label.inboxId === filterInboxId) : []),
     [filterInboxId, allLabels]
   );
+
+  const labelAccentById = useInboxLabelAccentMap(filterInboxId);
 
   const labelCounts = useMemo(() => {
     if (!filterInboxId) return [] as Array<{ id: string; count: number }>;
@@ -374,7 +377,9 @@ export function NavRail() {
                           >
                             <span className="truncate flex items-center gap-1.5 min-w-0">
                               <LabelColorDot
-                                color={label.color}
+                                color={
+                                  labelAccentById[label.id] ?? label.color
+                                }
                                 className="w-2 h-2 shrink-0"
                               />
                               <span className="truncate">{label.name}</span>

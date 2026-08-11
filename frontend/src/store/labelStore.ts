@@ -34,6 +34,7 @@ interface LabelState {
   getLabelsForInbox: (inboxId: string) => Label[];
   getLabelById: (labelId: string) => Label | undefined;
   createLabel: (inboxId: string, name: string, color: string) => Promise<boolean>;
+  deleteLabel: (inboxId: string, labelId: string) => Promise<boolean>;
 }
 
 export const useLabelStore = create<LabelState>((set, get) => ({
@@ -77,6 +78,28 @@ export const useLabelStore = create<LabelState>((set, get) => ({
         color: normalizeHexColor(color),
       });
       set({ labels: [...get().labels, label] });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  deleteLabel: async (inboxId, labelId) => {
+    const existing = get().labels.find(
+      (label) => label.id === labelId && label.inboxId === inboxId
+    );
+    if (!existing) return false;
+
+    try {
+      if (env.useMock) {
+        const labels = get().labels.filter((label) => label.id !== labelId);
+        persistLabels(labels);
+        set({ labels });
+        return true;
+      }
+
+      await labelApiService.delete(inboxId, labelId);
+      set({ labels: get().labels.filter((label) => label.id !== labelId) });
       return true;
     } catch {
       return false;

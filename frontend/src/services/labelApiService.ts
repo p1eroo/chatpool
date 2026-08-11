@@ -23,4 +23,10 @@ export const labelApiService = {
   async listAll(): Promise<Label[]> {
     return apiRequest<Label[]>("/labels");
   },
+
+  async delete(inboxId: string, labelId: string): Promise<{ id: string }> {
+    return apiRequest<{ id: string }>(`/inboxes/${inboxId}/labels/${labelId}`, {
+      method: "DELETE",
+    });
+  },
 };

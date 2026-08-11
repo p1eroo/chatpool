@@ -1,6 +1,6 @@
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { mapLabel } from "../mappers.js";
-import { NotFoundError } from "../../domain/errors.js";
+import { AppError, NotFoundError } from "../../domain/errors.js";
 
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
@@ -56,4 +56,23 @@ export async function createLabelForInbox(
   });
 
   return mapLabel(label);
+}
+
+export async function deleteLabelForInbox(inboxId: string, labelId: string) {
+  const inbox = await prisma.inbox.findUnique({ where: { id: inboxId }, select: { id: true } });
+  if (!inbox) throw new NotFoundError("Bandeja no encontrada");
+
+  const label = await prisma.label.findFirst({
+    where: { id: labelId, inboxId },
+    select: { id: true },
+  });
+  if (!label) throw new NotFoundError("Etiqueta no encontrada");
+
+  try {
+    await prisma.label.delete({ where: { id: labelId } });
+  } catch {
+    throw new AppError("No se pudo eliminar la etiqueta", 500, "LABEL_DELETE_FAILED");
+  }
+
+  return { id: labelId };
 }

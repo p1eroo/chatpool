@@ -13,6 +13,7 @@ import {
 } from "../../../shared/bot-pause.js";
 import {
   createLabelForInbox,
+  deleteLabelForInbox,
   listAllLabels,
   listLabelsForInbox,
 } from "../../../application/labels/labels.service.js";
@@ -112,6 +113,18 @@ export async function inboxesRoutes(app: FastifyInstance) {
       const { inboxId } = request.params as { inboxId: string };
       const body = createLabelSchema.parse(request.body);
       return reply.status(201).send(await createLabelForInbox(inboxId, body));
+    }
+  );
+
+  app.delete(
+    "/inboxes/:inboxId/labels/:labelId",
+    { preHandler: requirePermission("manageLabels") },
+    async (request, reply) => {
+      const { inboxId, labelId } = request.params as {
+        inboxId: string;
+        labelId: string;
+      };
+      return reply.send(await deleteLabelForInbox(inboxId, labelId));
     }
   );
 }

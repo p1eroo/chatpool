@@ -115,6 +115,8 @@ interface ConversationState {
   reassignConversation: (id: string, agentId: string | undefined) => Promise<boolean>;
   markAsUnread: (id: string) => void;
   toggleConversationLabel: (id: string, labelId: string) => Promise<boolean>;
+  /** Quita una etiqueta eliminada de conversaciones cargadas y del filtro activo. */
+  removeLabelFromAllConversations: (labelId: string) => void;
   deleteConversation: (id: string) => void;
   deleteMessage: (conversationId: string, messageId: string) => void;
   blockContact: (conversationId: string) => Promise<boolean>;
@@ -1796,6 +1798,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     if (!env.useMock) {
       void conversationApiService.updateConversation(id, { unreadCount: 1 }).catch(() => {});
     }
+  },
+
+  removeLabelFromAllConversations: (labelId) => {
+    set((state) => ({
+      conversations: state.conversations.map((conversation) => ({
+        ...conversation,
+        labels: conversation.labels.filter((label) => label.id !== labelId),
+      })),
+      filterLabelId: state.filterLabelId === labelId ? null : state.filterLabelId,
+    }));
   },
 
   toggleConversationLabel: async (id, labelId) => {
