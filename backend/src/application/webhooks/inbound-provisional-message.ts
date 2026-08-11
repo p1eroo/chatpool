@@ -11,6 +11,7 @@ import {
   markInboundProvisionalEmitted,
   wasInboundProvisionalEmitted,
 } from "./inbound-provisional-emit-cache.js";
+import { patchInboundContactConversationBase } from "../contacts/inbound-contact-context-cache.js";
 
 export const PROVISIONAL_INBOUND_PREFIX = "provisional-";
 
@@ -148,16 +149,26 @@ export function tryEmitInboundProvisionalFast(params: {
     contactName: cached.contactName,
     message: params.message,
   });
+  const nextUnread = cached.conversationBase.unreadCount + 1;
 
   broadcastMessageCreated(
     provisional,
     buildInboundProvisionalConversation(cached.conversationBase, provisional, messageAt)
   );
 
+  // Evita que el siguiente provisional de la ráfaga use unreadCount obsoleto (p. ej. 0+1=1).
+  patchInboundContactConversationBase(params.inboxId, params.identityKey, {
+    unreadCount: nextUnread,
+    lastMessageAt: messageAt,
+    updatedAt: new Date(),
+  });
+
   return true;
 }
 
 export function emitInboundProvisionalIfNeeded(params: {
+  inboxId: string;
+  identityKey: string;
   externalId: string;
   conversationId: string;
   contactId: string;
@@ -176,11 +187,18 @@ export function emitInboundProvisionalIfNeeded(params: {
     contactName: params.contactName,
     message: params.message,
   });
+  const nextUnread = params.conversationBase.unreadCount + 1;
 
   broadcastMessageCreated(
     provisional,
     buildInboundProvisionalConversation(params.conversationBase, provisional, messageAt)
   );
+
+  patchInboundContactConversationBase(params.inboxId, params.identityKey, {
+    unreadCount: nextUnread,
+    lastMessageAt: messageAt,
+    updatedAt: new Date(),
+  });
 }
 
 /** Conversación para el sidebar/preview al emitir el provisional. */

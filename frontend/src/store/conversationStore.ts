@@ -137,17 +137,65 @@ interface ConversationState {
   getTotalUnread: () => number;
 }
 
+/**
+ * Unread en realtime:
+ * - provisional: el unread del payload NO es autoritativo (cache stale → suele venir 1)
+ * - persistido: tomar el máximo; si es mensaje nuevo, al menos existing+1
+ * - conversation.updated: no bajar salvo unread=0 (marcar leído)
+ */
+function resolveRealtimeContactUnread(params: {
+  existingUnread: number;
+  incomingUnread: number;
+  isNewMessage: boolean;
+  isProvisionalMessage: boolean;
+  replacesProvisional: boolean;
+}): number {
+  const {
+    existingUnread,
+    incomingUnread,
+    isNewMessage,
+    isProvisionalMessage,
+    replacesProvisional,
+  } = params;
+
+  if (isProvisionalMessage) {
+    return isNewMessage ? existingUnread + 1 : existingUnread;
+  }
+
+  if (replacesProvisional) {
+    return Math.max(existingUnread, incomingUnread);
+  }
+
+  if (isNewMessage) {
+    return Math.max(existingUnread + 1, incomingUnread);
+  }
+
+  return Math.max(existingUnread, incomingUnread);
+}
+
 function mergeConversationOnRealtimeMessage(
   existing: Conversation,
   incoming: Conversation,
   message: Message,
-  isNewMessage: boolean
+  isNewMessage: boolean,
+  options?: { replacesProvisional?: boolean }
 ): Conversation {
   const lastMessage = pickLatestPreviewMessage(
     existing.lastMessage,
     incoming.lastMessage,
     isNewMessage ? message : null
   );
+
+  const unreadCount =
+    message.senderType === "contact"
+      ? resolveRealtimeContactUnread({
+          existingUnread: existing.unreadCount,
+          incomingUnread: incoming.unreadCount,
+          isNewMessage,
+          isProvisionalMessage: isProvisionalInboundId(message.id),
+          replacesProvisional: Boolean(options?.replacesProvisional),
+        })
+      : incoming.unreadCount;
 
   return {
     ...incoming,
@@ -156,6 +204,7 @@ function mergeConversationOnRealtimeMessage(
     // Confiar en el snapshot del servidor: undefined = desasignada (no conservar el anterior).
     assignee: incoming.assignee,
     channelType: incoming.channelType ?? existing.channelType,
+    unreadCount,
     lastMessage,
     lastMessageAt: mergeConversationLastMessageAt(
       existing,
@@ -172,6 +221,12 @@ function mergeConversationOnRealtimeUpdate(
   existing: Conversation,
   incoming: Conversation
 ): Conversation {
+  // 0 = marcar leído (sí bajar). Cualquier otro valor no puede pisar un badge local más alto.
+  const unreadCount =
+    incoming.unreadCount === 0
+      ? 0
+      : Math.max(existing.unreadCount, incoming.unreadCount);
+
   return {
     ...incoming,
     labels: incoming.labels?.length ? incoming.labels : existing.labels,
@@ -179,6 +234,7 @@ function mergeConversationOnRealtimeUpdate(
     // Confiar en el snapshot del servidor: undefined = desasignada (no conservar el anterior).
     assignee: incoming.assignee,
     channelType: incoming.channelType ?? existing.channelType,
+    unreadCount,
     lastMessage: pickLatestPreviewMessage(existing.lastMessage, incoming.lastMessage),
     lastMessageAt: mergeConversationLastMessageAt(existing, incoming),
     updatedAt: new Date(
@@ -815,8 +871,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   filterLabelId: null,
 
   setConversations: (conversations) => {
-    const sorted = sortConversations(conversations);
-    const inboxId = get().filterInboxId;
+    const state = get();
+    // Evita que un refresh API pise un unread local más alto mientras hay provisional en vuelo.
+    const merged = conversations.map((incoming) => {
+      const local = state.conversations.find((item) => item.id === incoming.id);
+      if (!local || local.unreadCount <= incoming.unreadCount) return incoming;
+      const hasProvisional = (state.messages[incoming.id] ?? []).some((item) =>
+        isProvisionalInboundId(item.id)
+      );
+      if (!hasProvisional) return incoming;
+      return { ...incoming, unreadCount: local.unreadCount };
+    });
+    const sorted = sortConversations(merged);
+    const inboxId = state.filterInboxId;
     set({
       conversations: sorted,
       conversationsInboxId: inboxId,
@@ -844,6 +911,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       const hasConversation = Boolean(existingConversation);
       previousUnread = existingConversation?.unreadCount ?? 0;
       const isNewMessage = !hasMessage;
+      const replacesProvisional =
+        findProvisionalInboundReplaceIndex(existingMessages, message) >= 0;
       const viewing = isActivelyViewingConversation(currentState, conversation.id);
 
       let mergedConversation = existingConversation
@@ -851,13 +920,35 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             existingConversation,
             conversation,
             message,
-            isNewMessage
+            isNewMessage,
+            { replacesProvisional }
           )
         : {
             ...conversation,
             labels: conversation.labels ?? [],
             lastMessage: pickLatestPreviewMessage(conversation.lastMessage, message),
+            // Sin conversación local: el provisional no debe fijar unread=1 obsoleto como verdad.
+            unreadCount:
+              message.senderType === "contact" && isProvisionalInboundId(message.id)
+                ? Math.max(conversation.unreadCount, 1)
+                : conversation.unreadCount,
           };
+
+      // Cierre de seguridad: un payload stale nunca baja el badge (salvo vista activa → 0).
+      if (
+        existingConversation &&
+        message.senderType === "contact" &&
+        !viewing &&
+        mergedConversation.unreadCount < existingConversation.unreadCount
+      ) {
+        mergedConversation = {
+          ...mergedConversation,
+          unreadCount:
+            isNewMessage && !replacesProvisional
+              ? existingConversation.unreadCount + 1
+              : existingConversation.unreadCount,
+        };
+      }
 
       if (viewing && message.senderType === "contact" && isNewMessage) {
         mergedConversation = { ...mergedConversation, unreadCount: 0 };

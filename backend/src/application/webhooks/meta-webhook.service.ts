@@ -23,6 +23,7 @@ import {
 } from "../contacts/whatsapp-contact-sync.service.js";
 import {
   getInboundContactContext,
+  patchInboundContactConversationBase,
   setInboundContactContext,
 } from "../contacts/inbound-contact-context-cache.js";
 import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
@@ -455,6 +456,8 @@ async function processInboundMetaMessage(params: {
 
   if (conversationBase) {
     emitInboundProvisionalIfNeeded({
+      inboxId: settings.inboxId,
+      identityKey: identity.identityKey,
       externalId: message.id,
       conversationId,
       contactId: contact.id,
@@ -518,6 +521,8 @@ async function processInboundMetaMessage(params: {
         },
         select: conversationMessageEmitSelect,
       });
+
+      patchInboundContactConversationBase(settings.inboxId, identity.identityKey, conversationRow);
 
       broadcastMessageCreated(
         mapMessage(created),

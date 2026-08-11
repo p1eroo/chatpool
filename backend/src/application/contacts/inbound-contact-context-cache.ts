@@ -49,3 +49,16 @@ export function setInboundContactContext(params: {
 export function invalidateInboundContactContext(inboxId: string, identityKey: string): void {
   cache.delete(cacheKey(inboxId, identityKey));
 }
+
+/** Mantiene el snapshot de conversación al día (unread, lastMessageAt) tras provisional/persist. */
+export function patchInboundContactConversationBase(
+  inboxId: string,
+  identityKey: string,
+  patch: Partial<ConversationMessageEmitRow>
+): void {
+  const key = cacheKey(inboxId, identityKey);
+  const hit = cache.get(key);
+  if (!hit) return;
+  hit.conversationBase = { ...hit.conversationBase, ...patch };
+  hit.expiresAt = Date.now() + TTL_MS;
+}
