@@ -24,6 +24,20 @@ export const labelApiService = {
     return apiRequest<Label[]>("/labels");
   },
 
+  async update(
+    inboxId: string,
+    labelId: string,
+    input: { name: string; color: string }
+  ): Promise<Label> {
+    return apiRequest<Label>(`/inboxes/${inboxId}/labels/${labelId}`, {
+      method: "PATCH",
+      body: {
+        name: input.name.trim().toLowerCase(),
+        color: normalizeHexColor(input.color),
+      },
+    });
+  },
+
   async delete(inboxId: string, labelId: string): Promise<{ id: string }> {
     return apiRequest<{ id: string }>(`/inboxes/${inboxId}/labels/${labelId}`, {
       method: "DELETE",

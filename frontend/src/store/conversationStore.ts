@@ -1,6 +1,15 @@
 import { create } from "zustand";
 import { env } from "@/config/env";
-import type { ChannelType, Contact, Conversation, ConversationStatus, LinkPreview, Message, SavedSticker } from "@/types";
+import type {
+  ChannelType,
+  Contact,
+  Conversation,
+  ConversationStatus,
+  Label,
+  LinkPreview,
+  Message,
+  SavedSticker,
+} from "@/types";
 import { useAgentStore } from "@/store/agentStore";
 import { conversations as seedConversations, getMessages } from "@/data/mock";
 import { useLabelStore } from "@/store/labelStore";
@@ -117,6 +126,8 @@ interface ConversationState {
   toggleConversationLabel: (id: string, labelId: string) => Promise<boolean>;
   /** Quita una etiqueta eliminada de conversaciones cargadas y del filtro activo. */
   removeLabelFromAllConversations: (labelId: string) => void;
+  /** Sincroniza nombre/color de una etiqueta editada en conversaciones cargadas. */
+  syncLabelInConversations: (label: Label) => void;
   deleteConversation: (id: string) => void;
   deleteMessage: (conversationId: string, messageId: string) => void;
   blockContact: (conversationId: string) => Promise<boolean>;
@@ -1807,6 +1818,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         labels: conversation.labels.filter((label) => label.id !== labelId),
       })),
       filterLabelId: state.filterLabelId === labelId ? null : state.filterLabelId,
+    }));
+  },
+
+  syncLabelInConversations: (label) => {
+    set((state) => ({
+      conversations: state.conversations.map((conversation) => {
+        if (!conversation.labels.some((item) => item.id === label.id)) {
+          return conversation;
+        }
+        return {
+          ...conversation,
+          labels: conversation.labels.map((item) =>
+            item.id === label.id ? label : item
+          ),
+        };
+      }),
     }));
   },
 

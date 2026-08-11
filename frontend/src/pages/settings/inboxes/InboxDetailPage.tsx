@@ -45,6 +45,7 @@ export function InboxDetailPage() {
   const { inboxId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [labelPendingEdit, setLabelPendingEdit] = useState<Label | null>(null);
   const [labelPendingDelete, setLabelPendingDelete] = useState<Label | null>(null);
   const [botPauseMinutes, setBotPauseMinutes] = useState("");
   const [savingBot, setSavingBot] = useState(false);
@@ -53,12 +54,17 @@ export function InboxDetailPage() {
   const updateSettings = useInboxSettingsStore((s) => s.updateSettings);
   const getInboxById = useInboxStore((s) => s.getInboxById);
   const createLabel = useLabelStore((s) => s.createLabel);
+  const updateLabel = useLabelStore((s) => s.updateLabel);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
+  const getLabelById = useLabelStore((s) => s.getLabelById);
   const labels = useLabelStore((s) => s.labels);
   const inboxLabels = labels.filter((label) => label.inboxId === inboxId);
   const labelAccentById = useInboxLabelAccentMap(inboxId);
   const removeLabelFromAllConversations = useConversationStore(
     (s) => s.removeLabelFromAllConversations
+  );
+  const syncLabelInConversations = useConversationStore(
+    (s) => s.syncLabelInConversations
   );
   const [deletingLabelId, setDeletingLabelId] = useState<string | null>(null);
   const getAccountByProvider = useIntegrationStore((s) => s.getAccountByProvider);
@@ -136,6 +142,37 @@ export function InboxDetailPage() {
       showToast("Etiqueta creada");
     }
     return ok;
+  };
+
+  const handleUpdateLabel = async (
+    labelId: string,
+    name: string,
+    color: string
+  ) => {
+    const ok = await updateLabel(inboxId, labelId, name, color);
+    if (!ok) return false;
+
+    const updated = getLabelById(labelId);
+    if (updated) {
+      syncLabelInConversations(updated);
+    }
+    showToast("Etiqueta actualizada");
+    return true;
+  };
+
+  const openCreateLabelModal = () => {
+    setLabelPendingEdit(null);
+    setLabelModalOpen(true);
+  };
+
+  const openEditLabelModal = (label: Label) => {
+    setLabelPendingEdit(label);
+    setLabelModalOpen(true);
+  };
+
+  const closeLabelModal = () => {
+    setLabelModalOpen(false);
+    setLabelPendingEdit(null);
   };
 
   const handleConfirmDeleteLabel = async () => {
@@ -236,7 +273,7 @@ export function InboxDetailPage() {
         action={
           <button
             type="button"
-            onClick={() => setLabelModalOpen(true)}
+            onClick={openCreateLabelModal}
             className="h-8 px-3 text-xs font-medium bg-[var(--color-brand)] text-white rounded-lg hover:bg-[var(--color-brand-light)] transition-colors flex items-center gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -254,6 +291,7 @@ export function InboxDetailPage() {
                 label={label}
                 accentColor={labelAccentById[label.id]}
                 deleting={deletingLabelId === label.id}
+                onClick={() => openEditLabelModal(label)}
                 onDelete={() => setLabelPendingDelete(label)}
               />
             ))}
@@ -337,8 +375,15 @@ export function InboxDetailPage() {
 
       <CreateLabelModal
         open={labelModalOpen}
-        onClose={() => setLabelModalOpen(false)}
+        onClose={closeLabelModal}
         onCreate={handleCreateLabel}
+        onUpdate={handleUpdateLabel}
+        initialLabel={labelPendingEdit}
+        initialColorOverride={
+          labelPendingEdit
+            ? labelAccentById[labelPendingEdit.id]
+            : undefined
+        }
       />
 
       <SettingsModal

@@ -58,6 +58,55 @@ export async function createLabelForInbox(
   return mapLabel(label);
 }
 
+export async function updateLabelForInbox(
+  inboxId: string,
+  labelId: string,
+  input: { name: string; color: string }
+) {
+  const inbox = await prisma.inbox.findUnique({ where: { id: inboxId }, select: { id: true } });
+  if (!inbox) throw new NotFoundError("Bandeja no encontrada");
+
+  const current = await prisma.label.findFirst({
+    where: { id: labelId, inboxId },
+  });
+  if (!current) throw new NotFoundError("Etiqueta no encontrada");
+
+  const name = input.name.trim().toLowerCase();
+  if (!name) {
+    throw new AppError("El nombre de la etiqueta es obligatorio", 400, "INVALID_LABEL_NAME");
+  }
+
+  if (!HEX_COLOR_REGEX.test(input.color)) {
+    throw new AppError("Color hex inválido", 400, "INVALID_LABEL_COLOR");
+  }
+
+  const duplicate = await prisma.label.findFirst({
+    where: {
+      inboxId,
+      name,
+      NOT: { id: labelId },
+    },
+    select: { id: true },
+  });
+  if (duplicate) {
+    throw new AppError(
+      "Ya existe una etiqueta con ese nombre en esta bandeja",
+      400,
+      "LABEL_NAME_EXISTS"
+    );
+  }
+
+  const label = await prisma.label.update({
+    where: { id: labelId },
+    data: {
+      name,
+      color: input.color.toUpperCase(),
+    },
+  });
+
+  return mapLabel(label);
+}
+
 export async function deleteLabelForInbox(inboxId: string, labelId: string) {
   const inbox = await prisma.inbox.findUnique({ where: { id: inboxId }, select: { id: true } });
   if (!inbox) throw new NotFoundError("Bandeja no encontrada");

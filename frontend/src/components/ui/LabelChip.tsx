@@ -34,8 +34,38 @@ export function LabelChip({
     accentColor
   );
 
-  const content = (
-    <>
+  const classes = cn(
+    "inline-flex items-center gap-1.5 rounded-full font-medium max-w-full",
+    size === "sm" ? "text-[10px] px-1.5 py-0.5" : "text-[11px] pl-2.5 pr-1.5 py-1",
+    onDelete && "pr-1",
+    onClick && "cursor-pointer hover:brightness-110 transition-[filter]",
+    className
+  );
+
+  const style = {
+    backgroundColor: chip.backgroundColor,
+    color: chip.color,
+  };
+
+  return (
+    <span
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      title={title ?? (onClick ? `Editar ${label.name}` : chip.accentColor)}
+      className={classes}
+      style={style}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+    >
       <LabelColorDot
         color={chip.accentColor}
         className={cn(size === "sm" ? "w-1.5 h-1.5" : "w-2 h-2")}
@@ -55,39 +85,6 @@ export function LabelChip({
           <X className="w-3 h-3" />
         </button>
       ) : null}
-    </>
-  );
-
-  const classes = cn(
-    "inline-flex items-center gap-1.5 rounded-full font-medium max-w-full",
-    size === "sm" ? "text-[10px] px-1.5 py-0.5" : "text-[11px] pl-2.5 pr-1.5 py-1",
-    onDelete && "pr-1",
-    onClick && "hover:brightness-110 transition-[filter]",
-    className
-  );
-
-  const style = {
-    backgroundColor: chip.backgroundColor,
-    color: chip.color,
-  };
-
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        title={title}
-        className={classes}
-        style={style}
-      >
-        {content}
-      </button>
-    );
-  }
-
-  return (
-    <span title={title ?? chip.accentColor} className={classes} style={style}>
-      {content}
     </span>
   );
 }

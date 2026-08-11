@@ -1,30 +1,54 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { DEFAULT_LABEL_COLOR, LabelColorPicker } from "@/components/settings/LabelColorPicker";
 import { normalizeHexColor } from "@/lib/labelColorUtils";
 import { cn } from "@/lib/utils";
+import type { Label } from "@/types";
 
 interface CreateLabelModalProps {
   open: boolean;
   onClose: () => void;
   onCreate: (name: string, color: string) => Promise<boolean>;
+  onUpdate?: (labelId: string, name: string, color: string) => Promise<boolean>;
+  /** Si se pasa, el modal edita esa etiqueta. */
+  initialLabel?: Label | null;
+  /** Color inicial sugerido (p. ej. acento resuelto si la etiqueta estaba en gris). */
+  initialColorOverride?: string;
 }
 
-export function CreateLabelModal({ open, onClose, onCreate }: CreateLabelModalProps) {
+export function CreateLabelModal({
+  open,
+  onClose,
+  onCreate,
+  onUpdate,
+  initialLabel = null,
+  initialColorOverride,
+}: CreateLabelModalProps) {
+  const isEditing = Boolean(initialLabel);
   const [name, setName] = useState("");
   const [color, setColor] = useState(DEFAULT_LABEL_COLOR);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const reset = () => {
-    setName("");
-    setColor(DEFAULT_LABEL_COLOR);
+  useEffect(() => {
+    if (!open) return;
+
+    if (initialLabel) {
+      setName(initialLabel.name);
+      setColor(
+        normalizeHexColor(initialColorOverride || initialLabel.color)
+      );
+    } else {
+      setName("");
+      setColor(DEFAULT_LABEL_COLOR);
+    }
     setError(null);
     setSubmitting(false);
-  };
+  }, [open, initialLabel, initialColorOverride]);
 
   const handleClose = () => {
-    reset();
+    setError(null);
+    setSubmitting(false);
     onClose();
   };
 
@@ -39,13 +63,27 @@ export function CreateLabelModal({ open, onClose, onCreate }: CreateLabelModalPr
     setError(null);
 
     try {
-      const ok = await onCreate(trimmed, normalizeHexColor(color));
-      if (!ok) {
-        setError("No se pudo crear la etiqueta. Puede que ya exista en esta bandeja.");
-        return;
+      const nextColor = normalizeHexColor(color);
+
+      if (isEditing && initialLabel && onUpdate) {
+        const ok = await onUpdate(initialLabel.id, trimmed, nextColor);
+        if (!ok) {
+          setError(
+            "No se pudo actualizar la etiqueta. Puede que el nombre ya exista en esta bandeja."
+          );
+          return;
+        }
+      } else {
+        const ok = await onCreate(trimmed, nextColor);
+        if (!ok) {
+          setError(
+            "No se pudo crear la etiqueta. Puede que ya exista en esta bandeja."
+          );
+          return;
+        }
       }
-      reset();
-      onClose();
+
+      handleClose();
     } finally {
       setSubmitting(false);
     }
@@ -55,7 +93,7 @@ export function CreateLabelModal({ open, onClose, onCreate }: CreateLabelModalPr
     <SettingsModal
       open={open}
       onClose={handleClose}
-      title="Nueva etiqueta"
+      title={isEditing ? "Editar etiqueta" : "Nueva etiqueta"}
       description="Las etiquetas solo aplican a conversaciones de esta bandeja."
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -78,7 +116,13 @@ export function CreateLabelModal({ open, onClose, onCreate }: CreateLabelModalPr
                 : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] cursor-not-allowed"
             )}
           >
-            {submitting ? "Creando…" : "Crear etiqueta"}
+            {submitting
+              ? isEditing
+                ? "Guardando…"
+                : "Creando…"
+              : isEditing
+                ? "Guardar cambios"
+                : "Crear etiqueta"}
           </button>
         </div>
       }

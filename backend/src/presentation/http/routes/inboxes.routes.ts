@@ -16,6 +16,7 @@ import {
   deleteLabelForInbox,
   listAllLabels,
   listLabelsForInbox,
+  updateLabelForInbox,
 } from "../../../application/labels/labels.service.js";
 import { listWhatsAppTemplatesForInbox } from "../../../application/whatsapp/whatsapp-templates.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
@@ -113,6 +114,19 @@ export async function inboxesRoutes(app: FastifyInstance) {
       const { inboxId } = request.params as { inboxId: string };
       const body = createLabelSchema.parse(request.body);
       return reply.status(201).send(await createLabelForInbox(inboxId, body));
+    }
+  );
+
+  app.patch(
+    "/inboxes/:inboxId/labels/:labelId",
+    { preHandler: requirePermission("manageLabels") },
+    async (request, reply) => {
+      const { inboxId, labelId } = request.params as {
+        inboxId: string;
+        labelId: string;
+      };
+      const body = createLabelSchema.parse(request.body);
+      return reply.send(await updateLabelForInbox(inboxId, labelId, body));
     }
   );
 

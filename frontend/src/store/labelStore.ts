@@ -34,6 +34,12 @@ interface LabelState {
   getLabelsForInbox: (inboxId: string) => Label[];
   getLabelById: (labelId: string) => Label | undefined;
   createLabel: (inboxId: string, name: string, color: string) => Promise<boolean>;
+  updateLabel: (
+    inboxId: string,
+    labelId: string,
+    name: string,
+    color: string
+  ) => Promise<boolean>;
   deleteLabel: (inboxId: string, labelId: string) => Promise<boolean>;
 }
 
@@ -78,6 +84,52 @@ export const useLabelStore = create<LabelState>((set, get) => ({
         color: normalizeHexColor(color),
       });
       set({ labels: [...get().labels, label] });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  updateLabel: async (inboxId, labelId, name, color) => {
+    const existing = get().labels.find(
+      (label) => label.id === labelId && label.inboxId === inboxId
+    );
+    if (!existing) return false;
+
+    const normalizedName = name.trim().toLowerCase();
+    if (!normalizedName) return false;
+
+    const duplicate = get().labels.some(
+      (label) =>
+        label.inboxId === inboxId &&
+        label.name === normalizedName &&
+        label.id !== labelId
+    );
+    if (duplicate) return false;
+
+    const nextColor = normalizeHexColor(color);
+
+    try {
+      if (env.useMock) {
+        const labels = get().labels.map((label) =>
+          label.id === labelId
+            ? { ...label, name: normalizedName, color: nextColor }
+            : label
+        );
+        persistLabels(labels);
+        set({ labels });
+        return true;
+      }
+
+      const updated = await labelApiService.update(inboxId, labelId, {
+        name: normalizedName,
+        color: nextColor,
+      });
+      set({
+        labels: get().labels.map((label) =>
+          label.id === labelId ? updated : label
+        ),
+      });
       return true;
     } catch {
       return false;

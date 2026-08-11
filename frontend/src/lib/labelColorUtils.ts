@@ -140,7 +140,7 @@ export function resolveLabelAccentColor(color: string, seed = ""): string {
 }
 
 function buildExpandedPalette(count: number): string[] {
-  const palette = [...VIVID_LABEL_COLORS];
+  const palette: string[] = [...VIVID_LABEL_COLORS];
   let i = 0;
   while (palette.length < count) {
     const hue = (i * 47 + 13) % 360;

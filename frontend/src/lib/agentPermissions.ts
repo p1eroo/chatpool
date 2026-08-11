@@ -50,7 +50,7 @@ export const PERMISSION_GROUPS: {
       {
         key: "manageLabels",
         label: "Gestionar etiquetas",
-        description: "Crear y eliminar etiquetas de bandeja",
+        description: "Crear, editar y eliminar etiquetas de bandeja",
       },
       {
         key: "manageCannedResponses",
