@@ -15,6 +15,7 @@ import { InboxNotificationSettingsPopover } from "./InboxNotificationSettingsPop
 import type { AssigneeFilter } from "@/store/conversationStore";
 import type { Conversation } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatLocalWhatsAppPhoneDisplay } from "@/lib/whatsappPhone";
 
 const statusTabs = [
   { id: "open", label: "Abierto" },
@@ -43,6 +44,27 @@ function matchesAssignee(
 
 function matchesStatus(conversation: Conversation, status: StatusFilter) {
   return conversation.status === status;
+}
+
+/** Búsqueda general por bandeja: ignora tabs de estado/asignación. */
+function matchesConversationSearch(conversation: Conversation, rawQuery: string) {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return true;
+
+  const phone = conversation.contact.phone ?? "";
+  const haystack = [
+    conversation.contact.name,
+    phone,
+    formatLocalWhatsAppPhoneDisplay(phone),
+    conversation.contact.email,
+    conversation.contact.waId,
+    conversation.lastMessage?.content,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(query);
 }
 
 export function ConversationList() {
@@ -86,6 +108,10 @@ export function ConversationList() {
       setFilterInboxId(inboxes[0].id);
     }
   }, [filterInboxId, inboxes, setFilterInboxId]);
+
+  useEffect(() => {
+    setSearch("");
+  }, [filterInboxId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -150,13 +176,14 @@ export function ConversationList() {
     currentAgent?.id,
   ]);
 
-  const displayed = search
-    ? filtered.filter(
-        (c) =>
-          c.contact.name.toLowerCase().includes(search.toLowerCase()) ||
-          c.lastMessage?.content.toLowerCase().includes(search.toLowerCase())
-      )
-    : filtered;
+  const searchQuery = search.trim();
+  const isSearching = searchQuery.length > 0;
+
+  // Con texto: busca en toda la bandeja (abiertas/cerradas, mías/sin asignar/todas).
+  const displayed = useMemo(() => {
+    if (!isSearching) return filtered;
+    return inboxFiltered.filter((c) => matchesConversationSearch(c, searchQuery));
+  }, [isSearching, filtered, inboxFiltered, searchQuery]);
 
   const contextConversation = contextMenu
     ? conversations.find((c) => c.id === contextMenu.conversationId)
@@ -184,9 +211,11 @@ export function ConversationList() {
                     type="button"
                     role="tab"
                     aria-selected={active}
+                    disabled={isSearching}
                     onClick={() => setFilterStatus(tab.id)}
                     className={cn(
                       "rounded-full px-2.5 py-1 text-[11px] font-medium leading-none transition-colors",
+                      isSearching && "opacity-50",
                       active
                         ? "bg-[var(--color-bg-secondary)] text-[var(--control-selected-fg)] shadow-sm"
                         : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
@@ -223,17 +252,27 @@ export function ConversationList() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
             type="text"
-            placeholder="Buscar conversaciones..."
+            placeholder="Buscar en toda la bandeja..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-sm rounded-lg pl-9 pr-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)] transition-colors placeholder:text-[var(--color-text-muted)]"
           />
         </div>
 
+        {isSearching ? (
+          <p className="mb-2 text-[11px] text-[var(--color-text-muted)]">
+            Buscando en toda la bandeja ({displayed.length})
+          </p>
+        ) : null}
+
         <div
-          className="grid grid-cols-3 gap-0.5 rounded-lg bg-[var(--color-bg-tertiary)] p-0.5"
+          className={cn(
+            "grid grid-cols-3 gap-0.5 rounded-lg bg-[var(--color-bg-tertiary)] p-0.5",
+            isSearching && "pointer-events-none opacity-50"
+          )}
           role="tablist"
           aria-label="Filtro por asignación"
+          aria-disabled={isSearching}
         >
           {assigneeTabs.map((tab) => {
             const active = filterAssignee === tab.id;
@@ -243,6 +282,7 @@ export function ConversationList() {
                 type="button"
                 role="tab"
                 aria-selected={active}
+                disabled={isSearching}
                 onClick={() => setFilterAssignee(tab.id)}
                 className={cn(
                   "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1.5 text-center transition-colors",
@@ -283,6 +323,15 @@ export function ConversationList() {
                 </p>
                 <p className="text-[var(--color-text-muted)] text-xs mt-1">
                   Pide a un administrador que te dé acceso a una bandeja
+                </p>
+              </>
+            ) : isSearching ? (
+              <>
+                <p className="text-[var(--color-text-secondary)] text-sm font-medium">
+                  Sin resultados
+                </p>
+                <p className="text-[var(--color-text-muted)] text-xs mt-1">
+                  No hay conversaciones que coincidan en esta bandeja
                 </p>
               </>
             ) : (
