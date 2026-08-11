@@ -139,25 +139,28 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
             )}
           </div>
 
-          <div className="flex items-center gap-2 mt-1.5">
-            {labels.length > 0 && (
-              <div className="flex items-center gap-1 flex-1 min-w-0">
+          <div className="mt-1.5 flex items-center gap-2 min-w-0">
+            {labels.length > 0 ? (
+              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
                 {labels.slice(0, 2).map((label) => (
                   <LabelChip
                     key={label.id}
                     label={label}
                     accentColor={labelAccentById[label.id]}
                     size="sm"
+                    className="shrink"
                   />
                 ))}
-                {labels.length > 2 && (
-                  <span className="text-[10px] text-[var(--color-text-muted)]">
+                {labels.length > 2 ? (
+                  <span className="shrink-0 text-[10px] text-[var(--color-text-muted)]">
                     +{labels.length - 2}
                   </span>
-                )}
+                ) : null}
               </div>
+            ) : (
+              <div className="min-w-0 flex-1" />
             )}
-            <div className="flex items-center gap-1.5 ml-auto shrink-0">
+            <div className="flex shrink-0 items-center gap-1.5">
               {lastMessage?.senderType === "bot" && !lastMessage.isPrivate && (
                 <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-600 dark:text-sky-300">
                   Bot

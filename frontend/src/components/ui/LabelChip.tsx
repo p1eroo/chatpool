@@ -35,7 +35,7 @@ export function LabelChip({
   );
 
   const classes = cn(
-    "inline-flex items-center gap-1.5 rounded-full font-medium max-w-full",
+    "inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-full font-medium",
     size === "sm" ? "text-[10px] px-1.5 py-0.5" : "text-[11px] pl-2.5 pr-1.5 py-1",
     onDelete && "pr-1",
     onClick && "cursor-pointer hover:brightness-110 transition-[filter]",
@@ -68,9 +68,9 @@ export function LabelChip({
     >
       <LabelColorDot
         color={chip.accentColor}
-        className={cn(size === "sm" ? "w-1.5 h-1.5" : "w-2 h-2")}
+        className={cn("shrink-0", size === "sm" ? "w-1.5 h-1.5" : "w-2 h-2")}
       />
-      <span className="truncate">{label.name}</span>
+      <span className="min-w-0 truncate">{label.name}</span>
       {onDelete ? (
         <button
           type="button"
