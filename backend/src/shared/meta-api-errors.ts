@@ -84,3 +84,32 @@ export function resolveMetaSendFailure(error: unknown): {
     message: `No se pudo enviar el mensaje por WhatsApp: ${detail}`,
   };
 }
+
+/** Traduce el array `errors` de un status webhook de Meta a un mensaje legible. */
+export function resolveMetaWebhookStatusFailure(errors: unknown): {
+  code: string;
+  message: string;
+} | null {
+  if (!Array.isArray(errors) || errors.length === 0) return null;
+
+  const first = errors[0];
+  if (!first || typeof first !== "object") return null;
+
+  const record = first as Record<string, unknown>;
+  const code = typeof record.code === "number" ? record.code : undefined;
+  const title = typeof record.title === "string" ? record.title : undefined;
+  const message = typeof record.message === "string" ? record.message : undefined;
+  const errorData =
+    record.error_data && typeof record.error_data === "object" && !Array.isArray(record.error_data)
+      ? (record.error_data as Record<string, unknown>)
+      : undefined;
+  const details =
+    typeof errorData?.details === "string" ? errorData.details : undefined;
+
+  const detail = [code != null ? `(${code})` : null, title, message, details]
+    .filter(Boolean)
+    .join(" ");
+
+  if (!detail) return null;
+  return resolveMetaSendFailure(new Error(detail));
+}

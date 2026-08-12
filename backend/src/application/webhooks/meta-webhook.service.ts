@@ -10,7 +10,10 @@ import {
   messageCreateInclude,
   type ConversationMessageEmitRow,
 } from "../realtime/conversation-realtime-emit.js";
-import { resolveMetaApiFailure } from "../../shared/meta-api-errors.js";
+import {
+  resolveMetaApiFailure,
+  resolveMetaWebhookStatusFailure,
+} from "../../shared/meta-api-errors.js";
 import {
   downloadAndStoreMetaMedia,
 } from "../media/meta-media.service.js";
@@ -188,6 +191,7 @@ type MetaStatusEvent = {
   timestamp?: string;
   recipient_id?: string;
   recipient_user_id?: string;
+  errors?: unknown;
 };
 
 function mapMetaDeliveryStatus(status?: string): "sent" | "delivered" | "read" | "failed" | null {
@@ -212,14 +216,28 @@ async function processMetaMessageStatuses(
 
     const message = await prisma.message.findUnique({
       where: { externalId: statusEvent.id },
-      select: { id: true, conversationId: true, status: true },
+      select: { id: true, conversationId: true, status: true, errorMessage: true },
     });
 
-    if (!message || message.status === nextStatus) continue;
+    if (!message) continue;
+
+    const failure =
+      nextStatus === "failed"
+        ? resolveMetaWebhookStatusFailure(statusEvent.errors)
+        : null;
+    const nextErrorMessage =
+      nextStatus === "failed"
+        ? failure?.message ?? message.errorMessage ?? "No se pudo entregar el mensaje por WhatsApp"
+        : null;
+
+    if (message.status === nextStatus && message.errorMessage === nextErrorMessage) continue;
 
     const updated = await prisma.message.update({
       where: { id: message.id },
-      data: { status: nextStatus },
+      data: {
+        status: nextStatus,
+        errorMessage: nextErrorMessage,
+      },
       include: messageInclude,
     });
 

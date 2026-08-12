@@ -16,7 +16,6 @@ export function ChatArea() {
   const conversations = useConversationStore((s) => s.conversations);
   const messages = useConversationStore((s) => s.messages);
   const messagesLoading = useConversationStore((s) => s.messagesLoading);
-  const templateWindowOverrides = useConversationStore((s) => s.templateWindowOverrides);
   const toast = useUIStore((s) => s.toast);
   const noteAboutMessage = useUIStore((s) => s.noteAboutMessage);
   const requestAttachFile = useUIStore((s) => s.requestAttachFile);
@@ -44,11 +43,7 @@ export function ChatArea() {
   const whatsAppWindowClosed =
     Boolean(activeConversationId) &&
     !isLoadingMessages &&
-    isWhatsAppReplyWindowClosed(activeConversation?.channelType, activeMessages, {
-      templateUnlocked: activeConversationId
-        ? templateWindowOverrides[activeConversationId]
-        : false,
-    });
+    isWhatsAppReplyWindowClosed(activeConversation?.channelType, activeMessages);
 
   const canAcceptDrop =
     Boolean(activeConversationId) &&

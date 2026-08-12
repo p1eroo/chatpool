@@ -155,6 +155,7 @@ export interface Message {
   sortOrder?: number;
   createdAt: Date;
   status?: "pending" | "sent" | "delivered" | "read" | "failed";
+  errorMessage?: string;
   linkPreview?: LinkPreview;
   linkPreviewSuppressed?: boolean;
 }

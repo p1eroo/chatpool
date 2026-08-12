@@ -24,10 +24,9 @@ export function isWhatsAppChannel(channelType?: ChannelType): boolean {
 export function isWhatsAppReplyWindowClosed(
   channelType: ChannelType | undefined,
   messages: Message[],
-  options?: { templateUnlocked?: boolean; now?: Date }
+  options?: { now?: Date }
 ): boolean {
   if (!isWhatsAppChannel(channelType)) return false;
-  if (options?.templateUnlocked) return false;
 
   const lastContact = getLastContactMessage(messages);
   if (!lastContact) return true;

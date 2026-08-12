@@ -9,6 +9,7 @@ import { emitMessageUpdated } from "../realtime/realtime.service.js";
 import { isLinkPreviewSuppressed } from "../../shared/link-preview.js";
 import { mapMessage, messageInclude } from "../mappers.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
+import { resolveMetaSendFailure } from "../../shared/meta-api-errors.js";
 import type { WhatsAppTemplateSendComponent } from "../../infrastructure/meta/meta-api.client.js";
 import { assertAgentCanAccessConversation } from "../inboxes/inbox-access.service.js";
 
@@ -137,16 +138,18 @@ async function deliverPendingWhatsAppMessage(messageId: string): Promise<void> {
         externalId,
         mediaExternalId,
         status: "sent",
+        errorMessage: null,
       },
       include: messageInclude,
     });
 
     await emitMessageUpdated(conversation.id, messageId, updated);
   } catch (error) {
-    console.error(`[delivery] marking message ${messageId} as failed:`, error);
+    const failure = resolveMetaSendFailure(error);
+    console.error(`[delivery] marking message ${messageId} as failed:`, failure.message, error);
     const updated = await prisma.message.update({
       where: { id: messageId },
-      data: { status: "failed" },
+      data: { status: "failed", errorMessage: failure.message },
       include: messageInclude,
     });
     await emitMessageUpdated(conversation.id, messageId, updated);
@@ -187,6 +190,7 @@ export async function retryFailedMessageDelivery(params: {
     where: { id: message.id },
     data: {
       status: "pending",
+      errorMessage: null,
       externalId: null,
       mediaExternalId: message.contentType === "text" ? null : message.mediaExternalId,
     },

@@ -266,6 +266,8 @@ model Message {
   clientMessageId     String?            @map("client_message_id")
   deliveryPayload     Json?              @map("delivery_payload")
   status              MessageStatus      @default(sent)
+  /// Motivo legible del fallo de entrega (Meta / ventana 24h / etc.)
+  errorMessage        String?            @map("error_message")
   sortOrder           Int                @default(0) @map("sort_order")
   createdAt           DateTime           @default(now()) @map("created_at")
 

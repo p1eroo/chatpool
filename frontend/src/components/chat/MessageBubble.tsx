@@ -220,15 +220,25 @@ export function MessageBubble({
         {isLastInGroup && (
           <div
             className={cn(
-              "flex items-center gap-1 mt-1",
-              isAgent ? "justify-end" : "justify-start"
+              "flex flex-col gap-0.5 mt-1",
+              isAgent ? "items-end" : "items-start"
             )}
           >
-            <span className="text-[10px] text-[var(--color-text-muted)]">
-              {formatMessageTime(message.createdAt)}
-            </span>
-            {isAgent && message.status && (
-              <MessageStatus status={message.status} />
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-[var(--color-text-muted)]">
+                {formatMessageTime(message.createdAt)}
+              </span>
+              {isAgent && message.status && (
+                <MessageStatus
+                  status={message.status}
+                  errorMessage={message.errorMessage}
+                />
+              )}
+            </div>
+            {isAgent && message.status === "failed" && message.errorMessage && (
+              <p className="max-w-[260px] text-[10px] leading-snug text-red-400 text-right">
+                {message.errorMessage}
+              </p>
             )}
           </div>
         )}
@@ -658,7 +668,13 @@ function QuotedReply({
   );
 }
 
-function MessageStatus({ status }: { status: string }) {
+function MessageStatus({
+  status,
+  errorMessage,
+}: {
+  status: string;
+  errorMessage?: string;
+}) {
   switch (status) {
     case "pending":
       return <Clock className="w-3 h-3 text-[var(--color-text-muted)] animate-pulse" />;
@@ -669,7 +685,15 @@ function MessageStatus({ status }: { status: string }) {
     case "read":
       return <CheckCheck className="w-3 h-3 text-[var(--color-brand)]" />;
     case "failed":
-      return <span className="text-[10px] text-red-400 font-medium">!</span>;
+      return (
+        <span
+          className="text-[10px] text-red-400 font-medium"
+          title={errorMessage ?? "Envío fallido"}
+          aria-label={errorMessage ?? "Envío fallido"}
+        >
+          !
+        </span>
+      );
     default:
       return null;
   }

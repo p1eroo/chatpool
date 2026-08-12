@@ -126,6 +126,7 @@ export function mapMessage(message: {
   clientMessageId: string | null;
   deliveryPayload?: unknown;
   status: string;
+  errorMessage?: string | null;
   sortOrder: number;
   createdAt: Date;
   senderAgent?: { name: string } | null;
@@ -172,6 +173,7 @@ export function mapMessage(message: {
     sortOrder: message.sortOrder,
     createdAt: message.createdAt.toISOString(),
     status: message.status as Message["status"],
+    errorMessage: message.errorMessage ?? undefined,
     linkPreview: parseLinkPreviewDeliveryPayload(
       message.deliveryPayload as Prisma.JsonValue | null | undefined
     ) ?? undefined,

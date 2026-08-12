@@ -61,7 +61,6 @@ interface ConversationState {
   messagesLoadedFromApi: Record<string, boolean>;
   /** true mientras GET /messages está en curso para esa conversación */
   messagesLoading: Record<string, boolean>;
-  templateWindowOverrides: Record<string, boolean>;
   filterStatus: string;
   filterAssignee: AssigneeFilter;
   filterInboxId: string | null;
@@ -572,27 +571,6 @@ function appendMessageToState(
   }
 }
 
-function syncTemplateWindowOverride(
-  set: (
-    partial:
-      | Partial<ConversationState>
-      | ((state: ConversationState) => Partial<ConversationState>)
-  ) => void,
-  get: () => ConversationState,
-  conversationId: string,
-  messages: Message[]
-) {
-  const conversation = get().conversations.find((item) => item.id === conversationId);
-  if (!conversation || !get().templateWindowOverrides[conversationId]) return;
-
-  if (!isWhatsAppReplyWindowClosed(conversation.channelType, messages)) {
-    set((state) => {
-      const { [conversationId]: _, ...rest } = state.templateWindowOverrides;
-      return { templateWindowOverrides: rest };
-    });
-  }
-}
-
 function mergeMessagesById(primary: Message[], secondary: Message[]): Message[] {
   const byId = new Map<string, Message>();
   for (const message of primary) byId.set(message.id, message);
@@ -705,8 +683,6 @@ function reconcileOutgoingMessage(
       ),
     };
   });
-
-  syncTemplateWindowOverride(set, get, conversationId, get().messages[conversationId] ?? []);
   syncOptimisticSortOrder(conversationId, apiMessage.sortOrder);
 }
 
@@ -751,28 +727,9 @@ function handleOutgoingPostFailure(
 ) {
   const messages = get().messages[conversationId] ?? [];
   if (!isOutgoingStillPending(messages, pendingId)) return;
-  markPendingMessageFailed(set, conversationId, pendingId);
-  useUIStore.getState().showToast(
-    isApiError(error) ? error.message : fallbackToast
-  );
-}
-
-function clearTemplateWindowOverrideIfStillPending(
-  set: (
-    partial:
-      | Partial<ConversationState>
-      | ((state: ConversationState) => Partial<ConversationState>)
-  ) => void,
-  get: () => ConversationState,
-  conversationId: string,
-  pendingId: string
-) {
-  const messages = get().messages[conversationId] ?? [];
-  if (!isOutgoingStillPending(messages, pendingId)) return;
-  set((state) => {
-    const { [conversationId]: _, ...rest } = state.templateWindowOverrides;
-    return { templateWindowOverrides: rest };
-  });
+  const errorMessage = isApiError(error) ? error.message : fallbackToast;
+  markPendingMessageFailed(set, conversationId, pendingId, errorMessage);
+  useUIStore.getState().showToast(errorMessage);
 }
 
 function removePendingMessage(
@@ -801,16 +758,21 @@ function markPendingMessageFailed(
       | ((state: ConversationState) => Partial<ConversationState>)
   ) => void,
   conversationId: string,
-  pendingId: string
+  pendingId: string,
+  errorMessage?: string
 ) {
   set((state) => ({
-      messages: {
+    messages: {
       ...state.messages,
       [conversationId]: (state.messages[conversationId] ?? []).map((message) =>
         message.id === pendingId ||
         message.clientId === pendingId ||
         message.clientMessageId === pendingId
-          ? { ...message, status: "failed" as const }
+          ? {
+              ...message,
+              status: "failed" as const,
+              errorMessage: errorMessage ?? message.errorMessage,
+            }
           : message
       ),
     },
@@ -863,7 +825,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messages: {},
   messagesLoadedFromApi: {},
   messagesLoading: {},
-  templateWindowOverrides: {},
   filterStatus: "open",
   filterAssignee: "mine",
   filterInboxId: getInitialInboxFilter(),
@@ -1065,7 +1026,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     );
 
     syncOptimisticSortOrder(conversation.id, message.sortOrder);
-    syncTemplateWindowOverride(set, get, conversation.id, get().messages[conversation.id] ?? []);
   },
 
   applyRealtimeMessageUpdate: (message, conversationId) => {
@@ -1091,7 +1051,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       previous?.status !== "failed" &&
       message.senderType === "agent"
     ) {
-      useUIStore.getState().showToast("No se pudo entregar el mensaje por WhatsApp");
+      useUIStore.getState().showToast(
+        message.errorMessage ?? "No se pudo entregar el mensaje por WhatsApp"
+      );
     }
   },
 
@@ -1159,12 +1121,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         },
         false
       );
-      set((state) => ({
-        templateWindowOverrides: {
-          ...state.templateWindowOverrides,
-          [conversationId]: true,
-        },
-      }));
       return true;
     }
 
@@ -1187,12 +1143,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     };
 
     appendMessageToState(set, get, conversationId, optimistic, false);
-    set((state) => ({
-      templateWindowOverrides: {
-        ...state.templateWindowOverrides,
-        [conversationId]: true,
-      },
-    }));
 
     void conversationApiService
       .sendTemplate(conversationId, {
@@ -1211,7 +1161,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           error,
           "No se pudo enviar la plantilla"
         );
-        clearTemplateWindowOverrideIfStillPending(set, get, conversationId, pendingId);
       });
     return true;
   },
@@ -1435,13 +1384,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           messages: { ...s.messages, [id]: getMessages(id) },
         }));
       }
-      const loaded = hasMessages ? state.messages[id] ?? [] : getMessages(id);
-      syncTemplateWindowOverride(set, get, id, loaded);
       return;
     }
 
     if (state.messagesLoadedFromApi[id]) {
-      syncTemplateWindowOverride(set, get, id, state.messages[id] ?? []);
       return;
     }
 
@@ -1462,7 +1408,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             messagesLoading: { ...s.messagesLoading, [id]: false },
           };
         });
-        syncTemplateWindowOverride(set, get, id, get().messages[id] ?? []);
       })
       .catch(() => {
         set((s) => ({
@@ -1572,9 +1517,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     if (
       !isPrivate &&
-      isWhatsAppReplyWindowClosed(conversation?.channelType, convMessages, {
-        templateUnlocked: get().templateWindowOverrides[conversationId],
-      })
+      isWhatsAppReplyWindowClosed(conversation?.channelType, convMessages)
     ) {
       return;
     }

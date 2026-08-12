@@ -83,6 +83,7 @@ export interface Message {
   sortOrder?: number;
   createdAt: string;
   status?: "pending" | "sent" | "delivered" | "read" | "failed";
+  errorMessage?: string;
   clientMessageId?: string;
   linkPreview?: LinkPreview;
   linkPreviewSuppressed?: boolean;

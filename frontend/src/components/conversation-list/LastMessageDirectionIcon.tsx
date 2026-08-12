@@ -18,7 +18,8 @@ export function LastMessageDirectionIcon({ message }: { message: Message }) {
     return (
       <span
         className="shrink-0 text-[10px] font-semibold leading-none text-red-400"
-        aria-label="Envío fallido"
+        title={message.errorMessage ?? "Envío fallido"}
+        aria-label={message.errorMessage ?? "Envío fallido"}
       >
         !
       </span>
