@@ -27,12 +27,20 @@ import {
   BOT_PAUSE_MINUTES_MIN,
 } from "../../../shared/bot-pause.js";
 
+/** Propósitos que pueden enviarse aunque el bot esté pausado (OTP / verificación). */
+const BOT_PAUSE_BYPASS_PURPOSES = ["otp", "authentication"] as const;
+
 const createMessageSchema = z
   .object({
     content: z.string().min(1),
     private: z.boolean().optional(),
     isPrivate: z.boolean().optional(),
     message_type: z.enum(["outgoing", "incoming"]).optional(),
+    /**
+     * Propósito del mensaje. `otp` / `authentication` omiten el bloqueo BOT_PAUSED
+     * (códigos de verificación que deben llegar aunque un operador haya pausado el bot).
+     */
+    purpose: z.enum(BOT_PAUSE_BYPASS_PURPOSES).optional(),
     reply_to_message_id: z.string().optional(),
     replyToMessageId: z.string().optional(),
     client_message_id: z.string().min(1).max(128).optional(),
@@ -70,6 +78,12 @@ const createMessageSchema = z
       });
     }
   });
+
+function shouldBypassBotPause(
+  purpose: (typeof BOT_PAUSE_BYPASS_PURPOSES)[number] | undefined
+): boolean {
+  return purpose != null;
+}
 
 const labelsBodySchema = z.object({
   labels: z.array(z.string()),
@@ -295,7 +309,9 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       const agentId = await resolveApiActorAgentId();
 
       const conversation = await assertConversationInInbox(id, inboxId);
-      assertBotNotPaused(conversation.botPausedUntil);
+      if (!shouldBypassBotPause(body.purpose)) {
+        assertBotNotPaused(conversation.botPausedUntil);
+      }
 
       if (body.template_params) {
         const template = body.template_params;
