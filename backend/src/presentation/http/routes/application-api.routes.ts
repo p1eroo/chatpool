@@ -26,6 +26,7 @@ import {
   assertBotNotPaused,
   BOT_PAUSE_MINUTES_MAX,
   BOT_PAUSE_MINUTES_MIN,
+  isReservationConfirmationContent,
 } from "../../../shared/bot-pause.js";
 
 /** Propósitos que pueden enviarse aunque el bot esté pausado (OTP / verificación). */
@@ -80,10 +81,11 @@ const createMessageSchema = z
     }
   });
 
-function shouldBypassBotPause(
-  purpose: (typeof BOT_PAUSE_BYPASS_PURPOSES)[number] | undefined
-): boolean {
-  return purpose != null;
+function shouldBypassBotPause(params: {
+  purpose: (typeof BOT_PAUSE_BYPASS_PURPOSES)[number] | undefined;
+  content: string;
+}): boolean {
+  return params.purpose != null || isReservationConfirmationContent(params.content);
 }
 
 const labelsBodySchema = z.object({
@@ -316,7 +318,7 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       const agentId = await resolveApiActorAgentId();
 
       const conversation = await assertConversationInInbox(id, inboxId);
-      if (!shouldBypassBotPause(body.purpose)) {
+      if (!shouldBypassBotPause({ purpose: body.purpose, content: body.content })) {
         assertBotNotPaused(conversation.botPausedUntil);
       }
 

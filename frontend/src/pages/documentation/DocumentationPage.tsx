@@ -104,7 +104,7 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
     path: "/conversations/:id/messages",
     title: "Enviar mensaje",
     purpose:
-      "Envía un mensaje de texto (o nota privada). Usa el CONVERSATION_ID del payload del webhook saliente. También admite templates con template_params.",
+      "Envía un mensaje de texto (o nota privada). Usa el CONVERSATION_ID del payload del webhook saliente. También admite templates con template_params. Si el bot está pausado responde 422 BOT_PAUSED, salvo purpose otp/authentication o la confirmación de reserva (Servicio registrado exitosamente... #número).",
     pathExample: "/conversations/CONVERSATION_ID/messages",
     body: `{
   "content": "Hola desde n8n",
@@ -168,7 +168,7 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
     path: "/conversations/:id/toggle_bot",
     title: "Apagar / encender bot",
     purpose:
-      "Pausa o reactiva el bot en esa conversación. Con status off usa los minutos de la bandeja (o minutes opcional). Mientras esté off, POST /messages responde 422 BOT_PAUSED. Ideal si n8n detecta handoff a humano.",
+      "Pausa o reactiva el bot en esa conversación. Con status off usa los minutos de la bandeja (o minutes opcional). Mientras esté off, POST /messages responde 422 BOT_PAUSED, salvo OTP y la confirmación de reserva. Ideal si n8n detecta handoff a humano.",
     pathExample: "/conversations/CONVERSATION_ID/toggle_bot",
     body: `{
   "status": "off"

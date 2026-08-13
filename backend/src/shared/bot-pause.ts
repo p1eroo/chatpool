@@ -41,6 +41,21 @@ export function toBotStatus(
   return isBotPaused(until, now) ? "off" : "on";
 }
 
+/**
+ * Confirmación de reserva de n8n, p. ej.
+ * "Servicio registrado exitosamente. Su número de reserva es #3311577."
+ * El número tras # es variable.
+ */
+const RESERVATION_CONFIRMED_RE =
+  /servicio registrado exitosamente[\s.]*su n[uú]mero de reserva es\s*#\d+/i;
+
+export function isReservationConfirmationContent(
+  content: string | undefined
+): boolean {
+  if (!content?.trim()) return false;
+  return RESERVATION_CONFIRMED_RE.test(content.normalize("NFC"));
+}
+
 /** Lanza 422 BOT_PAUSED si la conversación tiene el bot pausado. */
 export function assertBotNotPaused(botPausedUntil: Date | null | undefined): void {
   if (!isBotPaused(botPausedUntil) || !botPausedUntil) return;
