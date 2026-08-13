@@ -87,7 +87,8 @@ export type OutgoingWebhookEvent =
   | "message_updated"
   | "conversation_created"
   | "conversation_updated"
-  | "conversation_status_changed";
+  | "conversation_status_changed"
+  | "conversation_bot_status_changed";
 
 export interface OutgoingWebhookDto {
   id: string;

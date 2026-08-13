@@ -36,6 +36,11 @@ export const OUTGOING_WEBHOOK_EVENT_OPTIONS: {
     label: "conversation_status_changed",
     description: "Cuando una conversación se abre o se resuelve",
   },
+  {
+    id: "conversation_bot_status_changed",
+    label: "conversation_bot_status_changed",
+    description: "Cuando el bot se enciende o se pausa en una conversación",
+  },
 ];
 
 export const outgoingWebhookService = {

@@ -1,6 +1,7 @@
 import type { Conversation, Message } from "../../types/api-responses.js";
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { broadcastRealtime } from "../../infrastructure/realtime/realtime-hub.js";
+import { toBotStatus, type ConversationBotStatus } from "../../shared/bot-pause.js";
 import { mapConversation, mapMessage, messageInclude } from "../mappers.js";
 import { PROVISIONAL_INBOUND_PREFIX } from "../webhooks/inbound-provisional-message.js";
 import { dispatchOutgoingWebhook } from "../webhooks/outbound-webhook.service.js";
@@ -66,6 +67,7 @@ export function broadcastMessageCreated(message: Message, conversation: Conversa
         inbox_id: inboxId,
         status: conversation.status,
         channel_type: conversation.channelType,
+        bot_status: toBotStatus(conversation.botPausedUntil),
         bot_paused_until: conversation.botPausedUntil ?? null,
       },
       inbox: {
@@ -198,6 +200,8 @@ export async function emitConversationUpdated(conversationId: string): Promise<v
     {
       conversation_id: mapped.id,
       ...(mapped as unknown as Record<string, unknown>),
+      bot_status: toBotStatus(mapped.botPausedUntil),
+      bot_paused_until: mapped.botPausedUntil ?? null,
     },
     mapped.inboxId
   );
@@ -220,6 +224,8 @@ export async function emitConversationCreated(conversationId: string): Promise<v
     {
       conversation_id: mapped.id,
       ...(mapped as unknown as Record<string, unknown>),
+      bot_status: toBotStatus(mapped.botPausedUntil),
+      bot_paused_until: mapped.botPausedUntil ?? null,
     },
     mapped.inboxId
   );
@@ -248,6 +254,8 @@ export async function emitConversationStatusChanged(
     {
       conversation_id: mapped.id,
       ...(mapped as unknown as Record<string, unknown>),
+      bot_status: toBotStatus(mapped.botPausedUntil),
+      bot_paused_until: mapped.botPausedUntil ?? null,
       changed_attributes: [
         {
           status: {
@@ -256,6 +264,49 @@ export async function emitConversationStatusChanged(
           },
         },
       ],
+    },
+    mapped.inboxId
+  );
+}
+
+export async function emitConversationBotStatusChanged(
+  conversationId: string,
+  previousStatus: ConversationBotStatus,
+  nextStatus: ConversationBotStatus
+): Promise<void> {
+  if (previousStatus === nextStatus) return;
+
+  const conversation = await loadConversationForRealtime(conversationId);
+  if (!conversation) return;
+
+  const mapped = mapConversation(conversation);
+  if (!mapped.inboxId) {
+    console.warn(
+      `[outbound-webhook] skip conversation_bot_status_changed: missing inboxId conversation=${mapped.id}`
+    );
+    return;
+  }
+
+  dispatchOutgoingWebhook(
+    "conversation_bot_status_changed",
+    {
+      conversation_id: mapped.id,
+      inbox_id: mapped.inboxId,
+      bot_status: nextStatus,
+      bot_paused_until: mapped.botPausedUntil ?? null,
+      changed_attributes: [
+        {
+          bot_status: {
+            previous_value: previousStatus,
+            current_value: nextStatus,
+          },
+        },
+      ],
+      contact: {
+        id: mapped.contact.id,
+        name: mapped.contact.name,
+        phone: mapped.contact.phone ?? null,
+      },
     },
     mapped.inboxId
   );

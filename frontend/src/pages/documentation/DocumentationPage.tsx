@@ -482,6 +482,7 @@ export function DocumentationPage() {
                   <li>conversation_created</li>
                   <li>conversation_updated</li>
                   <li>conversation_status_changed</li>
+                  <li>conversation_bot_status_changed</li>
                 </ul>
               </div>
               <div>
@@ -494,6 +495,8 @@ export function DocumentationPage() {
                   <li>Body: {"{ event, ...payload }"}</li>
                   <li className="font-mono">conversation_id (top-level)</li>
                   <li className="font-mono">inbox.id / conversation.inbox_id</li>
+                  <li className="font-mono">bot_status (on / off)</li>
+                  <li className="font-mono">bot_paused_until</li>
                 </ul>
               </div>
             </div>

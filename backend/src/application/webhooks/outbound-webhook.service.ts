@@ -8,6 +8,7 @@ export const OUTGOING_WEBHOOK_EVENTS = [
   "conversation_created",
   "conversation_updated",
   "conversation_status_changed",
+  "conversation_bot_status_changed",
 ] as const;
 
 export type OutgoingWebhookEvent = (typeof OUTGOING_WEBHOOK_EVENTS)[number];

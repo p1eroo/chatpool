@@ -11,6 +11,7 @@ import { getLastContactMessageAt, isReplyWindowOpen } from "../../shared/whatsap
 import {
   broadcastMessageCreated,
   conversationRealtimeInclude,
+  emitConversationBotStatusChanged,
   emitConversationCreated,
   emitConversationStatusChanged,
   emitConversationUpdated,
@@ -54,6 +55,7 @@ import {
   BOT_PAUSE_MINUTES_MIN,
   DEFAULT_BOT_PAUSE_MINUTES,
   nextBotPausedUntil,
+  toBotStatus,
 } from "../../shared/bot-pause.js";
 import { normalizeRequestContactInfoBody, MISSING_WHATSAPP_PHONE_NOTE } from "../../shared/whatsapp-shared-contact.js";
 
@@ -65,6 +67,16 @@ function shouldAutoAssignOnReply(
   isPrivate: boolean | undefined
 ): boolean {
   return !isPrivate && !assigneeId;
+}
+
+function maybeEmitBotPausedByAgent(
+  conversationId: string,
+  previousPausedUntil: Date | null | undefined,
+  didPause: boolean
+) {
+  if (!didPause) return;
+  if (toBotStatus(previousPausedUntil) !== "on") return;
+  void emitConversationBotStatusChanged(conversationId, "on", "off");
 }
 
 async function resolveReplyTarget(conversationId: string, replyToMessageId?: string) {
@@ -363,6 +375,12 @@ export async function sendAgentMessage(
     });
   }
 
+  maybeEmitBotPausedByAgent(
+    conversationId,
+    conversation.botPausedUntil,
+    senderType === "agent" && !(body.isPrivate ?? false)
+  );
+
   return mapMessage(result.message);
 }
 
@@ -471,6 +489,7 @@ export async function sendWhatsAppTemplate(
       id: true,
       inboxId: true,
       assigneeId: true,
+      botPausedUntil: true,
       contact: { select: { isBlocked: true } },
       inbox: {
         select: {
@@ -653,6 +672,12 @@ export async function sendWhatsAppTemplate(
     });
   }
 
+  maybeEmitBotPausedByAgent(
+    conversationId,
+    conversation.botPausedUntil,
+    senderType === "agent"
+  );
+
   return mapMessage(result.message);
 }
 
@@ -674,6 +699,8 @@ export async function updateConversation(
 
   const resolving =
     body.status === "resolved" && conversation.status !== "resolved";
+  const reopening =
+    body.status === "open" && conversation.status === "resolved";
 
   if (body.status !== undefined) data.status = body.status;
   if (body.assigneeId !== undefined) {
@@ -681,6 +708,9 @@ export async function updateConversation(
   } else if (resolving && conversation.assigneeId) {
     // Resolver libera al agente para que la próxima apertura arranque sin assignee.
     data.assigneeId = null;
+  } else if (reopening && actorAgentId) {
+    // Quien reabre toma el caso.
+    data.assigneeId = actorAgentId;
   }
   if (body.unreadCount !== undefined) data.unreadCount = body.unreadCount;
 
@@ -694,11 +724,15 @@ export async function updateConversation(
       },
     });
     if (!membership) {
-      throw new AppError(
-        "El agente no tiene acceso a esta bandeja",
-        422,
-        "AGENT_NOT_IN_INBOX"
-      );
+      if (reopening && body.assigneeId === undefined) {
+        delete data.assigneeId;
+      } else {
+        throw new AppError(
+          "El agente no tiene acceso a esta bandeja",
+          422,
+          "AGENT_NOT_IN_INBOX"
+        );
+      }
     }
   }
 
@@ -708,7 +742,13 @@ export async function updateConversation(
 
   const updated = await prisma.conversation.update({
     where: { id: conversationId },
-    data,
+    data: resolving
+      ? {
+          ...data,
+          // Al resolver se limpian las etiquetas para no reabrir el caso con el mismo contexto.
+          labels: { deleteMany: {} },
+        }
+      : data,
     include: conversationInclude,
   });
 
@@ -721,13 +761,21 @@ export async function updateConversation(
     });
   }
 
-  // Solo actividad de assignee si el cliente lo pidió explícitamente
+  // Solo actividad de assignee si cambió de forma explícita o al reabrir.
   // (la limpieza al resolver no genera mensaje de "desasignada").
-  if (body.assigneeId !== undefined) {
+  const nextAssigneeId =
+    data.assigneeId !== undefined ? data.assigneeId : conversation.assigneeId;
+  const assignedOnReopen =
+    reopening &&
+    body.assigneeId === undefined &&
+    nextAssigneeId &&
+    nextAssigneeId !== conversation.assigneeId;
+
+  if (body.assigneeId !== undefined || assignedOnReopen) {
     await recordConversationAssigneeActivity({
       conversationId,
       previousAssigneeId: conversation.assigneeId,
-      nextAssigneeId: body.assigneeId,
+      nextAssigneeId,
       actorAgentId,
     });
   }
@@ -850,11 +898,13 @@ export async function setConversationBotStatus(
     where: { id: conversationId },
     select: {
       id: true,
+      botPausedUntil: true,
       inbox: { select: { settings: { select: { botPauseMinutes: true } } } },
     },
   });
   if (!conversation) throw new NotFoundError("Conversación no encontrada");
 
+  const previousStatus = toBotStatus(conversation.botPausedUntil);
   let botPausedUntil: Date | null = null;
 
   if (params.status === "off") {
@@ -883,6 +933,7 @@ export async function setConversationBotStatus(
   });
 
   await emitConversationUpdated(conversationId);
+  await emitConversationBotStatusChanged(conversationId, previousStatus, params.status);
 
   return {
     conversationId,

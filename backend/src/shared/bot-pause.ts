@@ -29,6 +29,18 @@ export function isBotPaused(
   return Boolean(botPausedUntil && botPausedUntil.getTime() > now.getTime());
 }
 
+export type ConversationBotStatus = "on" | "off";
+
+/** `off` si `botPausedUntil` está en el futuro; si no, `on`. */
+export function toBotStatus(
+  botPausedUntil: Date | string | null | undefined,
+  now: Date = new Date()
+): ConversationBotStatus {
+  const until =
+    typeof botPausedUntil === "string" ? new Date(botPausedUntil) : botPausedUntil;
+  return isBotPaused(until, now) ? "off" : "on";
+}
+
 /** Lanza 422 BOT_PAUSED si la conversación tiene el bot pausado. */
 export function assertBotNotPaused(botPausedUntil: Date | null | undefined): void {
   if (!isBotPaused(botPausedUntil) || !botPausedUntil) return;
