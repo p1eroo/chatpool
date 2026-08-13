@@ -151,6 +151,37 @@ export async function deliverWhatsAppOutbound(params: {
   }
 }
 
+export async function deliverWhatsAppRequestContactInfo(params: {
+  inboxId: string;
+  recipientWaId: string | null;
+  recipientPhone: string | null;
+  bodyText: string;
+}): Promise<{ externalId: string }> {
+  const { phoneNumberId, accessToken } = await resolveInboxWhatsAppCredentials(params.inboxId);
+  const target = resolveRecipientOrThrow(params.recipientWaId, params.recipientPhone);
+  const addressing =
+    target.kind === "phone"
+      ? { to: target.to }
+      : { recipient: target.recipient };
+
+  try {
+    const externalId = await metaApiClient.sendWhatsAppMessage(phoneNumberId, accessToken, {
+      ...addressing,
+      type: "interactive",
+      interactive: {
+        type: "request_contact_info",
+        body: { text: params.bodyText },
+        action: { name: "request_contact_info" },
+      },
+    });
+    return { externalId };
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    const failure = resolveMetaSendFailure(error);
+    throw new AppError(failure.message, 502, failure.code);
+  }
+}
+
 export async function deliverWhatsAppTemplate(params: {
   inboxId: string;
   recipientWaId: string | null;

@@ -203,7 +203,8 @@ export function mapConversation(
   }
 ): Conversation {
   const mappedLast = row.messages[0] ? mapMessage(row.messages[0]) : null;
-  const lastMessage = mappedLast?.senderType === "system" ? null : mappedLast;
+  const lastMessage =
+    mappedLast?.senderType === "system" || mappedLast?.isPrivate ? null : mappedLast;
 
   return {
     id: row.id,

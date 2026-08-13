@@ -11,9 +11,18 @@ import {
   isOutboundMessage,
   messageSenderDisplayName,
 } from "@/lib/messageSenderGroup";
-import { Check, CheckCheck, Clock, MapPin, Mic, MoreVertical, Pause, Play } from "lucide-react";
+import { Check, CheckCheck, Clock, MapPin, Mic, MoreVertical, Pause, Play, Phone, UserRound } from "lucide-react";
 import { FileAttachmentCard } from "./FileAttachmentCard";
 import { WAVEFORM_BAR_COUNT, formatVoiceTime } from "@/hooks/useVoiceRecorder";
+import {
+  MISSING_WHATSAPP_PHONE_NOTE,
+  contactHasPhone,
+  displayInboundMessageContent,
+  isSharedContactMessageContent,
+  parseSharedContactDisplay,
+} from "@/lib/whatsappContactInfo";
+import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
+import { useConversationStore } from "@/store/conversationStore";
 
 interface MessageBubbleProps {
   message: Message;
@@ -110,6 +119,9 @@ export function MessageBubble({
               linkClassName={incomingLinkClassName}
               className="text-[13px] text-[var(--color-text-primary)] leading-relaxed"
             />
+            {message.content === MISSING_WHATSAPP_PHONE_NOTE && (
+              <MissingPhoneNoteButton conversationId={message.conversationId} />
+            )}
           </div>
         </div>
       </div>
@@ -298,8 +310,9 @@ function TextMessageContent({
   isAgent: boolean;
   linkClassName: string;
 }) {
+  const displayContent = displayInboundMessageContent(message.content);
   const { preview, loading } = useMessageLinkPreview(message);
-  const hideUrlText = preview && isUrlOnlyMessage(message.content);
+  const hideUrlText = preview && isUrlOnlyMessage(displayContent);
 
   return (
     <>
@@ -312,7 +325,7 @@ function TextMessageContent({
       ) : null}
       {!hideUrlText ? (
         <WhatsAppFormattedText
-          text={message.content}
+          text={displayContent}
           linkClassName={linkClassName}
           className="leading-relaxed"
         />
@@ -398,6 +411,48 @@ function LocationMessageContent({ message, isAgent }: { message: Message; isAgen
   );
 }
 
+function SharedContactMessageContent({ message, isAgent }: { message: Message; isAgent: boolean }) {
+  const { title, subtitle } = parseSharedContactDisplay(message.content);
+
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2.5 min-w-[200px] max-w-[260px] rounded-xl px-3 py-2.5",
+        isAgent ? "bg-black/15" : "bg-[var(--color-bg-primary)]/50"
+      )}
+    >
+      <div
+        className={cn(
+          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+          isAgent ? "bg-white/15 text-white" : "bg-[var(--color-brand)]/15 text-[var(--color-brand)]"
+        )}
+      >
+        <UserRound className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "text-sm font-medium truncate",
+            isAgent ? "text-white" : "text-[var(--color-text-primary)]"
+          )}
+        >
+          {title}
+        </p>
+        {subtitle ? (
+          <p
+            className={cn(
+              "text-[11px] mt-0.5 truncate",
+              isAgent ? "text-white/70" : "text-[var(--color-text-secondary)]"
+            )}
+          >
+            {subtitle}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function MessageContent({ message, isAgent }: { message: Message; isAgent: boolean }) {
   const openLightbox = useUIStore((s) => s.openLightbox);
   const linkClassName = isAgent ? outgoingLinkClassName : incomingLinkClassName;
@@ -407,6 +462,10 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
     message.content?.trim() === "[location]"
   ) {
     return <LocationMessageContent message={message} isAgent={isAgent} />;
+  }
+
+  if (isSharedContactMessageContent(message.content)) {
+    return <SharedContactMessageContent message={message} isAgent={isAgent} />;
   }
 
   if (message.contentType === "audio") {
@@ -697,4 +756,37 @@ function MessageStatus({
     default:
       return null;
   }
+}
+
+function MissingPhoneNoteButton({ conversationId }: { conversationId: string }) {
+  const requestContactInfo = useConversationStore((s) => s.requestContactInfo);
+  const messages = useConversationStore((s) => s.messages[conversationId] ?? []);
+  const conversation = useConversationStore((s) =>
+    s.conversations.find((item) => item.id === conversationId)
+  );
+  const showToast = useUIStore((s) => s.showToast);
+  const windowClosed = isWhatsAppReplyWindowClosed(conversation?.channelType, messages);
+
+  if (contactHasPhone(conversation?.contact.phone)) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (windowClosed) {
+          showToast("La ventana de 24 horas está cerrada. Pídelo cuando el cliente vuelva a escribir.");
+          return;
+        }
+        void requestContactInfo(conversationId).then((ok) => {
+          if (ok) {
+            showToast("Se pidió el número. El cliente verá el botón en WhatsApp.");
+          }
+        });
+      }}
+      className="mt-2 h-8 px-2.5 text-xs font-medium text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors inline-flex items-center gap-1.5 border border-[var(--color-border-primary)]"
+    >
+      <Phone className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+      Pedir número
+    </button>
+  );
 }

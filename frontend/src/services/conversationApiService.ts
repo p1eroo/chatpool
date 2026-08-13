@@ -167,6 +167,20 @@ export const conversationApiService = {
     return parseMessage(row as never);
   },
 
+  async requestContactInfo(
+    conversationId: string,
+    payload?: { content?: string; clientMessageId?: string }
+  ): Promise<Message> {
+    const row = await apiRequest<Message>(
+      `/conversations/${conversationId}/request-contact-info`,
+      {
+        method: "POST",
+        body: payload ?? {},
+      }
+    );
+    return parseMessage(row as never);
+  },
+
   async retryMessageDelivery(conversationId: string, messageId: string): Promise<Message> {
     const row = await apiRequest<Message>(
       `/conversations/${conversationId}/messages/${messageId}/retry-delivery`,

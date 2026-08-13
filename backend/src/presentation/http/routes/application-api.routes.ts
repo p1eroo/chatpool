@@ -12,6 +12,7 @@ import {
   getConversationMessages,
   listConversations,
   sendAgentMessage,
+  sendRequestContactInfo,
   sendWhatsAppTemplate,
   setConversationBotStatus,
   updateConversation,
@@ -101,6 +102,12 @@ const toggleBotSchema = z.object({
     .min(BOT_PAUSE_MINUTES_MIN)
     .max(BOT_PAUSE_MINUTES_MAX)
     .optional(),
+});
+
+const requestContactInfoSchema = z.object({
+  content: z.string().max(1024).optional(),
+  client_message_id: z.string().min(1).max(128).optional(),
+  clientMessageId: z.string().min(1).max(128).optional(),
 });
 
 const assignmentSchema = z.object({
@@ -353,6 +360,31 @@ export async function applicationApiRoutes(app: FastifyInstance) {
           content: body.content,
           isPrivate: body.private ?? body.isPrivate,
           replyToMessageId: body.reply_to_message_id ?? body.replyToMessageId,
+          clientMessageId: body.client_message_id ?? body.clientMessageId,
+        },
+        { senderType: "bot" }
+      );
+
+      return reply.status(200).send(message);
+    }
+  );
+
+  app.post(
+    "/api/v1/inboxes/:inboxId/conversations/:id/request-contact-info",
+    async (request, reply) => {
+      const inboxId = getPathInboxId(request);
+      const { id } = request.params as { id: string };
+      const body = requestContactInfoSchema.parse(request.body ?? {});
+      const agentId = await resolveApiActorAgentId();
+
+      const conversation = await assertConversationInInbox(id, inboxId);
+      assertBotNotPaused(conversation.botPausedUntil);
+
+      const message = await sendRequestContactInfo(
+        id,
+        agentId,
+        {
+          content: body.content,
           clientMessageId: body.client_message_id ?? body.clientMessageId,
         },
         { senderType: "bot" }

@@ -3,6 +3,7 @@ import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { s3Storage } from "../../infrastructure/storage/s3-storage.service.js";
 import {
   deliverWhatsAppOutbound,
+  deliverWhatsAppRequestContactInfo,
   deliverWhatsAppTemplate,
 } from "../media/meta-outbound.service.js";
 import { emitMessageUpdated } from "../realtime/realtime.service.js";
@@ -45,6 +46,13 @@ function resolveTemplateDeliveryMeta(message: {
   deliveryPayload: Prisma.JsonValue | null;
 }): TemplateDeliveryPayload | null {
   return parseTemplateDeliveryPayload(message.deliveryPayload);
+}
+
+function isRequestContactInfoDeliveryPayload(
+  value: Prisma.JsonValue | null | undefined
+): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return (value as Record<string, unknown>).kind === "request_contact_info";
 }
 
 /** Encola entrega a Meta por conversación (orden FIFO, sin bloquear el HTTP). */
@@ -96,7 +104,15 @@ async function deliverPendingWhatsAppMessage(messageId: string): Promise<void> {
     let mediaExternalId: string | null = null;
 
     const templateMeta = resolveTemplateDeliveryMeta(message);
-    if (templateMeta) {
+    if (isRequestContactInfoDeliveryPayload(message.deliveryPayload)) {
+      const delivered = await deliverWhatsAppRequestContactInfo({
+        inboxId: conversation.inboxId,
+        recipientWaId: conversation.contact.waId,
+        recipientPhone: conversation.contact.phone,
+        bodyText: message.content,
+      });
+      externalId = delivered.externalId;
+    } else if (templateMeta) {
       const delivered = await deliverWhatsAppTemplate({
         inboxId: conversation.inboxId,
         recipientWaId: conversation.contact.waId,

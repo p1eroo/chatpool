@@ -1,6 +1,7 @@
 import type { Conversation, Message } from "../../types/api-responses.js";
 import { parseMetaMessageTimestamp } from "../../shared/meta-message-time.js";
 import { parseIncomingMetaMedia } from "../media/meta-media.service.js";
+import { formatInboundSharedContactsContent, isInboundContactsMessage } from "../../shared/whatsapp-shared-contact.js";
 import { broadcastMessageCreated } from "../realtime/realtime.service.js";
 import {
   mapConversationMessageEmit,
@@ -43,6 +44,12 @@ interface InboundWebhookMessage {
     name?: string;
     address?: string;
   };
+  contacts?: Array<{
+    name?: { formatted_name?: string; first_name?: string };
+    phones?: Array<{ phone?: string; wa_id?: string; type?: string }>;
+    origin?: string | { type?: string };
+    vcard?: string;
+  }>;
 }
 
 export function parseInboundWebhookContent(
@@ -56,8 +63,20 @@ export function parseInboundWebhookContent(
   mediaExternalId: string | null;
   location: Message["location"] | null;
 } {
-  const parsed = parseIncomingMetaMedia(message.type, messageId, message);
   const fallbackContent = `[${message.type ?? "mensaje"}]`;
+
+  if (isInboundContactsMessage(message)) {
+    return {
+      content: formatInboundSharedContactsContent(message.contacts),
+      contentType: "text",
+      fileName: null,
+      mimeType: null,
+      mediaExternalId: null,
+      location: null,
+    };
+  }
+
+  const parsed = parseIncomingMetaMedia(message.type, messageId, message);
 
   if (!parsed) {
     return {

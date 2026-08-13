@@ -6,7 +6,7 @@ import { PROVISIONAL_INBOUND_PREFIX } from "../webhooks/inbound-provisional-mess
 import { dispatchOutgoingWebhook } from "../webhooks/outbound-webhook.service.js";
 
 export const conversationPreviewMessages = {
-  where: { senderType: { not: "system" as const } },
+  where: { senderType: { not: "system" as const }, isPrivate: false },
   orderBy: [{ sortOrder: "desc" as const }, { createdAt: "desc" as const }],
   take: 1,
   include: messageInclude,

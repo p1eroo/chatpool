@@ -55,6 +55,7 @@ import {
   DEFAULT_BOT_PAUSE_MINUTES,
   nextBotPausedUntil,
 } from "../../shared/bot-pause.js";
+import { normalizeRequestContactInfoBody, MISSING_WHATSAPP_PHONE_NOTE } from "../../shared/whatsapp-shared-contact.js";
 
 const conversationInclude = conversationRealtimeInclude;
 
@@ -179,7 +180,11 @@ export async function sendAgentMessage(
   conversationId: string,
   agentId: string,
   body: SendMessageBody,
-  options?: { mediaBuffer?: Buffer; senderType?: "agent" | "bot" }
+  options?: {
+    mediaBuffer?: Buffer;
+    senderType?: "agent" | "bot";
+    deliveryPayload?: Prisma.InputJsonValue;
+  }
 ) {
   const senderType = options?.senderType ?? "agent";
   const conversation = await prisma.conversation.findUnique({
@@ -225,6 +230,18 @@ export async function sendAgentMessage(
     ]);
 
   if (!agent) throw new NotFoundError("Agente no encontrado");
+
+  if (body.isPrivate && body.content.trim() === MISSING_WHATSAPP_PHONE_NOTE) {
+    const existingNote = await prisma.message.findFirst({
+      where: {
+        conversationId,
+        isPrivate: true,
+        content: MISSING_WHATSAPP_PHONE_NOTE,
+      },
+      include: messageInclude,
+    });
+    if (existingNote) return mapMessage(existingNote);
+  }
 
   if (needsWhatsAppWindow && !isReplyWindowOpen(lastContactAt)) {
     throw new AppError(
@@ -281,7 +298,7 @@ export async function sendAgentMessage(
         externalId: null,
         replyToMessageId: replyTarget?.id ?? null,
         clientMessageId,
-        deliveryPayload: linkPreviewPayload,
+        deliveryPayload: options?.deliveryPayload ?? linkPreviewPayload,
         status: needsWhatsAppDelivery ? "pending" : "sent",
         sortOrder,
         createdAt,
@@ -323,7 +340,12 @@ export async function sendAgentMessage(
     scheduleWhatsAppMessageDelivery(conversationId, result.message.id);
   }
 
-  if ((body.contentType ?? "text") === "text" && !body.linkPreview && !body.suppressLinkPreview) {
+  if (
+    !options?.deliveryPayload &&
+    (body.contentType ?? "text") === "text" &&
+    !body.linkPreview &&
+    !body.suppressLinkPreview
+  ) {
     scheduleLinkPreviewEnrichment({
       messageId: result.message.id,
       conversationId,
@@ -395,6 +417,42 @@ export async function sendAgentMessageWithFile(
       mimeType: stored.mimeType,
       replyToMessageId: params.replyToMessageId,
       clientMessageId: params.clientMessageId,
+    }
+  );
+}
+
+/** Pide el número con el botón oficial de Meta (REQUEST_CONTACT_INFO). Requiere ventana de 24 h. */
+export async function sendRequestContactInfo(
+  conversationId: string,
+  agentId: string,
+  body?: { content?: string; clientMessageId?: string },
+  options?: { senderType?: "agent" | "bot" }
+) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { inbox: { select: { channelType: true } } },
+  });
+  if (!conversation) throw new NotFoundError("Conversación no encontrada");
+  if (conversation.inbox.channelType !== "whatsapp") {
+    throw new AppError(
+      "Pedir el número solo aplica a conversaciones de WhatsApp",
+      422,
+      "NOT_WHATSAPP"
+    );
+  }
+
+  return sendAgentMessage(
+    conversationId,
+    agentId,
+    {
+      content: normalizeRequestContactInfoBody(body?.content),
+      isPrivate: false,
+      clientMessageId: body?.clientMessageId,
+      suppressLinkPreview: true,
+    },
+    {
+      senderType: options?.senderType,
+      deliveryPayload: { kind: "request_contact_info" },
     }
   );
 }

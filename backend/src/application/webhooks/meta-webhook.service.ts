@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../infrastructure/database/prisma.client.js";
 import {
   broadcastMessageCreated,
+  emitConversationUpdated,
   emitMessageUpdated,
 } from "../realtime/realtime.service.js";
 import {
@@ -31,6 +32,10 @@ import {
 } from "../contacts/inbound-contact-context-cache.js";
 import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
 import {
+  recordContactSharedPhoneActivity,
+  recordMissingWhatsAppPhoneActivity,
+} from "../conversations/conversation-activity.service.js";
+import {
   computeInboundQueueSortKey,
   scheduleInboundContactTask,
 } from "../conversations/inbound-contact-queue.js";
@@ -48,6 +53,7 @@ import {
   resolveInboundWhatsAppIdentity,
   sanitizeWhatsAppDisplayName,
 } from "../../shared/whatsapp-contact.js";
+import { resolveContactRequestPhone, isInboundContactsMessage } from "../../shared/whatsapp-shared-contact.js";
 
 interface MetaMediaPayload {
   id?: string;
@@ -89,6 +95,12 @@ interface MetaWebhookPayload {
           voice?: MetaMediaPayload;
           video?: MetaMediaPayload;
           sticker?: MetaMediaPayload;
+          contacts?: Array<{
+            name?: { formatted_name?: string; first_name?: string };
+            phones?: Array<{ phone?: string; wa_id?: string; type?: string }>;
+            origin?: string | { type?: string };
+            vcard?: string;
+          }>;
         }>;
         statuses?: Array<{
           id?: string;
@@ -384,9 +396,30 @@ async function processInboundMetaMessage(params: {
     message.from && message.from !== identity.identityKey ? message.from : null,
   ].filter((value): value is string => Boolean(value?.trim()));
 
+  const sharedPhone = isInboundContactsMessage(message)
+    ? resolveContactRequestPhone(message.contacts)
+    : null;
+
+  let previousPhone =
+    getInboundContactContext(settings.inboxId, identity.identityKey)?.conversationBase.contact
+      .phone ?? null;
+
+  if (sharedPhone && !previousPhone) {
+    const existing = await prisma.contact.findUnique({
+      where: {
+        inboxId_waId: {
+          inboxId: settings.inboxId,
+          waId: identity.identityKey,
+        },
+      },
+      select: { phone: true },
+    });
+    previousPhone = existing?.phone ?? null;
+  }
+
   const contact = await upsertWhatsAppContact(settings.inboxId, {
     waId: identity.identityKey,
-    phone: identity.phone,
+    phone: sharedPhone ?? identity.phone,
     alternateIdentityKeys,
     name: contactName,
     touchLastSeen: true,
@@ -403,18 +436,31 @@ async function processInboundMetaMessage(params: {
 
   const cachedContext = getInboundContactContext(settings.inboxId, identity.identityKey);
 
+  if (cachedContext && cachedContext.contactId === contact.id) {
+    patchInboundContactConversationBase(settings.inboxId, identity.identityKey, {
+      contact: {
+        ...cachedContext.conversationBase.contact,
+        phone: contact.phone,
+        waId: contact.waId,
+        name: contact.name,
+      },
+    });
+  }
+
   const resolveConversation = async (): Promise<{
     conversationId: string;
     conversationBase: ConversationMessageEmitRow | null;
+    created: boolean;
   }> => {
     if (cachedContext && cachedContext.contactId === contact.id) {
       return {
         conversationId: cachedContext.conversationId,
         conversationBase: cachedContext.conversationBase,
+        created: false,
       };
     }
 
-    const { conversation } = await findOrReopenConversationForContact({
+    const { conversation, created } = await findOrReopenConversationForContact({
       inboxId: settings.inboxId,
       contactId: contact.id,
       autoAssign: true,
@@ -436,10 +482,11 @@ async function processInboundMetaMessage(params: {
       });
     }
 
-    return { conversationId: conversation.id, conversationBase };
+    return { conversationId: conversation.id, conversationBase, created };
   };
 
-  const [{ conversationId, conversationBase }, replyTarget] = await Promise.all([
+  const [{ conversationId, conversationBase }, replyTarget] =
+    await Promise.all([
     resolveConversation(),
     message.context?.id
       ? prisma.message.findUnique({
@@ -585,6 +632,17 @@ async function processInboundMetaMessage(params: {
     content,
     contentType,
   });
+
+  const phoneJustShared = Boolean(sharedPhone && !previousPhone);
+  if (phoneJustShared && sharedPhone) {
+    await recordContactSharedPhoneActivity(conversationId, sharedPhone);
+    await emitConversationUpdated(conversationId);
+  } else if (!contact.phone) {
+    await recordMissingWhatsAppPhoneActivity({
+      conversationId,
+      attachedToMessageId: createdMessageId,
+    });
+  }
 
   return {
     kind: "message",

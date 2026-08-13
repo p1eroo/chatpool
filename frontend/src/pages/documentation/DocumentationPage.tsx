@@ -112,6 +112,17 @@ const CONVERSATION_ENDPOINTS: ApiEndpoint[] = [
 }`,
   },
   {
+    method: "POST",
+    path: "/conversations/:id/request-contact-info",
+    title: "Pedir número de WhatsApp",
+    purpose:
+      "Envía el botón oficial de Meta para que el cliente comparta su teléfono (REQUEST_CONTACT_INFO). Requiere ventana de 24 h. El content es opcional; WhatsApp pone el texto del botón.",
+    pathExample: "/conversations/CONVERSATION_ID/request-contact-info",
+    body: `{
+  "content": "Para continuar, por favor comparta su número de teléfono. WhatsApp no lo envía automáticamente cuando se utiliza un nombre de usuario."
+}`,
+  },
+  {
     method: "GET",
     path: "/conversations/:id/labels",
     title: "Ver etiquetas",

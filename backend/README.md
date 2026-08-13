@@ -110,6 +110,7 @@ Base: `/api/v1/inboxes/{INBOX_ID}` — el `inboxId` del path es el `id` de la ba
 | POST | `/conversations` | Iniciar outbound WhatsApp (`phone`; bandeja = path) |
 | GET | `/conversations/:id/messages` | Listar mensajes |
 | POST | `/conversations/:id/messages` | Enviar mensaje (o template WhatsApp) |
+| POST | `/conversations/:id/request-contact-info` | Pedir número (botón oficial Meta, ventana 24 h) |
 | GET/POST | `/conversations/:id/labels` | Ver / reemplazar etiquetas por nombre |
 | POST | `/conversations/:id/toggle_status` | `open` \| `resolved` |
 | POST | `/conversations/:id/assignments` | Asignar agente (`assignee_id`) |

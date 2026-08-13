@@ -8,6 +8,7 @@ import {
   markConversationRead,
   sendAgentMessage,
   sendAgentMessageWithFile,
+  sendRequestContactInfo,
   sendWhatsAppTemplate,
   toggleConversationLabel,
   updateConversation,
@@ -46,6 +47,11 @@ const sendMessageSchema = z.object({
     })
     .optional(),
   suppressLinkPreview: z.boolean().optional(),
+});
+
+const requestContactInfoSchema = z.object({
+  content: z.string().max(1024).optional(),
+  clientMessageId: z.string().min(1).max(128).optional(),
 });
 
 const sendTemplateSchema = z.object({
@@ -231,6 +237,22 @@ export async function conversationsRoutes(app: FastifyInstance) {
     const body = sendMessageSchema.parse(request.body);
     return reply.status(201).send(await sendAgentMessage(id, user.sub, body));
   });
+
+  app.post(
+    "/conversations/:id/request-contact-info",
+    { preHandler: requirePermission("sendMessages") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const user = request.user as { sub: string };
+      const body = requestContactInfoSchema.parse(request.body ?? {});
+      return reply.status(201).send(
+        await sendRequestContactInfo(id, user.sub, {
+          content: body.content,
+          clientMessageId: body.clientMessageId,
+        })
+      );
+    }
+  );
 
   app.post(
     "/conversations/:id/templates",

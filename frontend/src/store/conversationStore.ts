@@ -18,6 +18,7 @@ import { saveActiveConversation } from "@/lib/activeConversationSession";
 import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
 import { inboxes as seedInboxes } from "@/data/mock";
 import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
+import { REQUEST_CONTACT_INFO_BODY, contactHasPhone } from "@/lib/whatsappContactInfo";
 import {
   nextOptimisticSortOrder,
   seedOptimisticSortOrder,
@@ -75,6 +76,7 @@ interface ConversationState {
   applyRealtimeMessageUpdate: (message: Message, conversationId: string) => void;
   applyRealtimeConversation: (conversation: Conversation) => void;
   sendTemplateMessage: (conversationId: string, input: SendTemplateInput) => Promise<boolean>;
+  requestContactInfo: (conversationId: string) => Promise<boolean>;
   retryFailedMessage: (conversationId: string, messageId: string) => Promise<boolean>;
   forwardMessages: (
     sourceConversationId: string,
@@ -862,6 +864,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     let shouldMarkReadWhileViewing = false;
     let previousUnread = 0;
     let nextUnread = conversation.unreadCount;
+    const previousPhone = get().conversations.find((item) => item.id === conversation.id)
+      ?.contact.phone;
 
     set((currentState) => {
       const existingMessages = currentState.messages[conversation.id] ?? [];
@@ -1026,6 +1030,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     );
 
     syncOptimisticSortOrder(conversation.id, message.sortOrder);
+
+    if (
+      !contactHasPhone(previousPhone) &&
+      contactHasPhone(conversation.contact?.phone)
+    ) {
+      useUIStore
+        .getState()
+        .showToast(`Contacto actualizado: ${conversation.contact.phone}`);
+    }
   },
 
   applyRealtimeMessageUpdate: (message, conversationId) => {
@@ -1060,6 +1073,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   applyRealtimeConversation: (conversation) => {
     let previousUnread = 0;
     let nextUnread = conversation.unreadCount;
+    const previousPhone = get().conversations.find((item) => item.id === conversation.id)
+      ?.contact.phone;
 
     set((state) => {
       const existingConversation = state.conversations.find(
@@ -1095,6 +1110,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       previousUnread,
       nextUnread
     );
+
+    if (
+      !contactHasPhone(previousPhone) &&
+      contactHasPhone(conversation.contact?.phone)
+    ) {
+      useUIStore
+        .getState()
+        .showToast(`Contacto actualizado: ${conversation.contact.phone}`);
+    }
   },
 
   sendTemplateMessage: async (conversationId, input) => {
@@ -1160,6 +1184,82 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           pendingId,
           error,
           "No se pudo enviar la plantilla"
+        );
+      });
+    return true;
+  },
+
+  requestContactInfo: async (conversationId) => {
+    const conversation = get().conversations.find((item) => item.id === conversationId);
+    if (!conversation || conversation.channelType !== "whatsapp") return false;
+
+    const messages = get().messages[conversationId] ?? [];
+    if (isWhatsAppReplyWindowClosed(conversation.channelType, messages)) {
+      useUIStore
+        .getState()
+        .showToast("La ventana de 24 horas está cerrada. Envía una plantilla aprobada.");
+      return false;
+    }
+
+    if (env.useMock) {
+      const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
+      appendMessageToState(
+        set,
+        get,
+        conversationId,
+        {
+          id: `msg-${Date.now()}`,
+          conversationId,
+          content: REQUEST_CONTACT_INFO_BODY,
+          senderType: "agent",
+          senderId: currentAgent?.id,
+          senderName: currentAgent?.name ?? "Agente",
+          isPrivate: false,
+          contentType: "text",
+          createdAt: new Date(),
+          status: "sent",
+        },
+        false
+      );
+      return true;
+    }
+
+    const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
+    const pendingId = createPendingMessageId();
+    const optimistic: Message = {
+      id: pendingId,
+      clientId: pendingId,
+      clientMessageId: pendingId,
+      conversationId,
+      content: REQUEST_CONTACT_INFO_BODY,
+      senderType: "agent",
+      senderId: currentAgent?.id ?? "unknown",
+      senderName: currentAgent?.name ?? "Agente",
+      isPrivate: false,
+      contentType: "text",
+      sortOrder: nextOptimisticSortOrder(conversationId),
+      createdAt: new Date(),
+      status: "pending",
+    };
+
+    appendMessageToState(set, get, conversationId, optimistic, false);
+
+    void conversationApiService
+      .requestContactInfo(conversationId, {
+        content: REQUEST_CONTACT_INFO_BODY,
+        clientMessageId: pendingId,
+      })
+      .then((apiMessage) => {
+        reconcileOutgoingMessageIfStillPending(set, get, conversationId, pendingId, apiMessage);
+      })
+      .catch((error) => {
+        handleOutgoingPostFailure(
+          set,
+          get,
+          conversationId,
+          pendingId,
+          error,
+          "No se pudo pedir el número"
         );
       });
     return true;

@@ -1,5 +1,10 @@
 import { formatVoiceTime } from "@/hooks/useVoiceRecorder";
 import { stripWhatsAppFormatting } from "@/lib/whatsappFormatting";
+import {
+  displayInboundMessageContent,
+  isSharedContactMessageContent,
+  parseSharedContactDisplay,
+} from "@/lib/whatsappContactInfo";
 import type { Message } from "@/types";
 
 export function getContactMessagePreview(message: Message): string {
@@ -26,6 +31,10 @@ export function getContactMessagePreview(message: Message): string {
       return message.fileName?.trim() || (text ? stripWhatsAppFormatting(text) : "Archivo");
     default:
       if (text === "[location]") return "Ubicación";
-      return text ? stripWhatsAppFormatting(text) : "Mensaje";
+      if (isSharedContactMessageContent(text)) {
+        const { title, subtitle } = parseSharedContactDisplay(text ?? "");
+        return subtitle ? `${title}: ${subtitle}` : title;
+      }
+      return text ? stripWhatsAppFormatting(displayInboundMessageContent(text)) : "Mensaje";
   }
 }

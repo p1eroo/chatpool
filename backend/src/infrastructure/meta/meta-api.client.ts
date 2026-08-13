@@ -54,13 +54,26 @@ export type WhatsAppOutboundPayload = {
   /** BSUID / parent BSUID cuando no hay teléfono (usernames Meta). */
   recipient?: string;
   context?: { message_id: string };
-  type: "text" | "image" | "document" | "audio" | "video" | "template" | "sticker";
+  type:
+    | "text"
+    | "image"
+    | "document"
+    | "audio"
+    | "video"
+    | "template"
+    | "sticker"
+    | "interactive";
   text?: { body: string; preview_url?: boolean };
   image?: { id: string; caption?: string };
   document?: { id: string; filename?: string; caption?: string };
   audio?: { id: string };
   video?: { id: string; caption?: string };
   sticker?: { id: string };
+  interactive?: {
+    type: "request_contact_info";
+    body: { text: string };
+    action: { name: "request_contact_info" };
+  };
   template?: {
     name: string;
     language: { code: string };

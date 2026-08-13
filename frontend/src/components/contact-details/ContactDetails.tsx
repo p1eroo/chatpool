@@ -32,6 +32,8 @@ import {
   Ban,
 } from "lucide-react";
 import type { Conversation, ConversationStatus } from "@/types";
+import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
+import { contactHasPhone } from "@/lib/whatsappContactInfo";
 
 function splitName(fullName: string) {
   const parts = fullName.trim().split(/\s+/);
@@ -440,9 +442,12 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
   const { contact } = conversation;
   const permissions = useAgentPermissions();
   const canAssignConversations = permissions.assignConversations;
+  const canSendMessages = permissions.sendMessages;
   const reassignConversation = useConversationStore((s) => s.reassignConversation);
   const setConversationStatus = useConversationStore((s) => s.setConversationStatus);
   const toggleConversationLabel = useConversationStore((s) => s.toggleConversationLabel);
+  const requestContactInfo = useConversationStore((s) => s.requestContactInfo);
+  const messages = useConversationStore((s) => s.messages[conversation.id] ?? EMPTY_MESSAGES);
   const showToast = useUIStore((s) => s.showToast);
   const allAgents = useAgentStore((s) => s.agents);
   const assignedAgentIds = useInboxSettingsStore(
@@ -509,6 +514,22 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
     }
   };
 
+  const missingPhone = !contactHasPhone(contact.phone);
+  const canRequestPhone =
+    conversation.channelType === "whatsapp" && canSendMessages && missingPhone;
+  const windowClosed = isWhatsAppReplyWindowClosed(conversation.channelType, messages);
+
+  const handleRequestContactInfo = async () => {
+    if (windowClosed) {
+      showToast("La ventana de 24 horas está cerrada. Envía una plantilla aprobada.");
+      return;
+    }
+    const ok = await requestContactInfo(conversation.id);
+    if (ok) {
+      showToast("Se pidió el número. El cliente verá el botón en WhatsApp.");
+    }
+  };
+
   return (
     <div className="px-4 py-4 border-b border-[var(--color-border-primary)] space-y-3">
       {contact.phone ? (
@@ -527,6 +548,18 @@ function ContactSummary({ conversation }: { conversation: Conversation }) {
           <p className="text-[11px] leading-snug text-[var(--color-text-muted)] pl-6">
             Este contacto usa username de WhatsApp. Las respuestas van por ID de Meta; si fallan, pide que comparta su número.
           </p>
+          {canRequestPhone && (
+            <div className="pl-6 pt-1">
+              <button
+                type="button"
+                onClick={() => void handleRequestContactInfo()}
+                className="h-8 px-2.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] rounded-lg transition-colors inline-flex items-center gap-1.5 border border-[var(--color-border-primary)]"
+              >
+                <Phone className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+                Pedir número
+              </button>
+            </div>
+          )}
         </div>
       ) : null}
 

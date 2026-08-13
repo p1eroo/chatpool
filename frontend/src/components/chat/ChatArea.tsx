@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useHasPermission } from "@/hooks/useAgentPermissions";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
@@ -8,7 +8,8 @@ import { ChatComposer } from "./ChatComposer";
 import { WhatsAppReplyWindowBanner } from "./WhatsAppReplyWindowBanner";
 import { ImageLightbox } from "./ImageLightbox";
 import { ForwardMessagesModal } from "./ForwardMessagesModal";
-import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
+import { isWhatsAppReplyWindowClosed, getLastContactMessage } from "@/lib/whatsappReplyWindow";
+import { contactHasPhone, MISSING_WHATSAPP_PHONE_NOTE } from "@/lib/whatsappContactInfo";
 import { Paperclip } from "lucide-react";
 
 export function ChatArea() {
@@ -26,6 +27,8 @@ export function ChatArea() {
   const forwardSelectedMessageIds = useUIStore((s) => s.forwardSelectedMessageIds);
   const closeForwardModal = useUIStore((s) => s.closeForwardModal);
   const canSendMessages = useHasPermission("sendMessages");
+  const sendMessage = useConversationStore((s) => s.sendMessage);
+  const ensuredMissingPhoneNoteFor = useRef<string | null>(null);
 
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
@@ -39,6 +42,36 @@ export function ChatArea() {
   const isLoadingMessages = Boolean(
     activeConversationId && messagesLoading[activeConversationId]
   );
+
+  useEffect(() => {
+    if (!activeConversationId || !activeConversation || isLoadingMessages) return;
+    if (!canSendMessages || forwardSelectionMode) return;
+    if (activeConversation.channelType !== "whatsapp") return;
+    if (contactHasPhone(activeConversation.contact.phone)) return;
+    if (ensuredMissingPhoneNoteFor.current === activeConversationId) return;
+    if (
+      activeMessages.some(
+        (item) => item.isPrivate && item.content === MISSING_WHATSAPP_PHONE_NOTE
+      )
+    ) {
+      ensuredMissingPhoneNoteFor.current = activeConversationId;
+      return;
+    }
+
+    ensuredMissingPhoneNoteFor.current = activeConversationId;
+    const lastContact = getLastContactMessage(activeMessages);
+    sendMessage(activeConversationId, MISSING_WHATSAPP_PHONE_NOTE, true, {
+      attachedToMessageId: lastContact?.id,
+    });
+  }, [
+    activeConversation,
+    activeConversationId,
+    activeMessages,
+    canSendMessages,
+    forwardSelectionMode,
+    isLoadingMessages,
+    sendMessage,
+  ]);
 
   const whatsAppWindowClosed =
     Boolean(activeConversationId) &&

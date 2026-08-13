@@ -3,8 +3,8 @@ import { Badge } from "@/components/ui/Badge";
 import { LabelChip } from "@/components/ui/LabelChip";
 import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import { cn, formatTime } from "@/lib/utils";
-import { stripWhatsAppFormatting } from "@/lib/whatsappFormatting";
 import { LastMessageDirectionIcon } from "@/components/conversation-list/LastMessageDirectionIcon";
+import { getContactMessagePreview } from "@/lib/contactMessagePreview";
 import type { Conversation } from "@/types";
 import {
   MessageCircle,
@@ -79,8 +79,18 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
       )}
     >
       <div className="flex items-start gap-3">
-        <div className="relative shrink-0">
-          <Avatar name={contact.name} size="md" />
+        <div
+          className="relative shrink-0"
+          title={isOpen ? "Conversación abierta" : "Conversación cerrada"}
+        >
+          <Avatar
+            name={contact.name}
+            size="md"
+            className={cn(
+              "ring-2",
+              isOpen ? "ring-[var(--color-brand)]" : "ring-[var(--color-text-muted)]"
+            )}
+          />
           <div className={cn(
             "absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center bg-[var(--color-bg-secondary)]",
             channelColor
@@ -132,7 +142,7 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
                   {lastMessage
                     ? lastMessage.isPrivate
                       ? "📝 Nota privada"
-                      : stripWhatsAppFormatting(lastMessage.content)
+                      : getContactMessagePreview(lastMessage)
                     : "Sin mensajes"}
                 </span>
               </p>
@@ -166,23 +176,9 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
                   Bot
                 </span>
               )}
-              <span
-                className={cn(
-                  "text-[10px] font-medium px-1.5 py-0.5 rounded",
-                  isOpen
-                    ? "bg-[var(--control-selected-bg)] text-[var(--control-selected-fg)]"
-                    : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]"
-                )}
-              >
-                {isOpen ? "Abierta" : "Cerrada"}
-              </span>
               {assignee ? (
                 <Avatar name={assignee.name} size="xs" className="!h-5 !w-5 text-[9px]" />
-              ) : (
-                <span className="text-[10px] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 rounded">
-                  sin asignar
-                </span>
-              )}
+              ) : null}
               <Badge count={unreadCount} />
             </div>
           </div>

@@ -28,6 +28,7 @@ import { formatVoiceTime, type VoiceRecordingResult } from "@/hooks/useVoiceReco
 import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
 import { buildTemplatePreviewContent } from "@/types/whatsappTemplate";
 import type { CannedResponse, SavedSticker } from "@/types";
+import { contactHasPhone } from "@/lib/whatsappContactInfo";
 import {
   Smile,
   Paperclip,
@@ -40,6 +41,7 @@ import {
   StickyNote,
   Sticker,
   Plus,
+  Phone,
 } from "lucide-react";
 
 interface PendingAttachment extends ComposerPendingAttachment {}
@@ -60,6 +62,7 @@ export function ChatComposer() {
   const sendMessage = useConversationStore((s) => s.sendMessage);
   const sendTemplateMessage = useConversationStore((s) => s.sendTemplateMessage);
   const sendSavedSticker = useConversationStore((s) => s.sendSavedSticker);
+  const requestContactInfo = useConversationStore((s) => s.requestContactInfo);
   const {
     replyToMessage,
     setReplyToMessage,
@@ -662,6 +665,9 @@ export function ChatComposer() {
             >
               <ComposerMoreTray
                 isWhatsApp={isWhatsApp}
+                showRequestPhone={
+                  isWhatsApp && !contactHasPhone(activeConversation?.contact.phone)
+                }
                 disabled={!moreOpen || toolbarDisabled || sendingTemplate}
                 onAudio={startRecording}
                 onFiles={() => {
@@ -673,6 +679,11 @@ export function ChatComposer() {
                   openFromMore("template");
                 }}
                 onCanned={openCannedModal}
+                onRequestPhone={() => {
+                  if (!activeConversationId) return;
+                  setMoreOpen(false);
+                  void requestContactInfo(activeConversationId);
+                }}
               />
             </div>
           </div>
@@ -917,18 +928,22 @@ export function ChatComposer() {
 
 function ComposerMoreTray({
   isWhatsApp,
+  showRequestPhone,
   disabled,
   onAudio,
   onFiles,
   onTemplates,
   onCanned,
+  onRequestPhone,
 }: {
   isWhatsApp: boolean;
+  showRequestPhone?: boolean;
   disabled?: boolean;
   onAudio: () => void;
   onFiles: () => void;
   onTemplates: () => void;
   onCanned: () => void;
+  onRequestPhone: () => void;
 }) {
   const items = [
     {
@@ -953,6 +968,17 @@ function ComposerMoreTray({
             icon: MessageSquare,
             onClick: onTemplates,
             iconClass: "text-emerald-400",
+          },
+        ]
+      : []),
+    ...(showRequestPhone
+      ? [
+          {
+            id: "request-phone",
+            label: "Pedir número",
+            icon: Phone,
+            onClick: onRequestPhone,
+            iconClass: "text-amber-400",
           },
         ]
       : []),
