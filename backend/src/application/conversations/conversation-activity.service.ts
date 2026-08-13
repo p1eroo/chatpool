@@ -3,7 +3,6 @@ import { messageInclude } from "../mappers.js";
 import { emitMessageCreated } from "../realtime/realtime.service.js";
 import { runWithConversationMessageLock } from "./conversation-message-serializer.js";
 import { nextMessageSortOrder } from "./message-sort-order.js";
-import { MISSING_WHATSAPP_PHONE_NOTE } from "../../shared/whatsapp-shared-contact.js";
 
 async function resolveActorName(actorAgentId?: string | null): Promise<string> {
   if (!actorAgentId) return "Sistema";
@@ -120,60 +119,6 @@ export async function recordConversationAutoReopenedActivity(
   await createConversationActivityMessage({
     conversationId,
     content: "La conversación fue reabierta por un nuevo mensaje entrante",
-  });
-}
-
-export async function recordMissingWhatsAppPhoneActivity(params: {
-  conversationId: string;
-  attachedToMessageId?: string | null;
-}): Promise<void> {
-  const existing = await prisma.message.findFirst({
-    where: {
-      conversationId: params.conversationId,
-      isPrivate: true,
-      content: MISSING_WHATSAPP_PHONE_NOTE,
-    },
-    select: { id: true },
-  });
-  if (existing) return;
-
-  await runWithConversationMessageLock(params.conversationId, async () => {
-    const raced = await prisma.message.findFirst({
-      where: {
-        conversationId: params.conversationId,
-        isPrivate: true,
-        content: MISSING_WHATSAPP_PHONE_NOTE,
-      },
-      select: { id: true },
-    });
-    if (raced) return;
-
-    const sortOrder = await nextMessageSortOrder(params.conversationId);
-    const attachedToMessageId = params.attachedToMessageId?.trim() || null;
-    const attached =
-      attachedToMessageId
-        ? await prisma.message.findFirst({
-            where: { id: attachedToMessageId, conversationId: params.conversationId },
-            select: { id: true },
-          })
-        : null;
-
-    const message = await prisma.message.create({
-      data: {
-        conversationId: params.conversationId,
-        content: MISSING_WHATSAPP_PHONE_NOTE,
-        senderType: "bot",
-        senderName: "Sistema",
-        isPrivate: true,
-        attachedToMessageId: attached?.id ?? null,
-        contentType: "text",
-        status: "sent",
-        sortOrder,
-      },
-      include: messageInclude,
-    });
-
-    await emitMessageCreated(params.conversationId, message.id, { message });
   });
 }
 

@@ -200,7 +200,7 @@ function mergeConversationOnRealtimeMessage(
 
   return {
     ...incoming,
-    labels: incoming.labels?.length ? incoming.labels : existing.labels,
+    labels: mergeConversationLabels(existing, incoming),
     contact: incoming.contact ?? existing.contact,
     // Confiar en el snapshot del servidor: undefined = desasignada (no conservar el anterior).
     assignee: incoming.assignee,
@@ -218,6 +218,17 @@ function mergeConversationOnRealtimeMessage(
   };
 }
 
+function mergeConversationLabels(
+  existing: Conversation,
+  incoming: Conversation
+): Conversation["labels"] {
+  const trustIncomingEmpty =
+    incoming.status === "resolved" ||
+    (existing.status === "resolved" && incoming.status === "open");
+  if (trustIncomingEmpty) return incoming.labels ?? [];
+  return incoming.labels?.length ? incoming.labels : existing.labels;
+}
+
 function mergeConversationOnRealtimeUpdate(
   existing: Conversation,
   incoming: Conversation
@@ -230,7 +241,7 @@ function mergeConversationOnRealtimeUpdate(
 
   return {
     ...incoming,
-    labels: incoming.labels?.length ? incoming.labels : existing.labels,
+    labels: mergeConversationLabels(existing, incoming),
     contact: incoming.contact ?? existing.contact,
     // Confiar en el snapshot del servidor: undefined = desasignada (no conservar el anterior).
     assignee: incoming.assignee,
@@ -1810,6 +1821,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
     const previousActiveId = get().activeConversationId;
     const actorName = getCurrentActorName();
+    const currentAgent = useAgentStore.getState().getAgentById(getCurrentAgentId() ?? "");
     const isReopen = status === "open" && previous.status === "resolved";
 
     set((state) => ({
@@ -1818,7 +1830,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           ? {
               ...c,
               status,
-              ...(status === "resolved" ? { assignee: undefined } : {}),
+              ...(status === "resolved" ? { assignee: undefined, labels: [] } : {}),
+              ...(isReopen && currentAgent ? { assignee: currentAgent } : {}),
             }
           : c
       ),
@@ -1880,7 +1893,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       set((state) => ({
         conversations: state.conversations.map((c) =>
           c.id === id
-            ? { ...c, status: previous.status, assignee: previous.assignee }
+            ? { ...c, status: previous.status, assignee: previous.assignee, labels: previous.labels }
             : c
         ),
         activeConversationId: previousActiveId,

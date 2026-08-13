@@ -60,6 +60,8 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
   const ChannelIcon = channelIcons[channelType] || Globe;
   const channelColor = channelColors[channelType] || "text-gray-400";
   const isOpen = status === "open";
+  const visibleLabels = isOpen ? labels : [];
+  const visibleAssignee = isOpen ? assignee : undefined;
   const labelAccentById = useInboxLabelAccentMap(conversation.inboxId);
 
   return (
@@ -150,9 +152,9 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
           </div>
 
           <div className="mt-1.5 flex items-center gap-2 min-w-0">
-            {labels.length > 0 ? (
+            {visibleLabels.length > 0 ? (
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-                {labels.slice(0, 2).map((label) => (
+                {visibleLabels.slice(0, 2).map((label) => (
                   <LabelChip
                     key={label.id}
                     label={label}
@@ -161,9 +163,9 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
                     className="shrink"
                   />
                 ))}
-                {labels.length > 2 ? (
+                {visibleLabels.length > 2 ? (
                   <span className="shrink-0 text-[10px] text-[var(--color-text-muted)]">
-                    +{labels.length - 2}
+                    +{visibleLabels.length - 2}
                   </span>
                 ) : null}
               </div>
@@ -176,8 +178,8 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
                   Bot
                 </span>
               )}
-              {assignee ? (
-                <Avatar name={assignee.name} size="xs" className="!h-5 !w-5 text-[9px]" />
+              {visibleAssignee ? (
+                <Avatar name={visibleAssignee.name} size="xs" className="!h-5 !w-5 text-[9px]" />
               ) : null}
               <Badge count={unreadCount} />
             </div>

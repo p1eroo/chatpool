@@ -9,6 +9,13 @@ export function contactHasPhone(phone?: string | null): boolean {
   return Boolean(phone?.replace(/\D/g, ""));
 }
 
+export function isMissingWhatsAppPhoneNote(message: {
+  isPrivate?: boolean;
+  content?: string;
+}): boolean {
+  return Boolean(message.isPrivate && message.content === MISSING_WHATSAPP_PHONE_NOTE);
+}
+
 export function isSharedContactMessageContent(content?: string | null): boolean {
   const trimmed = content?.trim() ?? "";
   if (!trimmed) return false;

@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/utils";
 import { sortMessagesChronologically } from "@/lib/messageOrder";
 import { isForwardableMessage } from "@/lib/forwardMessages";
 import { isLastMessageInSenderGroup } from "@/lib/messageSenderGroup";
+import { isMissingWhatsAppPhoneNote } from "@/lib/whatsappContactInfo";
 import type { Message } from "@/types";
 import { ChatHeader } from "./ChatHeader";
 
@@ -25,7 +26,7 @@ export function MessageList() {
   );
   const messages = useMemo(() => {
     const raw = activeConversationId ? allMessages[activeConversationId] || [] : [];
-    return sortMessagesChronologically(raw);
+    return sortMessagesChronologically(raw).filter((item) => !isMissingWhatsAppPhoneNote(item));
   }, [allMessages, activeConversationId]);
 
   const isLoadingMessages = Boolean(

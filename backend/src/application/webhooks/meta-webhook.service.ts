@@ -33,7 +33,6 @@ import {
 import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
 import {
   recordContactSharedPhoneActivity,
-  recordMissingWhatsAppPhoneActivity,
 } from "../conversations/conversation-activity.service.js";
 import {
   computeInboundQueueSortKey,
@@ -637,11 +636,6 @@ async function processInboundMetaMessage(params: {
   if (phoneJustShared && sharedPhone) {
     await recordContactSharedPhoneActivity(conversationId, sharedPhone);
     await emitConversationUpdated(conversationId);
-  } else if (!contact.phone) {
-    await recordMissingWhatsAppPhoneActivity({
-      conversationId,
-      attachedToMessageId: createdMessageId,
-    });
   }
 
   return {

@@ -7,12 +7,10 @@ import {
   RefreshCw,
   SmilePlus,
   StickyNote,
-  Trash2,
 } from "lucide-react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 import { useSaveStickerFromMessage } from "@/hooks/useSavedStickers";
-import { cn } from "@/lib/utils";
 import { isForwardableMessage } from "@/lib/forwardMessages";
 import type { Message } from "@/types";
 import { ApiError } from "@/api/errors";
@@ -29,20 +27,14 @@ interface MenuItemProps {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   onClick?: () => void;
-  destructive?: boolean;
 }
 
-function MenuItem({ icon: Icon, label, onClick, destructive }: MenuItemProps) {
+function MenuItem({ icon: Icon, label, onClick }: MenuItemProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={cn(
-        "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors",
-        destructive
-          ? "text-red-400 hover:bg-red-500/10"
-          : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-      )}
+      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
     >
       <Icon className="w-4 h-4 shrink-0 text-[var(--color-text-secondary)]" />
       <span className="flex-1 truncate">{label}</span>
@@ -60,12 +52,10 @@ export function MessageContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y });
 
-  const deleteMessage = useConversationStore((s) => s.deleteMessage);
   const retryFailedMessage = useConversationStore((s) => s.retryFailedMessage);
   const setReplyToMessage = useUIStore((s) => s.setReplyToMessage);
   const setNoteAboutMessage = useUIStore((s) => s.setNoteAboutMessage);
   const showToast = useUIStore((s) => s.showToast);
-  const replyToMessage = useUIStore((s) => s.replyToMessage);
   const beginForwardSelection = useUIStore((s) => s.beginForwardSelection);
   const saveSticker = useSaveStickerFromMessage();
 
@@ -212,23 +202,6 @@ export function MessageContextMenu({
           }
         />
       )}
-
-      <div className="my-1 h-px bg-[var(--color-border-primary)]" />
-
-      <MenuItem
-        icon={Trash2}
-        label="Eliminar"
-        destructive
-        onClick={() =>
-          runAction(() => {
-            deleteMessage(conversationId, message.id);
-            if (replyToMessage?.id === message.id) {
-              setReplyToMessage(null);
-            }
-            showToast("Mensaje eliminado");
-          })
-        }
-      />
     </div>,
     document.body
   );
