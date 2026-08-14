@@ -16,6 +16,8 @@ export type WhatsAppTemplateDto = {
   headerFormat: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
   bodyParamCount: number;
   headerParamCount: number;
+  /** true si el header es IMAGE/VIDEO/DOCUMENT y hay que mandar URL al enviar */
+  headerMediaRequired: boolean;
   buttonUrlParamIndexes: number[];
   supported: boolean;
   unsupportedReason?: string;
@@ -33,10 +35,24 @@ function countPlaceholders(text: string | undefined | null): number {
   return max;
 }
 
+/** Cuenta {{1}} y {{nombre}} — orden de aparición en el texto. */
+function countAllPlaceholders(text: string | undefined | null): number {
+  if (!text) return 0;
+  return text.match(/\{\{[^}]+\}\}/g)?.length ?? 0;
+}
+
 function fillPlaceholders(text: string, params: string[]): string {
   return text.replace(/\{\{(\d+)\}\}/g, (_, raw: string) => {
     const index = Number(raw) - 1;
     return params[index] ?? `{{${raw}}}`;
+  });
+}
+
+function fillPlaceholdersSequential(text: string, params: string[]): string {
+  let index = 0;
+  return text.replace(/\{\{[^}]+\}\}/g, () => {
+    const value = params[index++];
+    return value?.trim() ? value : "";
   });
 }
 
@@ -55,8 +71,13 @@ export function mapMetaTemplate(raw: MetaMessageTemplate): WhatsAppTemplateDto {
   ) as WhatsAppTemplateDto["headerFormat"];
 
   const headerText = headerFormat === "TEXT" ? header?.text?.trim() || null : null;
-  const bodyParamCount = countPlaceholders(bodyText);
-  const headerParamCount = headerFormat === "TEXT" ? countPlaceholders(headerText) : 0;
+  const bodyParamCount = Math.max(countPlaceholders(bodyText), countAllPlaceholders(bodyText));
+  const headerParamCount =
+    headerFormat === "TEXT"
+      ? Math.max(countPlaceholders(headerText), countAllPlaceholders(headerText))
+      : 0;
+  const headerMediaRequired =
+    headerFormat === "IMAGE" || headerFormat === "VIDEO" || headerFormat === "DOCUMENT";
 
   const buttonUrlParamIndexes: number[] = [];
   (buttons?.buttons ?? []).forEach((button, index) => {
@@ -69,9 +90,9 @@ export function mapMetaTemplate(raw: MetaMessageTemplate): WhatsAppTemplateDto {
   let supported = true;
   let unsupportedReason: string | undefined;
 
-  if (headerFormat === "IMAGE" || headerFormat === "VIDEO" || headerFormat === "DOCUMENT") {
+  if (headerFormat === "VIDEO" || headerFormat === "DOCUMENT") {
     supported = false;
-    unsupportedReason = "Esta plantilla requiere un archivo en el encabezado (aún no soportado).";
+    unsupportedReason = `Encabezado ${headerFormat} aún no soportado. Usa IMAGE con URL pública.`;
   } else if (headerFormat === "LOCATION") {
     supported = false;
     unsupportedReason = "Esta plantilla requiere ubicación en el encabezado (aún no soportado).";
@@ -91,6 +112,7 @@ export function mapMetaTemplate(raw: MetaMessageTemplate): WhatsAppTemplateDto {
     headerFormat,
     bodyParamCount,
     headerParamCount,
+    headerMediaRequired,
     buttonUrlParamIndexes,
     supported,
     unsupportedReason,
@@ -200,14 +222,28 @@ export function buildTemplatePreview(
   params: {
     bodyParameters?: string[];
     headerParameters?: string[];
+    headerMediaUrl?: string;
   }
 ): string {
   const parts: string[] = [];
+  if (template.headerFormat === "IMAGE" && params.headerMediaUrl?.trim()) {
+    parts.push(`[Imagen: ${params.headerMediaUrl.trim()}]`);
+  }
   if (template.headerText) {
-    parts.push(fillPlaceholders(template.headerText, params.headerParameters ?? []));
+    const headerParams = params.headerParameters ?? [];
+    parts.push(
+      countAllPlaceholders(template.headerText) > countPlaceholders(template.headerText)
+        ? fillPlaceholdersSequential(template.headerText, headerParams)
+        : fillPlaceholders(template.headerText, headerParams)
+    );
   }
   if (template.bodyText) {
-    parts.push(fillPlaceholders(template.bodyText, params.bodyParameters ?? []));
+    const bodyParams = params.bodyParameters ?? [];
+    parts.push(
+      countAllPlaceholders(template.bodyText) > countPlaceholders(template.bodyText)
+        ? fillPlaceholdersSequential(template.bodyText, bodyParams)
+        : fillPlaceholders(template.bodyText, bodyParams)
+    );
   }
   return parts.join("\n") || template.name;
 }
@@ -217,12 +253,22 @@ export function assertTemplateParameters(
   params: {
     bodyParameters?: string[];
     headerParameters?: string[];
+    headerMediaUrl?: string;
     buttonUrlParameters?: Array<{ index: number; text: string }>;
   }
 ) {
   const bodyParameters = params.bodyParameters ?? [];
   const headerParameters = params.headerParameters ?? [];
   const buttonUrlParameters = params.buttonUrlParameters ?? [];
+  const headerMediaUrl = params.headerMediaUrl?.trim() ?? "";
+
+  if (template.headerMediaRequired && !headerMediaUrl) {
+    throw new AppError(
+      "La plantilla requiere processed_params.header_media.url (HTTPS, imagen pública)",
+      422,
+      "TEMPLATE_PARAMS_INVALID"
+    );
+  }
 
   if (bodyParameters.length !== template.bodyParamCount) {
     throw new AppError(

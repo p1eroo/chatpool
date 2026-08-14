@@ -214,6 +214,8 @@ export interface SendTemplateBody {
   content?: string;
   bodyParameters?: string[];
   headerParameters?: string[];
+  /** URL HTTPS pública para header IMAGE (Meta descarga la imagen). */
+  headerMediaUrl?: string;
   buttonUrlParameters?: Array<{ index: number; text: string }>;
   clientMessageId?: string;
 }

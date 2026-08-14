@@ -156,8 +156,9 @@ Devuelve las plantillas **aprobadas en Meta** de la bandeja Facturación (mismo 
 | `name` | Valor de `template_params.name` al enviar |
 | `language` | Valor de `template_params.language` |
 | `bodyParamCount` | Cuántas claves `"0"`…`"N-1"` mandar en `processed_params.body` |
-| `headerParamCount` | Variables de encabezado (si > 0) en `processed_params.header` |
-| `bodyText` / `headerText` | Texto con `{{1}}`, `{{2}}` → mapear a claves `"0"`, `"1"` |
+| `headerParamCount` | Variables de encabezado TEXT (si > 0) en `processed_params.header` |
+| `headerMediaRequired` | **`true` = mandar `processed_params.header_media.url`** (imagen HTTPS pública) |
+| `bodyText` / `headerText` | Texto con `{{1}}` o `{{nombre}}` → mapear a claves `"0"`, `"1"`, … en orden |
 | `supported` | **`true` = se puede enviar por API.** Si `false`, ignorar (ej. plantilla con imagen en header) |
 | `unsupportedReason` | Por qué no se puede enviar automáticamente |
 
@@ -177,9 +178,51 @@ Al hacer `POST .../messages` con `template_params`, Chatpool:
 1. Busca la plantilla en Meta por `name` + `language`
 2. Exige estado **APPROVED**
 3. Valida que manden **todas** las variables (`bodyParamCount`, `headerParamCount`, botones URL)
-4. Rechaza plantillas con header IMAGE/VIDEO/DOCUMENT (`supported: false` en el listado)
+4. Plantillas con header **IMAGE**: mandar URL pública en `header_media` (ver abajo)
+5. Rechaza header VIDEO/DOCUMENT/LOCATION (`supported: false`)
 
 Si el nombre o idioma no coinciden exactamente → error `TEMPLATE_NOT_FOUND`.
+
+### Plantillas con imagen en el encabezado (QR, banner)
+
+**Mejor opción:** URL HTTPS pública en `header_media`. Meta descarga la imagen al enviar (ideal para QR en CDN).
+
+Requisitos de la URL:
+
+- HTTPS accesible desde internet (Meta la descarga)
+- JPG o PNG recomendado
+- Sin autenticación en la URL
+
+**Ejemplo:** `confirmar_reserva_evento` (Call center)
+
+```json
+{
+  "phone": "51987654321",
+  "name": "Conductor Prueba",
+  "template_params": {
+    "name": "confirmar_reserva_evento",
+    "language": "es_PE",
+    "processed_params": {
+      "header_media": {
+        "type": "image",
+        "url": "https://cdn.ejemplo.com/qr-reserva.png"
+      },
+      "body": {
+        "0": "123456",
+        "1": "14/08/2026",
+        "2": "20:45",
+        "3": "SAN BORJA - LINCE",
+        "4": "12345"
+      }
+    }
+  },
+  "client_message_id": "reserva-123-51987654321"
+}
+```
+
+En el GET de plantillas, si `"headerMediaRequired": true` hay que incluir `header_media`. También acepta `"link"` en lugar de `"url"`.
+
+Variables del body: siempre `"0"`, `"1"`, … según el **orden** en `bodyText` (aunque Meta use `{{reservation_id}}`, `{{route}}`, etc.).
 
 ---
 
@@ -424,7 +467,8 @@ A partir del listado de plantillas: `bodyParamCount: 2` y `bodyText` con `{{1}}`
 | `template_params.name` | string | Sí | `name` del listado de plantillas |
 | `template_params.language` | string | Sí | `language` del listado |
 | `template_params.processed_params.body` | object | Según `bodyParamCount` | Claves `"0"`, `"1"`, … |
-| `template_params.processed_params.header` | object | Según `headerParamCount` | Variables de encabezado |
+| `template_params.processed_params.header` | object | Header TEXT: claves `"0"`, `"1"`, … |
+| `template_params.processed_params.header_media` | object | Header IMAGE: `{ "url": "https://..." }` |
 | `template_params.processed_params.buttons` | array | Si hay botones URL | Botones dinámicos |
 | `content` | string | No | Solo si envías **texto libre** sin plantilla |
 | `client_message_id` | string | No | Idempotencia (max 128 chars) |

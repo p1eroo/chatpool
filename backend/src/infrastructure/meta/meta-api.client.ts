@@ -31,10 +31,11 @@ interface MetaUploadMediaResponse {
   id?: string;
 }
 
-export type WhatsAppTemplateComponentParameter = {
-  type: "text";
-  text: string;
-};
+export type WhatsAppTemplateComponentParameter =
+  | { type: "text"; text: string }
+  | { type: "image"; image: { link: string } }
+  | { type: "video"; video: { link: string } }
+  | { type: "document"; document: { link: string; filename?: string } };
 
 export type WhatsAppTemplateSendComponent =
   | {

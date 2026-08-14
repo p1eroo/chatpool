@@ -41,6 +41,13 @@ const templateParamsSchema = z.object({
     .object({
       body: z.record(z.string()).optional(),
       header: z.record(z.string()).optional(),
+      header_media: z
+        .object({
+          type: z.enum(["image"]).optional(),
+          url: z.string().min(1).optional(),
+          link: z.string().min(1).optional(),
+        })
+        .optional(),
       buttons: z
         .array(
           z.object({
@@ -203,6 +210,13 @@ function orderedParamsFromRecord(record?: Record<string, string>): string[] | un
   return entries.map(([, value]) => value);
 }
 
+function resolveHeaderMediaUrl(
+  headerMedia?: { url?: string; link?: string }
+): string | undefined {
+  const url = headerMedia?.url?.trim() || headerMedia?.link?.trim();
+  return url || undefined;
+}
+
 type ApplicationOutboundMessageBody = z.infer<typeof createMessageSchema>;
 
 async function sendApplicationOutboundMessage(params: {
@@ -221,6 +235,7 @@ async function sendApplicationOutboundMessage(params: {
     const template = body.template_params;
     const bodyParameters = orderedParamsFromRecord(template.processed_params?.body);
     const headerParameters = orderedParamsFromRecord(template.processed_params?.header);
+    const headerMediaUrl = resolveHeaderMediaUrl(template.processed_params?.header_media);
     const buttonUrlParameters = template.processed_params?.buttons
       ?.map((button, index) => {
         if (button.type && button.type !== "url") return null;
@@ -238,6 +253,7 @@ async function sendApplicationOutboundMessage(params: {
         language: template.language,
         bodyParameters,
         headerParameters,
+        headerMediaUrl,
         buttonUrlParameters: buttonUrlParameters?.length ? buttonUrlParameters : undefined,
         clientMessageId: body.client_message_id ?? body.clientMessageId,
       },

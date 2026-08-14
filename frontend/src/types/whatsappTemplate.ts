@@ -9,6 +9,7 @@ export interface WhatsAppTemplate {
   headerFormat: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
   bodyParamCount: number;
   headerParamCount: number;
+  headerMediaRequired?: boolean;
   buttonUrlParamIndexes: number[];
   supported: boolean;
   unsupportedReason?: string;

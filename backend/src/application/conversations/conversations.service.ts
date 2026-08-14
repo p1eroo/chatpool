@@ -556,15 +556,22 @@ export async function sendWhatsAppTemplate(
   const bodyParameters = body.bodyParameters ?? [];
   const headerParameters = body.headerParameters ?? [];
   const buttonUrlParameters = body.buttonUrlParameters ?? [];
+  const headerMediaUrl = body.headerMediaUrl?.trim() ?? "";
 
   assertTemplateParameters(template, {
     bodyParameters,
     headerParameters,
+    headerMediaUrl: headerMediaUrl || undefined,
     buttonUrlParameters,
   });
 
   const components: WhatsAppTemplateSendComponent[] = [];
-  if (headerParameters.length) {
+  if (template.headerFormat === "IMAGE" && headerMediaUrl) {
+    components.push({
+      type: "header",
+      parameters: [{ type: "image", image: { link: headerMediaUrl } }],
+    });
+  } else if (headerParameters.length) {
     components.push({
       type: "header",
       parameters: headerParameters.map((text) => ({ type: "text", text })),
@@ -588,6 +595,7 @@ export async function sendWhatsAppTemplate(
   const content = buildTemplatePreview(template, {
     bodyParameters,
     headerParameters,
+    headerMediaUrl: headerMediaUrl || undefined,
   });
 
   const deliveryPayload = buildTemplateDeliveryPayload({
