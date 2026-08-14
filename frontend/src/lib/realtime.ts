@@ -29,7 +29,25 @@ export type RealtimeEvent =
           lastMessage: (Message & { createdAt: string | Date }) | null;
         };
       };
+    }
+  | {
+      type: "conversation.typing";
+      payload: {
+        conversationId: string;
+        inboxId: string;
+        agentId: string;
+        agentName: string;
+        isTyping: boolean;
+      };
     };
+
+export type ClientRealtimeEvent = {
+  type: "conversation.typing";
+  payload: {
+    conversationId: string;
+    isTyping: boolean;
+  };
+};
 
 export function buildRealtimeUrl(apiUrl: string, token: string): string {
   const base = apiUrl.replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");

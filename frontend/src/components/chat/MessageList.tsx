@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Forward, X } from "lucide-react";
 import { useConversationStore } from "@/store/conversationStore";
+import { useAgentTypingStore } from "@/store/agentTypingStore";
 import { useUIStore } from "@/store/uiStore";
 import { useChatScrollAnchor } from "@/hooks/useChatScrollAnchor";
+import { formatAgentsTypingLabel, EMPTY_AGENT_TYPERS } from "@/lib/agentTyping";
 import { MessageBubble } from "./MessageBubble";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { ChatMessagesLoading } from "./ChatMessagesLoading";
@@ -19,6 +21,11 @@ export function MessageList() {
   const activeConversationId = useConversationStore((s) => s.activeConversationId);
   const allMessages = useConversationStore((s) => s.messages);
   const messagesLoading = useConversationStore((s) => s.messagesLoading);
+  const agentTypers = useAgentTypingStore(
+    (s) =>
+      (activeConversationId && s.byConversationId[activeConversationId]) || EMPTY_AGENT_TYPERS
+  );
+  const agentTypingLabel = formatAgentsTypingLabel(agentTypers);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId) || null,
@@ -44,7 +51,7 @@ export function MessageList() {
     conversationId: activeConversation?.id ?? null,
     messageCount: messages.length,
     isLoadingMessages,
-    isTyping: activeConversation?.isTyping ?? false,
+    isTyping: Boolean(agentTypers.length) || (activeConversation?.isTyping ?? false),
   });
 
   const prevNewMessageMetaRef = useRef<{ conversationId: string | null; length: number }>({
@@ -249,7 +256,7 @@ export function MessageList() {
               })}
             </div>
           ))}
-          {activeConversation.isTyping && (
+          {(agentTypingLabel || activeConversation.isTyping) && (
             <div className="px-4 mb-3">
               <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
                 <span className="flex gap-1">
@@ -257,7 +264,7 @@ export function MessageList() {
                   <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.15s" }} />
                   <span className="w-1.5 h-1.5 bg-[var(--color-text-secondary)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.3s" }} />
                 </span>
-                {activeConversation.contact.name} está escribiendo...
+                {agentTypingLabel || `${activeConversation.contact.name} está escribiendo...`}
               </div>
             </div>
           )}

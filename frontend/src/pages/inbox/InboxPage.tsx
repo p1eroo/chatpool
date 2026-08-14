@@ -1,20 +1,27 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { ContactDetails } from "@/components/contact-details/ContactDetails";
 import { ConversationList } from "@/components/conversation-list/ConversationList";
 import { getCurrentAgentId } from "@/lib/authSession";
-import { loadActiveConversation } from "@/lib/activeConversationSession";
+import {
+  clearReloadActiveConversation,
+  consumeReloadActiveConversation,
+  isPageReloadNavigation,
+  saveReloadActiveConversation,
+} from "@/lib/activeConversationSession";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 
 export function InboxPage() {
+  const persistingForReloadRef = useRef(false);
+
   useEffect(() => {
     const store = useConversationStore.getState();
     store.setInboxViewActive(true);
 
     const agentId = getCurrentAgentId();
-    if (agentId && !store.activeConversationId) {
-      const savedConversationId = loadActiveConversation(agentId);
+    if (agentId && isPageReloadNavigation()) {
+      const savedConversationId = consumeReloadActiveConversation(agentId);
       if (
         savedConversationId &&
         store.conversations.some((conversation) => conversation.id === savedConversationId)
@@ -23,18 +30,43 @@ export function InboxPage() {
       }
     }
 
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+
+      const currentAgentId = getCurrentAgentId();
+      const { activeConversationId } = useConversationStore.getState();
+      if (currentAgentId && activeConversationId) {
+        saveReloadActiveConversation(currentAgentId, activeConversationId);
+        persistingForReloadRef.current = true;
+      }
+    };
+
     const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        store.clearActiveConversationSelection();
+        return;
+      }
+
       if (document.visibilityState !== "visible") return;
       const current = useConversationStore.getState();
       if (!current.isInboxViewActive || !current.activeConversationId) return;
       current.acknowledgeConversationRead(current.activeConversationId, "tab-visible");
     };
 
+    window.addEventListener("pagehide", onPageHide);
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
+      window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
       store.setInboxViewActive(false);
+
+      const currentAgentId = getCurrentAgentId();
+      if (currentAgentId && !persistingForReloadRef.current) {
+        clearReloadActiveConversation(currentAgentId);
+      }
+
+      store.clearActiveConversationSelection();
     };
   }, []);
 
@@ -51,7 +83,6 @@ export function InboxPage() {
         return;
       }
 
-      // Solo bloquear si hay un modal/overlay marcado explícitamente.
       if (document.querySelector("[data-modal-overlay]")) return;
 
       const { activeConversationId, selectConversation } = useConversationStore.getState();

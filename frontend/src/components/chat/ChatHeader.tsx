@@ -17,7 +17,9 @@ import { useAgentPermissions } from "@/hooks/useAgentPermissions";
 import { useBotPauseCountdown } from "@/hooks/useBotPauseCountdown";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
+import { useAgentTypingStore } from "@/store/agentTypingStore";
 import { cn } from "@/lib/utils";
+import { EMPTY_AGENT_TYPERS, formatAgentsTypingLabel } from "@/lib/agentTyping";
 
 const channelIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   whatsapp: MessageCircle,
@@ -49,6 +51,11 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const botPauseLabel = useBotPauseCountdown(conversation?.botPausedUntil);
+  const agentTypers = useAgentTypingStore(
+    (s) =>
+      (conversation?.id && s.byConversationId[conversation.id]) || EMPTY_AGENT_TYPERS
+  );
+  const agentTypingLabel = formatAgentsTypingLabel(agentTypers);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -106,7 +113,9 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
               </span>
             )}
           </div>
-          {contact.isBlocked ? (
+          {agentTypingLabel ? (
+            <p className="text-[11px] text-[var(--color-success)] italic">{agentTypingLabel}</p>
+          ) : contact.isBlocked ? (
             <p className="text-[11px] text-red-400/80">Contacto bloqueado</p>
           ) : contact.lastSeen ? (
             <p className="text-[11px] text-[var(--color-success)]">En línea</p>

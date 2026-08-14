@@ -80,18 +80,24 @@ function fallbackPreview(url: string): LinkPreview {
  * @see https://developers.facebook.com/docs/whatsapp/link-previews/
  */
 async function fetchViaWhatsAppCrawler(url: string): Promise<LinkPreview | null> {
-  const { error, result } = await ogs({
-    url,
-    timeout: WHATSAPP_LINK_PREVIEW_TIMEOUT_SEC,
-    fetchOptions: {
-      headers: {
-        "User-Agent": WHATSAPP_LINK_PREVIEW_USER_AGENT,
-        Accept: "text/html,application/xhtml+xml",
+  let ogsResult: Awaited<ReturnType<typeof ogs>>;
+  try {
+    ogsResult = await ogs({
+      url,
+      timeout: WHATSAPP_LINK_PREVIEW_TIMEOUT_SEC,
+      fetchOptions: {
+        headers: {
+          "User-Agent": WHATSAPP_LINK_PREVIEW_USER_AGENT,
+          Accept: "text/html,application/xhtml+xml",
+        },
+        redirect: "follow",
       },
-      redirect: "follow",
-    },
-  });
+    });
+  } catch {
+    return null;
+  }
 
+  const { error, result } = ogsResult;
   if (error || !result) {
     return null;
   }
@@ -135,18 +141,28 @@ async function fetchYouTubeOEmbed(url: string): Promise<LinkPreview | null> {
   }
 
   const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-  const response = await fetch(endpoint, {
-    headers: { "User-Agent": WHATSAPP_LINK_PREVIEW_USER_AGENT },
-    signal: AbortSignal.timeout(WHATSAPP_LINK_PREVIEW_TIMEOUT_SEC * 1000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      headers: { "User-Agent": WHATSAPP_LINK_PREVIEW_USER_AGENT },
+      signal: AbortSignal.timeout(WHATSAPP_LINK_PREVIEW_TIMEOUT_SEC * 1000),
+    });
+  } catch {
+    return null;
+  }
 
   if (!response.ok) return null;
 
-  const data = (await response.json()) as {
+  let data: {
     title?: string;
     author_name?: string;
     thumbnail_url?: string;
   };
+  try {
+    data = (await response.json()) as typeof data;
+  } catch {
+    return null;
+  }
 
   return {
     url,
@@ -164,10 +180,15 @@ export async function fetchLinkPreview(rawUrl: string): Promise<LinkPreview> {
     return cached.preview;
   }
 
-  let preview =
-    (await fetchYouTubeOEmbed(url)) ??
-    (await fetchViaWhatsAppCrawler(url)) ??
-    fallbackPreview(url);
+  let preview: LinkPreview;
+  try {
+    preview =
+      (await fetchYouTubeOEmbed(url)) ??
+      (await fetchViaWhatsAppCrawler(url)) ??
+      fallbackPreview(url);
+  } catch {
+    preview = fallbackPreview(url);
+  }
 
   cache.set(url, { preview, expiresAt: Date.now() + CACHE_TTL_MS });
   return preview;

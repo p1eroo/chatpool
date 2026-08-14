@@ -14,8 +14,11 @@ import { useAgentStore } from "@/store/agentStore";
 import { conversations as seedConversations, getMessages } from "@/data/mock";
 import { useLabelStore } from "@/store/labelStore";
 import { getCurrentAgentId } from "@/lib/authSession";
-import { saveActiveConversation } from "@/lib/activeConversationSession";
 import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
+import {
+  resolveConversationListFilters,
+  saveConversationListFilters,
+} from "@/lib/conversationListFilterSession";
 import { inboxes as seedInboxes } from "@/data/mock";
 import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
 import { REQUEST_CONTACT_INFO_BODY, contactHasPhone } from "@/lib/whatsappContactInfo";
@@ -830,6 +833,10 @@ function getInitialInboxFilter(): string | null {
   return resolveInboxFilter(agentId, inboxIds);
 }
 
+function getInitialConversationListFilters() {
+  return resolveConversationListFilters(getCurrentAgentId());
+}
+
 export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: env.useMock ? seedConversations : [],
   activeConversationId: null,
@@ -838,8 +845,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   messages: {},
   messagesLoadedFromApi: {},
   messagesLoading: {},
-  filterStatus: "open",
-  filterAssignee: "mine",
+  ...getInitialConversationListFilters(),
   filterInboxId: getInitialInboxFilter(),
   conversationsInboxId: null,
   filterLabelId: null,
@@ -1474,15 +1480,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   selectConversation: (id) => {
-    const agentId = getCurrentAgentId();
-
     if (!id) {
-      if (agentId) saveActiveConversation(agentId, null);
       set({ activeConversationId: null });
       return;
     }
-
-    if (agentId) saveActiveConversation(agentId, id);
 
     set({ activeConversationId: id });
 
@@ -1552,12 +1553,28 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     scheduleMarkReadWhileViewing(id, reason);
   },
 
-  clearActiveConversationSelection: () => {
-    get().selectConversation(null);
-  },
+  clearActiveConversationSelection: () => set({ activeConversationId: null }),
 
-  setFilterStatus: (status) => set({ filterStatus: status }),
-  setFilterAssignee: (assignee) => set({ filterAssignee: assignee }),
+  setFilterStatus: (status) => {
+    const agentId = getCurrentAgentId();
+    if (agentId) {
+      saveConversationListFilters(agentId, {
+        filterStatus: status,
+        filterAssignee: get().filterAssignee,
+      });
+    }
+    set({ filterStatus: status });
+  },
+  setFilterAssignee: (assignee) => {
+    const agentId = getCurrentAgentId();
+    if (agentId) {
+      saveConversationListFilters(agentId, {
+        filterStatus: get().filterStatus,
+        filterAssignee: assignee,
+      });
+    }
+    set({ filterAssignee: assignee });
+  },
   setFilterInboxId: (inboxId) => {
     const agentId = getCurrentAgentId();
     if (agentId && inboxId) {

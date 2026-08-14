@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { SecretInput } from "@/components/ui/SecretInput";
-import { maskAccessToken } from "@/lib/metaApi";
 import { useVerifyMetaConnection } from "@/hooks/useIntegrations";
+import { env } from "@/config/env";
+import { inboxApiService } from "@/services/inboxApiService";
 import type { InboxSettings } from "@/types";
 
 interface MetaInboxIntegrationPanelProps {
@@ -22,15 +23,42 @@ export function MetaInboxIntegrationPanel({
 
   const [phoneNumberId, setPhoneNumberId] = useState(config.phoneNumberId ?? "");
   const [businessAccountId, setBusinessAccountId] = useState(config.businessAccountId ?? "");
-  const [accessToken, setAccessToken] = useState("");
+  const [accessToken, setAccessToken] = useState(config.apiKey ?? "");
+  const [tokenLoaded, setTokenLoaded] = useState(Boolean(config.apiKey));
   const [syncWhatsAppContacts, setSyncWhatsAppContacts] = useState(true);
+
+  useEffect(() => {
+    setPhoneNumberId(config.phoneNumberId ?? "");
+    setBusinessAccountId(config.businessAccountId ?? "");
+  }, [config.phoneNumberId, config.businessAccountId]);
+
+  useEffect(() => {
+    if (env.useMock) {
+      const token = config.apiKey ?? "";
+      setAccessToken(token);
+      setTokenLoaded(Boolean(token));
+      return;
+    }
+
+    let cancelled = false;
+    void inboxApiService.getMetaCredentials(inboxId).then((credentials) => {
+      if (cancelled) return;
+      const token = credentials.accessToken ?? "";
+      setAccessToken(token);
+      setTokenLoaded(Boolean(token));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [inboxId, config.apiKey]);
 
   const handleVerify = () => {
     verifyMutation.mutate(
       {
         phoneNumberId: phoneNumberId.trim(),
         businessAccountId: businessAccountId.trim(),
-        accessToken: accessToken.trim() || config.apiKey || "",
+        accessToken: accessToken.trim(),
         syncWhatsAppContacts,
       },
       {
@@ -47,6 +75,14 @@ export function MetaInboxIntegrationPanel({
                 : "Conexión verificada con Meta API") + syncNote
             );
             setAccessToken("");
+            setTokenLoaded(false);
+            if (!env.useMock) {
+              void inboxApiService.getMetaCredentials(inboxId).then((credentials) => {
+                const token = credentials.accessToken ?? "";
+                setAccessToken(token);
+                setTokenLoaded(Boolean(token));
+              });
+            }
           } else {
             onError(result.error ?? "No se pudo verificar la conexión");
           }
@@ -55,6 +91,8 @@ export function MetaInboxIntegrationPanel({
       }
     );
   };
+
+  const tokenPlaceholder = "Pega aquí un token nuevo de Meta";
 
   return (
     <div className="mt-4 pt-4 border-t border-[var(--color-border-primary)] space-y-3">
@@ -100,7 +138,8 @@ export function MetaInboxIntegrationPanel({
           <SecretInput
             value={accessToken}
             onChange={setAccessToken}
-            placeholder={config.apiKey ? `Guardado (${maskAccessToken(config.apiKey)})` : "EAAxxxx…"}
+            defaultVisible={tokenLoaded}
+            placeholder={tokenPlaceholder}
             className={fieldClass}
             revealLabel="Mostrar token de acceso"
             hideLabel="Ocultar token de acceso"

@@ -29,6 +29,14 @@ export const inboxApiService = {
     return apiRequest<WhatsAppTemplate[]>(`/inboxes/${inboxId}/whatsapp-templates`);
   },
 
+  async getMetaCredentials(inboxId: string): Promise<{
+    phoneNumberId?: string;
+    businessAccountId?: string;
+    accessToken?: string;
+  }> {
+    return apiRequest(`/inboxes/${inboxId}/meta-credentials`);
+  },
+
   async create(input: CreateInboxInput & {
     detail: string;
     providerResource: string;

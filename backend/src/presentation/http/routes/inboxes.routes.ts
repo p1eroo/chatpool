@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   createInbox,
   getInboxById,
+  getInboxMetaCredentials,
   listInboxes,
   listInboxSettings,
   updateInboxSettings,
@@ -78,6 +79,15 @@ export async function inboxesRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     return reply.send(await getInboxById(id));
   });
+
+  app.get(
+    "/inboxes/:inboxId/meta-credentials",
+    { preHandler: requirePermission("manageInboxes") },
+    async (request, reply) => {
+      const { inboxId } = request.params as { inboxId: string };
+      return reply.send(await getInboxMetaCredentials(inboxId));
+    }
+  );
 
   app.post("/inboxes", { preHandler: requirePermission("manageInboxes") }, async (request, reply) => {
     const body = createInboxSchema.parse(request.body);

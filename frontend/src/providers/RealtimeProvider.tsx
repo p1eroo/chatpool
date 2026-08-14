@@ -8,9 +8,11 @@ import {
   shouldPlayIncomingMessageSound,
 } from "@/lib/incomingMessageNotifications";
 import { buildRealtimeUrl, type RealtimeEvent } from "@/lib/realtime";
+import { setRealtimeSocket } from "@/lib/realtimeClient";
 import { parseConversation, parseMessage } from "@/lib/parseApiDates";
 import { refreshConversationsFromApi } from "@/services/bootstrapService";
 import { useAuthStore } from "@/store/authStore";
+import { useAgentTypingStore } from "@/store/agentTypingStore";
 import { useConversationStore } from "@/store/conversationStore";
 
 const RECONNECT_MS = 3_000;
@@ -63,6 +65,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
           conversation.inboxId
         );
         useConversationStore.getState().applyRealtimeMessage(message, conversation);
+        if (message.senderType === "agent" && message.senderId) {
+          useAgentTypingStore.getState().clearAgentTyping(conversation.id, message.senderId);
+        }
         notifyIncomingMessage(message, conversation.id, {
           playSound,
           inboxId: conversation.inboxId,
@@ -82,6 +87,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         useConversationStore.getState().applyRealtimeConversation(
           parseConversation(event.payload.conversation as never)
         );
+        return;
+      }
+
+      if (event.type === "conversation.typing") {
+        useAgentTypingStore.getState().applyTyping(event.payload);
       }
     };
 
@@ -94,14 +104,16 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      socket?.close();
-      socket = new WebSocket(buildRealtimeUrl(env.apiUrl, token));
+      const previous = socket;
+      const next = new WebSocket(buildRealtimeUrl(env.apiUrl, token));
+      socket = next;
+      setRealtimeSocket(next);
 
-      socket.onopen = () => {
+      next.onopen = () => {
         clearReconnectTimer();
       };
 
-      socket.onmessage = (messageEvent) => {
+      next.onmessage = (messageEvent) => {
         try {
           const data = JSON.parse(messageEvent.data as string) as RealtimeEvent;
           handleEvent(data);
@@ -110,19 +122,26 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         }
       };
 
-      socket.onclose = (event) => {
-        socket = null;
+      next.onclose = (event) => {
+        if (socket === next) {
+          setRealtimeSocket(null);
+          socket = null;
+        }
         if (event.code === 4401) {
           forceLogout("SESSION_REVOKED");
           navigate("/login", { replace: true });
           return;
         }
-        scheduleReconnect();
+        if (socket === next || socket === null) {
+          scheduleReconnect();
+        }
       };
 
-      socket.onerror = () => {
-        socket?.close();
+      next.onerror = () => {
+        next.close();
       };
+
+      previous?.close();
     };
 
     connect();
@@ -130,6 +149,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     return () => {
       closed = true;
       clearReconnectTimer();
+      setRealtimeSocket(null);
       socket?.close();
       socket = null;
     };

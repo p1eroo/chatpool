@@ -5,6 +5,8 @@ import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import { cn, formatTime } from "@/lib/utils";
 import { LastMessageDirectionIcon } from "@/components/conversation-list/LastMessageDirectionIcon";
 import { getContactMessagePreview } from "@/lib/contactMessagePreview";
+import { EMPTY_AGENT_TYPERS, formatAgentsTypingLabel } from "@/lib/agentTyping";
+import { useAgentTypingStore } from "@/store/agentTypingStore";
 import type { Conversation } from "@/types";
 import {
   MessageCircle,
@@ -63,6 +65,11 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
   const visibleLabels = isOpen ? labels : [];
   const visibleAssignee = isOpen ? assignee : undefined;
   const labelAccentById = useInboxLabelAccentMap(conversation.inboxId);
+  const agentTypers = useAgentTypingStore(
+    (s) => s.byConversationId[conversation.id] || EMPTY_AGENT_TYPERS
+  );
+  const agentTypingLabel = formatAgentsTypingLabel(agentTypers);
+  const showTypingPreview = Boolean(agentTypingLabel) || isTyping;
 
   return (
     <button
@@ -119,10 +126,12 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
           </div>
 
           <div className="flex items-center gap-2">
-            {isTyping ? (
-              <p className="text-xs text-[var(--color-success)] italic flex items-center gap-1">
-                <span>escribiendo</span>
-                <span className="flex gap-0.5">
+            {showTypingPreview ? (
+              <p className="text-xs text-[var(--color-success)] italic flex items-center gap-1 min-w-0">
+                <span className="truncate">
+                  {agentTypingLabel || "escribiendo"}
+                </span>
+                <span className="flex gap-0.5 shrink-0">
                   <span className="w-1 h-1 bg-[var(--color-success)] rounded-full animate-bounce-dot" style={{ animationDelay: "0s" }} />
                   <span className="w-1 h-1 bg-[var(--color-success)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.15s" }} />
                   <span className="w-1 h-1 bg-[var(--color-success)] rounded-full animate-bounce-dot" style={{ animationDelay: "0.3s" }} />

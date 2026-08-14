@@ -131,8 +131,7 @@ async function resolveInboxMetaCredentials(inboxId: string) {
   return { phoneNumberId, accessToken, businessAccountId };
 }
 
-export async function listWhatsAppTemplatesForInbox(inboxId: string, agentId: string) {
-  await assertAgentCanAccessInbox(agentId, inboxId);
+export async function listApprovedWhatsAppTemplatesForInbox(inboxId: string) {
   const { accessToken, businessAccountId } = await resolveInboxMetaCredentials(inboxId);
 
   try {
@@ -146,6 +145,11 @@ export async function listWhatsAppTemplatesForInbox(inboxId: string, agentId: st
     const failure = resolveMetaSendFailure(error);
     throw new AppError(failure.message, 502, failure.code);
   }
+}
+
+export async function listWhatsAppTemplatesForInbox(inboxId: string, agentId: string) {
+  await assertAgentCanAccessInbox(agentId, inboxId);
+  return listApprovedWhatsAppTemplatesForInbox(inboxId);
 }
 
 export async function findApprovedTemplate(

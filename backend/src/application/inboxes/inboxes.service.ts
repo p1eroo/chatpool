@@ -151,6 +151,26 @@ export async function createInbox(input: CreateInboxBody) {
   };
 }
 
+export async function getInboxMetaCredentials(inboxId: string) {
+  const settings = await prisma.inboxSettings.findUnique({
+    where: { inboxId },
+  });
+
+  if (!settings) {
+    throw new NotFoundError("Bandeja no encontrada");
+  }
+
+  if (settings.provider !== "meta") {
+    throw new AppError("Esta bandeja no usa Meta API");
+  }
+
+  return {
+    phoneNumberId: settings.phoneNumberId ?? undefined,
+    businessAccountId: settings.businessAccountId ?? undefined,
+    accessToken: settings.accessToken ?? undefined,
+  };
+}
+
 export async function updateInboxSettings(
   inboxId: string,
   body: UpdateInboxSettingsBody

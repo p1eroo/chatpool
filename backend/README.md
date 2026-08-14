@@ -108,7 +108,9 @@ Base: `/api/v1/inboxes/{INBOX_ID}` — el `inboxId` del path es el `id` de la ba
 | GET | `/conversations` | Listar conversaciones de la bandeja |
 | GET | `/conversations/:id` | Detalle (solo si pertenece a la bandeja) |
 | POST | `/conversations` | Iniciar outbound WhatsApp (`phone`; bandeja = path) |
+| POST | `/messages/send-template` | **Enviar plantilla por teléfono** (1 POST: conversación + envío) |
 | GET | `/conversations/:id/messages` | Listar mensajes |
+| GET | `/whatsapp-templates` | Plantillas WhatsApp aprobadas (Meta) de la bandeja |
 | POST | `/conversations/:id/messages` | Enviar mensaje (o template WhatsApp) |
 | POST | `/conversations/:id/request-contact-info` | Pedir número (botón oficial Meta, ventana 24 h) |
 | GET/POST | `/conversations/:id/labels` | Ver / reemplazar etiquetas por nombre |

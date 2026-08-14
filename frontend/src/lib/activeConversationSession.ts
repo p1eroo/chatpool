@@ -1,21 +1,34 @@
-const STORAGE_PREFIX = "chatpool:active-conversation:";
+const RELOAD_RESTORE_PREFIX = "chatpool:active-conversation-reload:";
 
-function storageKey(agentId: string): string {
-  return `${STORAGE_PREFIX}${agentId}`;
+function reloadStorageKey(agentId: string): string {
+  return `${RELOAD_RESTORE_PREFIX}${agentId}`;
 }
 
-export function saveActiveConversation(agentId: string, conversationId: string | null): void {
-  if (!agentId) return;
-
-  if (conversationId) {
-    sessionStorage.setItem(storageKey(agentId), conversationId);
-    return;
-  }
-
-  sessionStorage.removeItem(storageKey(agentId));
+/** Guarda el chat activo justo antes de recargar la pestaña (F5). */
+export function saveReloadActiveConversation(agentId: string, conversationId: string): void {
+  if (!agentId || !conversationId) return;
+  sessionStorage.setItem(reloadStorageKey(agentId), conversationId);
 }
 
-export function loadActiveConversation(agentId: string): string | null {
+/** Lee y borra el chat guardado para restaurar tras F5. */
+export function consumeReloadActiveConversation(agentId: string): string | null {
   if (!agentId) return null;
-  return sessionStorage.getItem(storageKey(agentId));
+  const key = reloadStorageKey(agentId);
+  const conversationId = sessionStorage.getItem(key);
+  sessionStorage.removeItem(key);
+  return conversationId;
+}
+
+export function clearReloadActiveConversation(agentId: string): void {
+  if (!agentId) return;
+  sessionStorage.removeItem(reloadStorageKey(agentId));
+}
+
+/** True cuando la página cargó por recarga (F5), no por navegación normal. */
+export function isPageReloadNavigation(): boolean {
+  if (typeof performance === "undefined") return false;
+  const entry = performance.getEntriesByType("navigation")[0] as
+    | PerformanceNavigationTiming
+    | undefined;
+  return entry?.type === "reload";
 }

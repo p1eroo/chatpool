@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
+import { useAgentTypingEmitter } from "@/hooks/useAgentTypingEmitter";
 import { useUIStore } from "@/store/uiStore";
 import { getClipboardAttachmentFile, mergePendingAttachments } from "@/lib/attachmentUtils";
 import { ComposerPendingAttachments, type ComposerPendingAttachment } from "@/components/chat/ComposerPendingAttachments";
@@ -117,6 +118,8 @@ export function ChatComposer() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
+
+  useAgentTypingEmitter(activeConversationId, content, !noteAboutMessage);
 
   pendingAttachmentsRef.current = pendingAttachments;
 

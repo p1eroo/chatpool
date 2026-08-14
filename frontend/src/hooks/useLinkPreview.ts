@@ -74,14 +74,8 @@ export function useMessageLinkPreview(message: {
   linkPreview?: LinkPreview;
   linkPreviewSuppressed?: boolean;
 }) {
-  const persisted = message.linkPreview;
-  const url = useMemo(() => extractFirstUrl(message.content), [message.content]);
-  const shouldFetch =
-    Boolean(url) && !persisted && !message.linkPreviewSuppressed;
-  const { preview: fetched, loading } = useLinkPreview(message.content, shouldFetch);
-
   return {
-    preview: message.linkPreviewSuppressed ? null : (persisted ?? fetched),
-    loading: shouldFetch && loading,
+    preview: message.linkPreviewSuppressed ? null : (message.linkPreview ?? null),
+    loading: false,
   };
 }

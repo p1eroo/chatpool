@@ -20,6 +20,7 @@ import {
 import { startOutboundConversation } from "../../../application/conversations/start-outbound.service.js";
 import { getInboxById } from "../../../application/inboxes/inboxes.service.js";
 import { listLabelsForInbox } from "../../../application/labels/labels.service.js";
+import { listApprovedWhatsAppTemplatesForInbox } from "../../../application/whatsapp/whatsapp-templates.service.js";
 import { AppError, NotFoundError } from "../../../domain/errors.js";
 import { prisma } from "../../../infrastructure/database/prisma.client.js";
 import {
@@ -32,9 +33,31 @@ import {
 /** Propósitos que pueden enviarse aunque el bot esté pausado (OTP / verificación). */
 const BOT_PAUSE_BYPASS_PURPOSES = ["otp", "authentication"] as const;
 
+const templateParamsSchema = z.object({
+  name: z.string().min(1),
+  language: z.string().min(1),
+  category: z.string().optional(),
+  processed_params: z
+    .object({
+      body: z.record(z.string()).optional(),
+      header: z.record(z.string()).optional(),
+      buttons: z
+        .array(
+          z.object({
+            type: z.enum(["url", "copy_code"]).optional(),
+            parameter: z.string().optional(),
+            index: z.number().int().min(0).optional(),
+            text: z.string().optional(),
+          })
+        )
+        .optional(),
+    })
+    .optional(),
+});
+
 const createMessageSchema = z
   .object({
-    content: z.string().min(1),
+    content: z.string().min(1).optional(),
     private: z.boolean().optional(),
     isPrivate: z.boolean().optional(),
     message_type: z.enum(["outgoing", "incoming"]).optional(),
@@ -47,29 +70,7 @@ const createMessageSchema = z
     replyToMessageId: z.string().optional(),
     client_message_id: z.string().min(1).max(128).optional(),
     clientMessageId: z.string().min(1).max(128).optional(),
-    template_params: z
-      .object({
-        name: z.string().min(1),
-        language: z.string().min(1),
-        category: z.string().optional(),
-        processed_params: z
-          .object({
-            body: z.record(z.string()).optional(),
-            header: z.record(z.string()).optional(),
-            buttons: z
-              .array(
-                z.object({
-                  type: z.enum(["url", "copy_code"]).optional(),
-                  parameter: z.string().optional(),
-                  index: z.number().int().min(0).optional(),
-                  text: z.string().optional(),
-                })
-              )
-              .optional(),
-          })
-          .optional(),
-      })
-      .optional(),
+    template_params: templateParamsSchema.optional(),
   })
   .superRefine((body, ctx) => {
     if (body.message_type === "incoming") {
@@ -79,13 +80,40 @@ const createMessageSchema = z
         path: ["message_type"],
       });
     }
+    if (!body.template_params && !body.content?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "content es obligatorio si no envías template_params",
+        path: ["content"],
+      });
+    }
+  });
+
+const sendTemplateToPhoneSchema = z
+  .object({
+    phone: z.string().min(1).optional(),
+    source_id: z.string().min(1).optional(),
+    name: z.string().optional(),
+    purpose: z.enum(BOT_PAUSE_BYPASS_PURPOSES).optional(),
+    client_message_id: z.string().min(1).max(128).optional(),
+    clientMessageId: z.string().min(1).max(128).optional(),
+    template_params: templateParamsSchema,
+  })
+  .superRefine((body, ctx) => {
+    if (!body.phone?.trim() && !body.source_id?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "phone (o source_id) es obligatorio",
+        path: ["phone"],
+      });
+    }
   });
 
 function shouldBypassBotPause(params: {
   purpose: (typeof BOT_PAUSE_BYPASS_PURPOSES)[number] | undefined;
-  content: string;
+  content?: string;
 }): boolean {
-  return params.purpose != null || isReservationConfirmationContent(params.content);
+  return params.purpose != null || isReservationConfirmationContent(params.content ?? "");
 }
 
 const labelsBodySchema = z.object({
@@ -175,6 +203,66 @@ function orderedParamsFromRecord(record?: Record<string, string>): string[] | un
   return entries.map(([, value]) => value);
 }
 
+type ApplicationOutboundMessageBody = z.infer<typeof createMessageSchema>;
+
+async function sendApplicationOutboundMessage(params: {
+  conversationId: string;
+  agentId: string;
+  body: ApplicationOutboundMessageBody;
+  botPausedUntil: Date | null;
+}) {
+  const { conversationId, agentId, body, botPausedUntil } = params;
+
+  if (!shouldBypassBotPause({ purpose: body.purpose, content: body.content })) {
+    assertBotNotPaused(botPausedUntil);
+  }
+
+  if (body.template_params) {
+    const template = body.template_params;
+    const bodyParameters = orderedParamsFromRecord(template.processed_params?.body);
+    const headerParameters = orderedParamsFromRecord(template.processed_params?.header);
+    const buttonUrlParameters = template.processed_params?.buttons
+      ?.map((button, index) => {
+        if (button.type && button.type !== "url") return null;
+        const text = button.parameter ?? button.text;
+        if (!text) return null;
+        return { index: button.index ?? index, text };
+      })
+      .filter((item): item is { index: number; text: string } => Boolean(item));
+
+    return sendWhatsAppTemplate(
+      conversationId,
+      agentId,
+      {
+        templateName: template.name,
+        language: template.language,
+        bodyParameters,
+        headerParameters,
+        buttonUrlParameters: buttonUrlParameters?.length ? buttonUrlParameters : undefined,
+        clientMessageId: body.client_message_id ?? body.clientMessageId,
+      },
+      { senderType: "bot" }
+    );
+  }
+
+  const content = body.content?.trim();
+  if (!content) {
+    throw new AppError("content es obligatorio para mensajes de texto", 400, "INVALID_MESSAGE");
+  }
+
+  return sendAgentMessage(
+    conversationId,
+    agentId,
+    {
+      content,
+      isPrivate: body.private ?? body.isPrivate,
+      replyToMessageId: body.reply_to_message_id ?? body.replyToMessageId,
+      clientMessageId: body.client_message_id ?? body.clientMessageId,
+    },
+    { senderType: "bot" }
+  );
+}
+
 export async function applicationApiRoutes(app: FastifyInstance) {
   app.addHook("preHandler", async (request) => {
     const { inboxId } = request.params as { inboxId?: string };
@@ -200,6 +288,11 @@ export async function applicationApiRoutes(app: FastifyInstance) {
     const inboxId = getPathInboxId(request);
     const { inbox } = await getInboxById(inboxId);
     return reply.send(inbox);
+  });
+
+  app.get("/api/v1/inboxes/:inboxId/whatsapp-templates", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
+    return reply.send(await listApprovedWhatsAppTemplatesForInbox(inboxId));
   });
 
   app.get("/api/v1/inboxes/:inboxId/labels", async (request, reply) => {
@@ -291,6 +384,44 @@ export async function applicationApiRoutes(app: FastifyInstance) {
     return reply.status(200).send(conversation);
   });
 
+  app.post("/api/v1/inboxes/:inboxId/messages/send-template", async (request, reply) => {
+    const inboxId = getPathInboxId(request);
+    const body = sendTemplateToPhoneSchema.parse(request.body ?? {});
+    const phone = (body.phone ?? body.source_id)?.trim();
+    if (!phone) {
+      throw new AppError(
+        "phone (o source_id) es obligatorio",
+        400,
+        "INVALID_SEND_TEMPLATE"
+      );
+    }
+    const agentId = await resolveApiActorAgentId();
+
+    const started = await startOutboundConversation({
+      agentId,
+      inboxId,
+      phone,
+      name: body.name,
+    });
+
+    const conversationId = started.conversation.id;
+    const conversationRow = await assertConversationInInbox(conversationId, inboxId);
+
+    const message = await sendApplicationOutboundMessage({
+      conversationId,
+      agentId,
+      body,
+      botPausedUntil: conversationRow.botPausedUntil,
+    });
+
+    return reply.status(200).send({
+      contact: started.contact,
+      conversation: started.conversation,
+      reopened: started.reopened,
+      message,
+    });
+  });
+
   app.get("/api/v1/inboxes/:inboxId/conversations/:id", async (request, reply) => {
     const inboxId = getPathInboxId(request);
     const { id } = request.params as { id: string };
@@ -318,54 +449,13 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       const agentId = await resolveApiActorAgentId();
 
       const conversation = await assertConversationInInbox(id, inboxId);
-      if (!shouldBypassBotPause({ purpose: body.purpose, content: body.content })) {
-        assertBotNotPaused(conversation.botPausedUntil);
-      }
 
-      if (body.template_params) {
-        const template = body.template_params;
-        const bodyParameters = orderedParamsFromRecord(template.processed_params?.body);
-        const headerParameters = orderedParamsFromRecord(template.processed_params?.header);
-        const buttonUrlParameters = template.processed_params?.buttons
-          ?.map((button, index) => {
-            if (button.type && button.type !== "url") return null;
-            const text = button.parameter ?? button.text;
-            if (!text) return null;
-            return { index: button.index ?? index, text };
-          })
-          .filter((item): item is { index: number; text: string } => Boolean(item));
-
-        const message = await sendWhatsAppTemplate(
-          id,
-          agentId,
-          {
-            templateName: template.name,
-            language: template.language,
-            content: body.content,
-            bodyParameters,
-            headerParameters,
-            buttonUrlParameters: buttonUrlParameters?.length
-              ? buttonUrlParameters
-              : undefined,
-            clientMessageId: body.client_message_id ?? body.clientMessageId,
-          },
-          { senderType: "bot" }
-        );
-
-        return reply.status(200).send(message);
-      }
-
-      const message = await sendAgentMessage(
-        id,
+      const message = await sendApplicationOutboundMessage({
+        conversationId: id,
         agentId,
-        {
-          content: body.content,
-          isPrivate: body.private ?? body.isPrivate,
-          replyToMessageId: body.reply_to_message_id ?? body.replyToMessageId,
-          clientMessageId: body.client_message_id ?? body.clientMessageId,
-        },
-        { senderType: "bot" }
-      );
+        body,
+        botPausedUntil: conversation.botPausedUntil,
+      });
 
       return reply.status(200).send(message);
     }

@@ -9,6 +9,7 @@ import { roleApiService } from "@/services/roleApiService";
 import { getCurrentAgentId } from "@/lib/authSession";
 import { getAccessibleInboxIds } from "@/lib/agentInboxAccess";
 import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
+import { resolveConversationListFilters } from "@/lib/conversationListFilterSession";
 import { mergeAgentProfile, useAgentStore } from "@/store/agentStore";
 import { useConversationStore } from "@/store/conversationStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
@@ -87,6 +88,7 @@ export async function bootstrapAppData(): Promise<void> {
   useConversationStore.setState({
     filterInboxId: inboxFilterId,
     filterLabelId: null,
+    ...(agentId ? resolveConversationListFilters(agentId) : {}),
   });
 
   const conversations = await fetchInboxConversations(inboxFilterId);

@@ -9,6 +9,13 @@ import type { Agent, AgentProfile } from "@/types";
 const AUTH_STORAGE_KEY = "chatpool-auth";
 const AUTH_AGENT_KEY = "chatpool-auth-agent";
 
+async function clearActiveConversationOnLogout(agentId: string | null): Promise<void> {
+  const { clearReloadActiveConversation } = await import("@/lib/activeConversationSession");
+  const { useConversationStore } = await import("@/store/conversationStore");
+  if (agentId) clearReloadActiveConversation(agentId);
+  useConversationStore.getState().clearActiveConversationSelection();
+}
+
 interface AuthState {
   isAuthenticated: boolean;
   agentId: string | null;
@@ -71,15 +78,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     authService.logout();
+    const agentId = get().agentId;
     persistAuth(false, null);
+    void clearActiveConversationOnLogout(agentId);
     set({ isAuthenticated: false, agentId: null, rememberMe: false });
   },
 
   forceLogout: (reason, message) => {
     if (!get().isAuthenticated && !getAccessToken()) return;
 
+    const agentId = get().agentId;
     authService.logout();
     persistAuth(false, null);
+    void clearActiveConversationOnLogout(agentId);
     set({ isAuthenticated: false, agentId: null, rememberMe: false });
 
     const defaultMessage =

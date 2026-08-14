@@ -20,6 +20,16 @@ export type RealtimeEvent =
       payload: {
         conversation: Conversation;
       };
+    }
+  | {
+      type: "conversation.typing";
+      payload: {
+        conversationId: string;
+        inboxId: string;
+        agentId: string;
+        agentName: string;
+        isTyping: boolean;
+      };
     };
 
 type RealtimeSocket = {

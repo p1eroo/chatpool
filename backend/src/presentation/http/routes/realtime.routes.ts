@@ -1,5 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { assertActiveAgentSession } from "../../../application/auth/auth.service.js";
+import {
+  clearTypingOnDisconnect,
+  handleIncomingTypingMessage,
+  type AgentTypingClient,
+} from "../../../application/realtime/agent-typing.service.js";
 import { SessionRevokedError, UnauthorizedError } from "../../../domain/errors.js";
 import {
   registerRealtimeClient,
@@ -28,21 +33,34 @@ export async function realtimeRoutes(app: FastifyInstance) {
 
     void assertActiveAgentSession(payload.sub, payload.sid)
       .then(() => {
-        const client = {
+        const client: AgentTypingClient = {
           send: (data: string) => {
             if (socket.readyState === socket.OPEN) {
               socket.send(data);
             }
           },
+          agentId: payload.sub,
+          agentName: null,
+          allowedConversations: new Map(),
+          typingConversationIds: new Set(),
+          lastTypingTrueAt: new Map(),
         };
 
         registerRealtimeClient(client);
 
+        socket.on("message", (raw: Buffer | ArrayBuffer | Buffer[]) => {
+          void handleIncomingTypingMessage(client, raw).catch(() => {
+            // Ignorar payloads inválidos o errores transitorios de acceso.
+          });
+        });
+
         socket.on("close", () => {
+          clearTypingOnDisconnect(client);
           unregisterRealtimeClient(client);
         });
 
         socket.on("error", () => {
+          clearTypingOnDisconnect(client);
           unregisterRealtimeClient(client);
         });
 
