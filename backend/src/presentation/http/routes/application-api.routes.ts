@@ -20,7 +20,8 @@ import {
 import { startOutboundConversation } from "../../../application/conversations/start-outbound.service.js";
 import { getInboxById } from "../../../application/inboxes/inboxes.service.js";
 import { listLabelsForInbox } from "../../../application/labels/labels.service.js";
-import { listApprovedWhatsAppTemplatesForInbox } from "../../../application/whatsapp/whatsapp-templates.service.js";
+import { listApprovedWhatsAppTemplatesForInbox, findApprovedTemplate } from "../../../application/whatsapp/whatsapp-templates.service.js";
+import { resolveTemplateParamsFromRecord } from "../../../application/whatsapp/template-parameters.js";
 import { AppError, NotFoundError } from "../../../domain/errors.js";
 import { prisma } from "../../../infrastructure/database/prisma.client.js";
 import {
@@ -199,15 +200,36 @@ async function assertContactInInbox(contactId: string, inboxId: string) {
   return contact;
 }
 
-function orderedParamsFromRecord(record?: Record<string, string>): string[] | undefined {
-  if (!record) return undefined;
-  const entries = Object.entries(record).sort(([a], [b]) => {
-    const na = Number(a);
-    const nb = Number(b);
-    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-    return a.localeCompare(b);
-  });
-  return entries.map(([, value]) => value);
+async function resolveApplicationTemplateParameters(
+  inboxId: string,
+  templateParams: NonNullable<ApplicationOutboundMessageBody["template_params"]>
+) {
+  const approved = await findApprovedTemplate(inboxId, templateParams.name, templateParams.language);
+  const processed = templateParams.processed_params;
+
+  return {
+    bodyParameters:
+      resolveTemplateParamsFromRecord(
+        processed?.body,
+        approved.bodyParamNames,
+        approved.bodyParamCount
+      ) ?? [],
+    headerParameters:
+      resolveTemplateParamsFromRecord(
+        processed?.header,
+        approved.headerParamNames,
+        approved.headerParamCount
+      ) ?? [],
+    headerMediaUrl: resolveHeaderMediaUrl(processed?.header_media),
+    buttonUrlParameters: processed?.buttons
+      ?.map((button, index) => {
+        if (button.type && button.type !== "url") return null;
+        const text = button.parameter ?? button.text;
+        if (!text) return null;
+        return { index: button.index ?? index, text };
+      })
+      .filter((item): item is { index: number; text: string } => Boolean(item)),
+  };
 }
 
 function resolveHeaderMediaUrl(
@@ -220,12 +242,13 @@ function resolveHeaderMediaUrl(
 type ApplicationOutboundMessageBody = z.infer<typeof createMessageSchema>;
 
 async function sendApplicationOutboundMessage(params: {
+  inboxId: string;
   conversationId: string;
   agentId: string;
   body: ApplicationOutboundMessageBody;
   botPausedUntil: Date | null;
 }) {
-  const { conversationId, agentId, body, botPausedUntil } = params;
+  const { inboxId, conversationId, agentId, body, botPausedUntil } = params;
 
   if (!shouldBypassBotPause({ purpose: body.purpose, content: body.content })) {
     assertBotNotPaused(botPausedUntil);
@@ -233,17 +256,7 @@ async function sendApplicationOutboundMessage(params: {
 
   if (body.template_params) {
     const template = body.template_params;
-    const bodyParameters = orderedParamsFromRecord(template.processed_params?.body);
-    const headerParameters = orderedParamsFromRecord(template.processed_params?.header);
-    const headerMediaUrl = resolveHeaderMediaUrl(template.processed_params?.header_media);
-    const buttonUrlParameters = template.processed_params?.buttons
-      ?.map((button, index) => {
-        if (button.type && button.type !== "url") return null;
-        const text = button.parameter ?? button.text;
-        if (!text) return null;
-        return { index: button.index ?? index, text };
-      })
-      .filter((item): item is { index: number; text: string } => Boolean(item));
+    const resolved = await resolveApplicationTemplateParameters(inboxId, template);
 
     return sendWhatsAppTemplate(
       conversationId,
@@ -251,10 +264,12 @@ async function sendApplicationOutboundMessage(params: {
       {
         templateName: template.name,
         language: template.language,
-        bodyParameters,
-        headerParameters,
-        headerMediaUrl,
-        buttonUrlParameters: buttonUrlParameters?.length ? buttonUrlParameters : undefined,
+        bodyParameters: resolved.bodyParameters,
+        headerParameters: resolved.headerParameters,
+        headerMediaUrl: resolved.headerMediaUrl,
+        buttonUrlParameters: resolved.buttonUrlParameters?.length
+          ? resolved.buttonUrlParameters
+          : undefined,
         clientMessageId: body.client_message_id ?? body.clientMessageId,
       },
       { senderType: "bot" }
@@ -424,6 +439,7 @@ export async function applicationApiRoutes(app: FastifyInstance) {
     const conversationRow = await assertConversationInInbox(conversationId, inboxId);
 
     const message = await sendApplicationOutboundMessage({
+      inboxId,
       conversationId,
       agentId,
       body,
@@ -467,6 +483,7 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       const conversation = await assertConversationInInbox(id, inboxId);
 
       const message = await sendApplicationOutboundMessage({
+        inboxId,
         conversationId: id,
         agentId,
         body,

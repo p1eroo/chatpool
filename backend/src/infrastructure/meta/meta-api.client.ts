@@ -32,7 +32,7 @@ interface MetaUploadMediaResponse {
 }
 
 export type WhatsAppTemplateComponentParameter =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; parameter_name?: string }
   | { type: "image"; image: { link: string } }
   | { type: "video"; video: { link: string } }
   | { type: "document"; document: { link: string; filename?: string } };
@@ -103,6 +103,7 @@ export type MetaMessageTemplate = {
   language: string;
   status: string;
   category?: string;
+  parameter_format?: string;
   components?: MetaMessageTemplateComponent[];
 };
 
@@ -257,7 +258,7 @@ export class MetaApiClient {
     accessToken: string
   ): Promise<MetaMessageTemplate[]> {
     const templates: MetaMessageTemplate[] = [];
-    let nextUrl: string | null = `${this.baseUrl}/${businessAccountId}/message_templates?fields=name,language,status,category,components&limit=100`;
+    let nextUrl: string | null = `${this.baseUrl}/${businessAccountId}/message_templates?fields=name,language,status,category,parameter_format,components&limit=100`;
 
     while (nextUrl) {
       const response = await fetch(nextUrl, {

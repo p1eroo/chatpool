@@ -155,7 +155,9 @@ Devuelve las plantillas **aprobadas en Meta** de la bandeja Facturación (mismo 
 |-------|-----|
 | `name` | Valor de `template_params.name` al enviar |
 | `language` | Valor de `template_params.language` |
-| `bodyParamCount` | Cuántas claves `"0"`…`"N-1"` mandar en `processed_params.body` |
+| `bodyParamCount` | Cuántas variables mandar en `processed_params.body` |
+| `bodyParamNames` | Nombres Meta en orden (`reservation_id`, …) — útil si `parameterFormat` es `named` |
+| `parameterFormat` | `named` o `positional` — define claves aceptadas en el body |
 | `headerParamCount` | Variables de encabezado TEXT (si > 0) en `processed_params.header` |
 | `headerMediaRequired` | **`true` = mandar `processed_params.header_media.url`** (imagen HTTPS pública) |
 | `bodyText` / `headerText` | Texto con `{{1}}` o `{{nombre}}` → mapear a claves `"0"`, `"1"`, … en orden |
@@ -220,9 +222,43 @@ Requisitos de la URL:
 }
 ```
 
+**Alternativa con nombres** (si `parameterFormat` es `named`):
+
+```json
+"body": {
+  "reservation_id": "123456",
+  "reservation_date": "14/08/2026",
+  "reservation_time": "20:45",
+  "route": "SAN BORJA - LINCE",
+  "security_code": "12345"
+}
+```
+
 En el GET de plantillas, si `"headerMediaRequired": true` hay que incluir `header_media`. También acepta `"link"` en lugar de `"url"`.
 
-Variables del body: siempre `"0"`, `"1"`, … según el **orden** en `bodyText` (aunque Meta use `{{reservation_id}}`, `{{route}}`, etc.).
+### Variables del body (`processed_params.body`)
+
+Chatpool acepta **dos formatos** (según `parameterFormat` del GET):
+
+**1. Posicional (plantillas con `{{1}}`, `{{2}}`… o `parameterFormat: "positional"`):**
+
+```json
+"body": { "0": "valor para {{1}}", "1": "valor para {{2}}" }
+```
+
+**2. Con nombre (plantillas con `{{reservation_id}}`, `{{route}}`… o `parameterFormat: "named"`):**
+
+```json
+"body": {
+  "reservation_id": "123456",
+  "reservation_date": "14/08/2026",
+  "reservation_time": "20:45",
+  "route": "SAN BORJA - LINCE",
+  "security_code": "12345"
+}
+```
+
+También puedes seguir usando `"0"`, `"1"`, … en plantillas named (orden según `bodyParamNames` del GET). Chatpool traduce a `parameter_name` al enviar a Meta.
 
 ---
 
@@ -476,13 +512,12 @@ A partir del listado de plantillas: `bodyParamCount: 2` y `bodyText` con `{{1}}`
 
 ### Orden de variables (`processed_params.body`)
 
-| Placeholder en `bodyText` | Clave en API | Ejemplo |
-|---------------------------|--------------|---------|
-| `{{1}}` | `"0"` | monto |
-| `{{2}}` | `"1"` | observación / motivo |
-| `{{3}}` | `"2"` | … |
+| Formato | Claves en API | Ejemplo |
+|---------|---------------|---------|
+| Posicional (`{{1}}`, `{{2}}`) | `"0"`, `"1"`, … | `"0"` = monto, `"1"` = motivo |
+| Named (`{{reservation_id}}`, …) | nombres del GET (`bodyParamNames`) **o** `"0"`, `"1"`, … en orden | `"reservation_id": "123456"` |
 
-Usar siempre claves numéricas `"0"`, `"1"`, … (no nombres alfabéticos).
+Usar claves numéricas `"0"`, `"1"`, … **o** los nombres exactos de `bodyParamNames` cuando `parameterFormat` es `named`.
 
 ### Response `200 OK`
 

@@ -4,6 +4,13 @@ import type { MetaMessageTemplate } from "../../infrastructure/meta/meta-api.cli
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import { resolveMetaSendFailure } from "../../shared/meta-api-errors.js";
 import { assertAgentCanAccessInbox } from "../inboxes/inbox-access.service.js";
+import {
+  extractPlaceholderNames,
+  inferParameterFormat,
+  type TemplateParameterFormat,
+} from "./template-parameters.js";
+
+export type { TemplateParameterFormat };
 
 export type WhatsAppTemplateDto = {
   id: string;
@@ -16,6 +23,11 @@ export type WhatsAppTemplateDto = {
   headerFormat: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
   bodyParamCount: number;
   headerParamCount: number;
+  /** Nombres de variables en orden ({{reservation_id}} o {{1}}). */
+  bodyParamNames: string[];
+  headerParamNames: string[];
+  /** Meta NAMED vs POSITIONAL — define si se envía parameter_name a la API. */
+  parameterFormat: TemplateParameterFormat;
   /** true si el header es IMAGE/VIDEO/DOCUMENT y hay que mandar URL al enviar */
   headerMediaRequired: boolean;
   buttonUrlParamIndexes: number[];
@@ -71,11 +83,18 @@ export function mapMetaTemplate(raw: MetaMessageTemplate): WhatsAppTemplateDto {
   ) as WhatsAppTemplateDto["headerFormat"];
 
   const headerText = headerFormat === "TEXT" ? header?.text?.trim() || null : null;
-  const bodyParamCount = Math.max(countPlaceholders(bodyText), countAllPlaceholders(bodyText));
+  const bodyParamNames = extractPlaceholderNames(bodyText);
+  const headerParamNames = headerFormat === "TEXT" ? extractPlaceholderNames(headerText) : [];
+  const bodyParamCount = Math.max(
+    countPlaceholders(bodyText),
+    bodyParamNames.length,
+    countAllPlaceholders(bodyText)
+  );
   const headerParamCount =
     headerFormat === "TEXT"
-      ? Math.max(countPlaceholders(headerText), countAllPlaceholders(headerText))
+      ? Math.max(countPlaceholders(headerText), headerParamNames.length, countAllPlaceholders(headerText))
       : 0;
+  const parameterFormat = inferParameterFormat(raw.parameter_format, bodyText, headerText);
   const headerMediaRequired =
     headerFormat === "IMAGE" || headerFormat === "VIDEO" || headerFormat === "DOCUMENT";
 
@@ -112,6 +131,9 @@ export function mapMetaTemplate(raw: MetaMessageTemplate): WhatsAppTemplateDto {
     headerFormat,
     bodyParamCount,
     headerParamCount,
+    bodyParamNames,
+    headerParamNames,
+    parameterFormat,
     headerMediaRequired,
     buttonUrlParamIndexes,
     supported,

@@ -36,7 +36,7 @@ import {
   buildTemplatePreview,
   findApprovedTemplate,
 } from "../whatsapp/whatsapp-templates.service.js";
-import type { WhatsAppTemplateSendComponent } from "../../infrastructure/meta/meta-api.client.js";
+import { buildTemplateSendComponents } from "../whatsapp/template-parameters.js";
 import {
   recordConversationAssigneeActivity,
   recordConversationAutoReopenedActivity,
@@ -565,32 +565,13 @@ export async function sendWhatsAppTemplate(
     buttonUrlParameters,
   });
 
-  const components: WhatsAppTemplateSendComponent[] = [];
-  if (template.headerFormat === "IMAGE" && headerMediaUrl) {
-    components.push({
-      type: "header",
-      parameters: [{ type: "image", image: { link: headerMediaUrl } }],
-    });
-  } else if (headerParameters.length) {
-    components.push({
-      type: "header",
-      parameters: headerParameters.map((text) => ({ type: "text", text })),
-    });
-  }
-  if (bodyParameters.length) {
-    components.push({
-      type: "body",
-      parameters: bodyParameters.map((text) => ({ type: "text", text })),
-    });
-  }
-  for (const button of buttonUrlParameters) {
-    components.push({
-      type: "button",
-      sub_type: "url",
-      index: String(button.index),
-      parameters: [{ type: "text", text: button.text }],
-    });
-  }
+  const components = buildTemplateSendComponents({
+    template,
+    bodyParameters,
+    headerParameters,
+    headerMediaUrl: headerMediaUrl || undefined,
+    buttonUrlParameters,
+  });
 
   const content = buildTemplatePreview(template, {
     bodyParameters,
