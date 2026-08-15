@@ -42,11 +42,6 @@ export function InboxPage() {
     };
 
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        store.clearActiveConversationSelection();
-        return;
-      }
-
       if (document.visibilityState !== "visible") return;
       const current = useConversationStore.getState();
       if (!current.isInboxViewActive || !current.activeConversationId) return;
