@@ -26,7 +26,12 @@ function prismaLog(): Prisma.LogDefinition[] {
 function attachQueryLog(client: PrismaClient): void {
   if (!isSendTimingEnabled() || globalForPrisma.prismaQueryLogAttached) return;
 
-  client.$on("query", (event) => {
+  // log[] se arma en runtime → TS infiere $on("query") como never.
+  const withQueryEvents = client as PrismaClient & {
+    $on(event: "query", callback: (event: Prisma.QueryEvent) => void): void;
+  };
+
+  withQueryEvents.$on("query", (event) => {
     const sql = event.query.replace(/\s+/g, " ").trim();
     const preview = sql.length > 180 ? `${sql.slice(0, 180)}…` : sql;
     console.info(`[prisma] ${event.duration}ms ${preview}`);
