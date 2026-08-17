@@ -21,7 +21,6 @@ export type InboxContactConversation = {
   name: string;
   phone: string | null;
   conversationId: string | null;
-  conversation_id: string | null;
 };
 
 /**
@@ -65,7 +64,6 @@ export async function listInboxContactsWithConversation(params: {
       name: row.name,
       phone: row.phone,
       conversationId,
-      conversation_id: conversationId,
     };
   });
 }

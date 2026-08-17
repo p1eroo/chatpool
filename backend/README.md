@@ -116,7 +116,7 @@ Base: `/api/v1/inboxes/{INBOX_ID}` — el `inboxId` del path es el `id` de la ba
 | GET/POST | `/conversations/:id/labels` | Ver / reemplazar etiquetas por nombre |
 | POST | `/conversations/:id/toggle_status` | `open` \| `resolved` |
 | POST | `/conversations/:id/assignments` | Asignar agente (`assignee_id`) |
-| GET | `/contacts` | Contactos de la bandeja (`name`, `phone`, `conversation_id`; `?phone=` opcional) |
+| GET | `/contacts` | Contactos de la bandeja (`name`, `phone`, `conversationId`; `?phone=` opcional) |
 | GET | `/labels`, `/agents`, `/profile` | Catálogos (scoped a la bandeja) |
 
 Ejemplo n8n (HTTP Request) — enviar mensaje:

@@ -642,9 +642,9 @@ def enviar_debito(conductor, monto, observacion, lote_id):
 
 ---
 
-## Buscar conversation_id por teléfono (n8n / Match)
+## Buscar conversationId por teléfono (n8n / Match)
 
-Para enviar a `POST .../conversations/{conversation_id}/messages` hay que resolver el id del chat. El teléfono se normaliza (solo dígitos; `987654321` → `51987654321`).
+Para enviar a `POST .../conversations/{conversationId}/messages` hay que resolver el id del chat. El teléfono se normaliza (solo dígitos; `987654321` → `51987654321`).
 
 ### Recomendado — lookup directo (sin Match)
 
@@ -661,16 +661,15 @@ GET /api/v1/inboxes/cmsf044z400067do6kds0kdph/contacts?phone=51987654321
       "id": "clxxx...",
       "name": "Juan Pérez",
       "phone": "51987654321",
-      "conversationId": "clconv...",
-      "conversation_id": "clconv..."
+      "conversationId": "clconv..."
     }
   ]
 }
 ```
 
-En n8n: HTTP Request → `{{ $json.payload[0].conversation_id }}` → POST del mensaje.
+En n8n: HTTP Request → `{{ $json.payload[0].conversationId }}` → POST del mensaje.
 
-Si `payload` está vacío, ese número no existe en la bandeja. Si `conversation_id` es `null`, el contacto existe pero aún no tiene chat (usar `POST /conversations` con `{ "phone" }` para abrirlo).
+Si `payload` está vacío, ese número no existe en la bandeja. Si `conversationId` es `null`, el contacto existe pero aún no tiene chat (usar `POST /conversations` con `{ "phone" }` para abrirlo).
 
 ### Alternativa — listar todos y hacer Match
 
@@ -678,17 +677,17 @@ Si `payload` está vacío, ese número no existe en la bandeja. Si `conversation
 GET /api/v1/inboxes/cmsf044z400067do6kds0kdph/contacts
 ```
 
-Cada ítem trae `name`, `phone` y `conversation_id`. En el nodo **Match** de n8n:
+Cada ítem trae `name`, `phone` y `conversationId`. En el nodo **Match** de n8n:
 
 | Input | Campo |
 |-------|--------|
 | Input_Recibido | `phone` |
 | GET /contacts (`payload`) | `phone` |
 
-Salida del Match: `conversation_id` → URL:
+Salida del Match: `conversationId` → URL:
 
 ```
-POST /api/v1/inboxes/{{ inbox_id }}/conversations/{{ conversation_id }}/messages
+POST /api/v1/inboxes/{{ inbox_id }}/conversations/{{ conversationId }}/messages
 ```
 
 También sirve `GET /conversations?phone=51987654321` (el id está en `data.payload[0].id` y el teléfono en `contact.phone`).
@@ -704,7 +703,7 @@ También sirve `GET /conversations?phone=51987654321` (el id está en `data.payl
 | POST | `/messages/send-template` | **Enviar plantilla por teléfono (1 POST)** |
 | GET | `/conversations` | Listar chats (`?phone=` opcional) |
 | GET | `/conversations/{id}/messages` | Historial |
-| GET | `/contacts` | Contactos + `conversation_id` (`?phone=` opcional) |
+| GET | `/contacts` | Contactos + `conversationId` (`?phone=` opcional) |
 | POST | `/conversations/{id}/toggle_status` | `{ "status": "open" \| "resolved" }` |
 | POST | `/conversations/{id}/labels` | `{ "labels": ["debito"] }` |
 
