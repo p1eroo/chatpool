@@ -5,6 +5,70 @@ import {
   assertAgentCanAccessInbox,
   listInboxIdsForAgent,
 } from "../inboxes/inbox-access.service.js";
+import { normalizeWhatsAppWaId } from "../../shared/whatsapp-contact.js";
+
+/** Dígitos E.164 para lookup (9xxxxxxxx PE → 51…). No lanza si el valor es inválido. */
+export function normalizeContactLookupPhone(raw: string): string {
+  let digits = normalizeWhatsAppWaId(raw);
+  if (digits.length === 9 && digits.startsWith("9")) {
+    digits = `51${digits}`;
+  }
+  return digits;
+}
+
+export type InboxContactConversation = {
+  id: string;
+  name: string;
+  phone: string | null;
+  conversationId: string | null;
+  conversation_id: string | null;
+};
+
+/**
+ * Contactos de una bandeja con el conversation id para Application API / n8n.
+ * Prefiere la conversación `open`; si no hay, la más reciente.
+ */
+export async function listInboxContactsWithConversation(params: {
+  inboxId: string;
+  phone?: string;
+}): Promise<InboxContactConversation[]> {
+  const phone = params.phone?.trim()
+    ? normalizeContactLookupPhone(params.phone)
+    : undefined;
+
+  const rows = await prisma.contact.findMany({
+    where: {
+      inboxId: params.inboxId,
+      ...(phone
+        ? {
+            OR: [{ phone }, { waId: phone }],
+          }
+        : {}),
+    },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      conversations: {
+        select: { id: true, status: true },
+        orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return rows.map((row) => {
+    const open = row.conversations.find((item) => item.status === "open");
+    const conversationId = open?.id ?? row.conversations[0]?.id ?? null;
+    return {
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      conversationId,
+      conversation_id: conversationId,
+    };
+  });
+}
 
 export async function listContacts(filters: { inboxId?: string; agentId?: string }) {
   const where: Record<string, unknown> = {};

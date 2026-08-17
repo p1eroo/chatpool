@@ -8,6 +8,7 @@ import type {
   UpdateConversationBody,
 } from "../../types/api-responses.js";
 import { getLastContactMessageAt, isReplyWindowOpen } from "../../shared/whatsapp-window.js";
+import { normalizeContactLookupPhone } from "../contacts/contacts.service.js";
 import {
   broadcastMessageCreated,
   conversationRealtimeInclude,
@@ -106,6 +107,7 @@ export async function listConversations(filters: {
   assignee?: "mine" | "unassigned" | "all";
   agentId?: string;
   labelId?: string;
+  phone?: string;
 }) {
   const where: Record<string, unknown> = {};
 
@@ -132,6 +134,13 @@ export async function listConversations(filters: {
 
   if (filters.labelId) {
     where.labels = { some: { labelId: filters.labelId } };
+  }
+
+  if (filters.phone?.trim()) {
+    const phone = normalizeContactLookupPhone(filters.phone);
+    if (phone) {
+      where.contact = { OR: [{ phone }, { waId: phone }] };
+    }
   }
 
   const rows = await prisma.conversation.findMany({

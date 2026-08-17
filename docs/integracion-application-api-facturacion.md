@@ -642,6 +642,59 @@ def enviar_debito(conductor, monto, observacion, lote_id):
 
 ---
 
+## Buscar conversation_id por teléfono (n8n / Match)
+
+Para enviar a `POST .../conversations/{conversation_id}/messages` hay que resolver el id del chat. El teléfono se normaliza (solo dígitos; `987654321` → `51987654321`).
+
+### Recomendado — lookup directo (sin Match)
+
+```http
+GET /api/v1/inboxes/cmsf044z400067do6kds0kdph/contacts?phone=51987654321
+```
+
+**Respuesta:**
+
+```json
+{
+  "payload": [
+    {
+      "id": "clxxx...",
+      "name": "Juan Pérez",
+      "phone": "51987654321",
+      "conversationId": "clconv...",
+      "conversation_id": "clconv..."
+    }
+  ]
+}
+```
+
+En n8n: HTTP Request → `{{ $json.payload[0].conversation_id }}` → POST del mensaje.
+
+Si `payload` está vacío, ese número no existe en la bandeja. Si `conversation_id` es `null`, el contacto existe pero aún no tiene chat (usar `POST /conversations` con `{ "phone" }` para abrirlo).
+
+### Alternativa — listar todos y hacer Match
+
+```http
+GET /api/v1/inboxes/cmsf044z400067do6kds0kdph/contacts
+```
+
+Cada ítem trae `name`, `phone` y `conversation_id`. En el nodo **Match** de n8n:
+
+| Input | Campo |
+|-------|--------|
+| Input_Recibido | `phone` |
+| GET /contacts (`payload`) | `phone` |
+
+Salida del Match: `conversation_id` → URL:
+
+```
+POST /api/v1/inboxes/{{ inbox_id }}/conversations/{{ conversation_id }}/messages
+```
+
+También sirve `GET /conversations?phone=51987654321` (el id está en `data.payload[0].id` y el teléfono en `contact.phone`).
+
+---
+
 ## Endpoints adicionales (Application API)
 
 | Método | Ruta | Uso |
@@ -649,9 +702,9 @@ def enviar_debito(conductor, monto, observacion, lote_id):
 | GET | `/api/v1/inboxes/{id}` | Detalle de la bandeja |
 | GET | `/whatsapp-templates` | Plantillas aprobadas (Meta) |
 | POST | `/messages/send-template` | **Enviar plantilla por teléfono (1 POST)** |
-| GET | `/conversations` | Listar chats |
+| GET | `/conversations` | Listar chats (`?phone=` opcional) |
 | GET | `/conversations/{id}/messages` | Historial |
-| GET | `/contacts` | Contactos |
+| GET | `/contacts` | Contactos + `conversation_id` (`?phone=` opcional) |
 | POST | `/conversations/{id}/toggle_status` | `{ "status": "open" \| "resolved" }` |
 | POST | `/conversations/{id}/labels` | `{ "labels": ["debito"] }` |
 

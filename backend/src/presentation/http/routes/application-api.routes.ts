@@ -6,7 +6,10 @@ import {
   setConversationLabelsByNames,
 } from "../../../application/api/conversation-labels-api.service.js";
 import { listAgents } from "../../../application/agents/agents.service.js";
-import { getContactById, listContacts } from "../../../application/contacts/contacts.service.js";
+import {
+  getContactById,
+  listInboxContactsWithConversation,
+} from "../../../application/contacts/contacts.service.js";
 import {
   getConversationById,
   getConversationMessages,
@@ -339,7 +342,11 @@ export async function applicationApiRoutes(app: FastifyInstance) {
 
   app.get("/api/v1/inboxes/:inboxId/contacts", async (request, reply) => {
     const inboxId = getPathInboxId(request);
-    const payload = await listContacts({ inboxId });
+    const query = request.query as { phone?: string };
+    const payload = await listInboxContactsWithConversation({
+      inboxId,
+      phone: query.phone,
+    });
     return reply.send({ payload });
   });
 
@@ -357,6 +364,7 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       assignee_type?: "me" | "unassigned" | "all";
       label_id?: string;
       labelId?: string;
+      phone?: string;
     };
 
     const assignee =
@@ -373,6 +381,7 @@ export async function applicationApiRoutes(app: FastifyInstance) {
       assignee,
       agentId: query.assignee_type === "me" ? agentId : undefined,
       labelId: query.label_id ?? query.labelId,
+      phone: query.phone,
     });
 
     return reply.send({
