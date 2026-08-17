@@ -1,45 +1,32 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { ContactDetails } from "@/components/contact-details/ContactDetails";
 import { ConversationList } from "@/components/conversation-list/ConversationList";
 import { getCurrentAgentId } from "@/lib/authSession";
-import {
-  clearReloadActiveConversation,
-  consumeReloadActiveConversation,
-  isPageReloadNavigation,
-  saveReloadActiveConversation,
-} from "@/lib/activeConversationSession";
+import { loadActiveConversation } from "@/lib/activeConversationSession";
 import { useConversationStore } from "@/store/conversationStore";
 import { useUIStore } from "@/store/uiStore";
 
 export function InboxPage() {
-  const persistingForReloadRef = useRef(false);
-
   useEffect(() => {
     const store = useConversationStore.getState();
     store.setInboxViewActive(true);
 
     const agentId = getCurrentAgentId();
-    if (agentId && isPageReloadNavigation()) {
-      const savedConversationId = consumeReloadActiveConversation(agentId);
+    if (agentId && !store.activeConversationId) {
+      const savedConversationId = loadActiveConversation(agentId);
       if (
         savedConversationId &&
         store.conversations.some((conversation) => conversation.id === savedConversationId)
       ) {
-        store.openConversation(savedConversationId);
+        store.selectConversation(savedConversationId);
       }
     }
 
-    const onPageHide = (event: PageTransitionEvent) => {
-      if (event.persisted) return;
-
-      const currentAgentId = getCurrentAgentId();
-      const { activeConversationId } = useConversationStore.getState();
-      if (currentAgentId && activeConversationId) {
-        saveReloadActiveConversation(currentAgentId, activeConversationId);
-        persistingForReloadRef.current = true;
-      }
-    };
+    const resumedId = useConversationStore.getState().activeConversationId;
+    if (resumedId && document.visibilityState === "visible") {
+      useConversationStore.getState().acknowledgeConversationRead(resumedId, "inbox-resume");
+    }
 
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
@@ -48,20 +35,11 @@ export function InboxPage() {
       current.acknowledgeConversationRead(current.activeConversationId, "tab-visible");
     };
 
-    window.addEventListener("pagehide", onPageHide);
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
       store.setInboxViewActive(false);
-
-      const currentAgentId = getCurrentAgentId();
-      if (currentAgentId && !persistingForReloadRef.current) {
-        clearReloadActiveConversation(currentAgentId);
-      }
-
-      store.clearActiveConversationSelection();
     };
   }, []);
 

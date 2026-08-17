@@ -2,8 +2,14 @@ import { prisma } from "../../infrastructure/database/prisma.client.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import { mapContact, mapConversation } from "../mappers.js";
 import { assertAgentCanAccessInbox } from "../inboxes/inbox-access.service.js";
+import {
+  enqueueAsociadoNameEnrichment,
+  isAsociadosDirectoryReady,
+  lookupAsociadoDisplayName,
+} from "../contacts/asociados-directory.service.js";
 import { upsertWhatsAppContact } from "../contacts/whatsapp-contact-sync.service.js";
 import {
+  isPlaceholderContactName,
   isWhatsAppPhoneSenderId,
   normalizeWhatsAppWaId,
 } from "../../shared/whatsapp-contact.js";
@@ -55,16 +61,21 @@ export async function startOutboundConversation(params: {
   }
 
   const phone = normalizeOutboundWhatsAppPhone(params.phone);
+  const providedName = params.name?.trim() || "";
+  const asociadoName = lookupAsociadoDisplayName(phone);
+  const formattedPhone = `+${phone.slice(0, 2)} ${phone.slice(2, 5)} ${phone.slice(5, 8)} ${phone.slice(8)}`;
   const displayName =
-    params.name?.trim() ||
-    `+${phone.slice(0, 2)} ${phone.slice(2, 5)} ${phone.slice(5, 8)} ${phone.slice(8)}`;
+    asociadoName ||
+    (providedName && !isPlaceholderContactName(providedName, phone)
+      ? providedName
+      : formattedPhone);
 
   const contactRow = await upsertWhatsAppContact(params.inboxId, {
     waId: phone,
     phone,
     name: displayName,
     touchLastSeen: true,
-    overwriteName: Boolean(params.name?.trim()),
+    overwriteName: false,
   });
 
   if (!contactRow) {
@@ -91,6 +102,19 @@ export async function startOutboundConversation(params: {
 
   if (!conversation) {
     throw new NotFoundError("Conversación no encontrada");
+  }
+
+  if (
+    !asociadoName &&
+    !isAsociadosDirectoryReady() &&
+    isPlaceholderContactName(contactRow.name, phone)
+  ) {
+    enqueueAsociadoNameEnrichment({
+      inboxId: params.inboxId,
+      contactId: contactRow.id,
+      phone,
+      conversationId: conversation.id,
+    });
   }
 
   return {

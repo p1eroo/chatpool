@@ -14,6 +14,7 @@ import { useAgentStore } from "@/store/agentStore";
 import { conversations as seedConversations, getMessages } from "@/data/mock";
 import { useLabelStore } from "@/store/labelStore";
 import { getCurrentAgentId } from "@/lib/authSession";
+import { saveActiveConversation } from "@/lib/activeConversationSession";
 import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
 import {
   resolveConversationListFilters,
@@ -28,6 +29,11 @@ import {
   syncOptimisticSortOrder,
 } from "@/lib/optimisticMessageSort";
 import { sortMessagesChronologically } from "@/lib/messageOrder";
+import {
+  LOCAL_PENDING_MESSAGE_PREFIX,
+  isLocalPendingMessageId,
+  mergeDeliveryStatus,
+} from "@/lib/messageDeliveryStatus";
 import { orderMessagesBySelection } from "@/lib/forwardMessages";
 import { pickLatestPreviewMessage, pickLatestPreviewFromMessages } from "@/lib/conversationPreview";
 import {
@@ -465,10 +471,7 @@ function mergeServerMessageOverLocal(local: Message, server: Message): Message {
     // Mantener posición visual; el status/id del server sí se actualizan.
     sortOrder: local.sortOrder ?? server.sortOrder,
     createdAt: local.createdAt,
-    status:
-      isPendingMessageId(local.id) && server.status === "pending"
-        ? "sent"
-        : server.status ?? local.status,
+    status: mergeDeliveryStatus(local.status, server.status),
   };
 
   return mergeServerMessageOverLocalCleanup(local, merged);
@@ -596,15 +599,14 @@ function mergeMessagesById(primary: Message[], secondary: Message[]): Message[] 
   return sortMessagesChronologically([...byId.values()]);
 }
 
-const PENDING_MESSAGE_PREFIX = "pending-";
 const PROVISIONAL_INBOUND_PREFIX = "provisional-";
 
 function createPendingMessageId(): string {
-  return `${PENDING_MESSAGE_PREFIX}${crypto.randomUUID()}`;
+  return `${LOCAL_PENDING_MESSAGE_PREFIX}${crypto.randomUUID()}`;
 }
 
 function isPendingMessageId(id: string): boolean {
-  return id.startsWith(PENDING_MESSAGE_PREFIX);
+  return isLocalPendingMessageId(id);
 }
 
 function isProvisionalInboundId(id: string): boolean {
@@ -2172,3 +2174,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     return get().conversations.filter((c) => c.unreadCount > 0).length;
   },
 }));
+
+useConversationStore.subscribe((state, prev) => {
+  if (state.activeConversationId === prev.activeConversationId) return;
+  const agentId = getCurrentAgentId();
+  if (!agentId) return;
+  saveActiveConversation(agentId, state.activeConversationId);
+});

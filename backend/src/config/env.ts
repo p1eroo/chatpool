@@ -30,6 +30,12 @@ const envSchema = z.object({
   S3_PUBLIC_URL: z.string().optional(),
   S3_FORCE_PATH_STYLE: z.string().default("true"),
   FILES_MAX_MB: z.coerce.number().default(50),
+  /** Directorio de conductores (sin auth). Vacío = desactivado. */
+  ASOCIADOS_DIRECTORY_URL: z
+    .string()
+    .default("https://api.taximonterrico.com/api/WAsociados/registrados?idestado=0"),
+  /** Cada cuánto refrescar el mapa en memoria (no toca contactos). */
+  ASOCIADOS_DIRECTORY_TTL_MS: z.coerce.number().default(1_800_000),
 });
 
 const parsed = envSchema.safeParse(process.env);

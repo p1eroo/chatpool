@@ -182,12 +182,29 @@ export function resolveInboundWhatsAppIdentity(params: {
   };
 }
 
-/** Nombre sin identidad real (vacío o solo el número / identity key). */
+const PLACEHOLDER_GENERIC_NAMES = new Set(["asociado", "whatsapp", "contacto"]);
+
+/** Últimos 9 dígitos (móvil PE). Vacío si no hay al menos 9. */
+export function whatsAppPhoneLast9(raw: string): string {
+  const digits = normalizeWhatsAppWaId(raw);
+  if (digits.length < 9) return "";
+  return digits.slice(-9);
+}
+
+/** Nombre sin identidad real (vacío, genérico o solo el número). */
 export function isPlaceholderContactName(name: string, waId: string): boolean {
   const trimmed = name.trim();
   if (!trimmed) return true;
-  if (normalizeWhatsAppWaId(trimmed) === waId) return true;
-  return trimmed === waId;
+  if (PLACEHOLDER_GENERIC_NAMES.has(trimmed.toLocaleLowerCase())) return true;
+  if (trimmed === waId) return true;
+
+  const nameDigits = normalizeWhatsAppWaId(trimmed);
+  if (!nameDigits) return false;
+
+  const hasLetters = /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(trimmed);
+  if (hasLetters) return false;
+
+  return nameDigits === waId || nameDigits === whatsAppPhoneLast9(waId);
 }
 
 export function resolveIncomingContactName(

@@ -59,6 +59,7 @@ import {
   toBotStatus,
 } from "../../shared/bot-pause.js";
 import { normalizeRequestContactInfoBody, MISSING_WHATSAPP_PHONE_NOTE } from "../../shared/whatsapp-shared-contact.js";
+import { createSendTimer } from "../../shared/send-timing.js";
 
 const conversationInclude = conversationRealtimeInclude;
 
@@ -207,11 +208,15 @@ export async function sendAgentMessage(
     deliveryPayload?: Prisma.InputJsonValue;
   }
 ) {
+  const timer = createSendTimer(conversationId);
+  timer.mark("start");
+
   const senderType = options?.senderType ?? "agent";
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     select: conversationSendContextSelect,
   });
+  timer.mark("conversation-loaded");
   if (!conversation) throw new NotFoundError("Conversación no encontrada");
 
   if (conversation.contact.isBlocked) {
@@ -249,6 +254,7 @@ export async function sendAgentMessage(
           })
         : Promise.resolve(null),
     ]);
+  timer.mark("preloaded");
 
   if (!agent) throw new NotFoundError("Agente no encontrado");
 
@@ -261,7 +267,11 @@ export async function sendAgentMessage(
       },
       include: messageInclude,
     });
-    if (existingNote) return mapMessage(existingNote);
+    if (existingNote) {
+      timer.mark("existing-note");
+      timer.summary();
+      return mapMessage(existingNote);
+    }
   }
 
   if (needsWhatsAppWindow && !isReplyWindowOpen(lastContactAt)) {
@@ -277,6 +287,8 @@ export async function sendAgentMessage(
     if (existingByClientId.status === "pending") {
       scheduleWhatsAppMessageDelivery(conversationId, mapped.id);
     }
+    timer.mark("idempotent-hit");
+    timer.summary();
     return mapped;
   }
 
@@ -285,17 +297,20 @@ export async function sendAgentMessage(
   const createdAt = new Date();
 
   const result = await runWithConversationMessageLock(conversationId, async () => {
+    timer.mark("lock-enter");
     if (clientMessageId) {
       const raced = await prisma.message.findFirst({
         where: { conversationId, clientMessageId },
         include: messageInclude,
       });
       if (raced) {
+        timer.mark("lock-idempotent-hit");
         return { message: raced, scheduleDelivery: raced.status === "pending" };
       }
     }
 
     const sortOrder = await reserveNextSortOrder(conversationId);
+    timer.mark("sort-order");
     const linkPreviewPayload = buildLinkPreviewPayloadFromBody(
       body.linkPreview,
       body.content,
@@ -326,6 +341,7 @@ export async function sendAgentMessage(
       },
       include: messageCreateInclude(replyTarget?.id),
     });
+    timer.mark("message-created");
 
     const shouldPauseBot =
       senderType === "agent" && !(body.isPrivate ?? false);
@@ -343,6 +359,7 @@ export async function sendAgentMessage(
       },
       select: conversationMessageEmitSelect,
     });
+    timer.mark("conversation-updated");
 
     broadcastMessageCreated(
       mapMessage(message),
@@ -350,16 +367,19 @@ export async function sendAgentMessage(
         assigneeOverride: autoAssign ? assigneeForEmit : undefined,
       })
     );
+    timer.mark("realtime-emitted");
 
     return {
       message,
       scheduleDelivery: needsWhatsAppDelivery,
     };
   });
+  timer.mark("lock-exit");
 
   if (result.scheduleDelivery) {
     scheduleWhatsAppMessageDelivery(conversationId, result.message.id);
   }
+  timer.mark("delivery-scheduled");
 
   if (
     !options?.deliveryPayload &&
@@ -390,6 +410,8 @@ export async function sendAgentMessage(
     senderType === "agent" && !(body.isPrivate ?? false)
   );
 
+  timer.mark("done");
+  timer.summary();
   return mapMessage(result.message);
 }
 

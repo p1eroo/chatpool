@@ -10,9 +10,9 @@ const AUTH_STORAGE_KEY = "chatpool-auth";
 const AUTH_AGENT_KEY = "chatpool-auth-agent";
 
 async function clearActiveConversationOnLogout(agentId: string | null): Promise<void> {
-  const { clearReloadActiveConversation } = await import("@/lib/activeConversationSession");
+  const { clearActiveConversation } = await import("@/lib/activeConversationSession");
   const { useConversationStore } = await import("@/store/conversationStore");
-  if (agentId) clearReloadActiveConversation(agentId);
+  if (agentId) clearActiveConversation(agentId);
   useConversationStore.getState().clearActiveConversationSelection();
 }
 

@@ -28,6 +28,7 @@ import {
 } from "../../../application/stickers/saved-stickers.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
 import { requirePermission } from "../plugins/require-permission.plugin.js";
+import { logSendHandlerStart } from "../../../shared/send-timing.js";
 import { assertAgentPermission } from "../../../application/permissions/permissions.service.js";
 import { assertAgentCanAccessConversation } from "../../../application/inboxes/inbox-access.service.js";
 
@@ -187,6 +188,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     async (request, reply) => {
     const { id } = request.params as { id: string };
     const user = request.user as { sub: string };
+    logSendHandlerStart(id, request);
 
     if (request.isMultipart()) {
       let content = "";

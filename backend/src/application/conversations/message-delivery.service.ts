@@ -11,6 +11,7 @@ import { isLinkPreviewSuppressed } from "../../shared/link-preview.js";
 import { mapMessage, messageInclude } from "../mappers.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import { resolveMetaSendFailure } from "../../shared/meta-api-errors.js";
+import { logDeliveryTiming } from "../../shared/send-timing.js";
 import type { WhatsAppTemplateSendComponent } from "../../infrastructure/meta/meta-api.client.js";
 import { assertAgentCanAccessConversation } from "../inboxes/inbox-access.service.js";
 
@@ -98,6 +99,8 @@ async function deliverPendingWhatsAppMessage(messageId: string): Promise<void> {
   if (message.conversation.inbox.channelType !== "whatsapp") return;
 
   const { conversation } = message;
+  const deliveryStarted = performance.now();
+  logDeliveryTiming("start", { conversationId: conversation.id, messageId });
 
   try {
     let externalId: string;
@@ -148,6 +151,12 @@ async function deliverPendingWhatsAppMessage(messageId: string): Promise<void> {
       mediaExternalId = delivered.mediaExternalId ?? null;
     }
 
+    logDeliveryTiming("meta-ok", {
+      conversationId: conversation.id,
+      messageId,
+      ms: performance.now() - deliveryStarted,
+    });
+
     const updated = await prisma.message.update({
       where: { id: messageId },
       data: {
@@ -160,9 +169,19 @@ async function deliverPendingWhatsAppMessage(messageId: string): Promise<void> {
     });
 
     await emitMessageUpdated(conversation.id, messageId, updated);
+    logDeliveryTiming("done", {
+      conversationId: conversation.id,
+      messageId,
+      ms: performance.now() - deliveryStarted,
+    });
   } catch (error) {
     const failure = resolveMetaSendFailure(error);
     console.error(`[delivery] marking message ${messageId} as failed:`, failure.message, error);
+    logDeliveryTiming("meta-failed", {
+      conversationId: conversation.id,
+      messageId,
+      ms: performance.now() - deliveryStarted,
+    });
     const updated = await prisma.message.update({
       where: { id: messageId },
       data: { status: "failed", errorMessage: failure.message },

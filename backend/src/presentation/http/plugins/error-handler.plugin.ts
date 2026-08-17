@@ -6,6 +6,7 @@ import {
   UnauthorizedError,
 } from "../../../domain/errors.js";
 import { ApiError } from "../../../shared/api-error.js";
+import { noteRequestAuthMs } from "../../../shared/send-timing.js";
 
 export function registerErrorHandler(app: FastifyInstance) {
   app.setErrorHandler((error, _request, reply) => {
@@ -39,6 +40,7 @@ export async function authenticate(
   request: FastifyRequest,
   _reply: FastifyReply
 ): Promise<void> {
+  const authStarted = performance.now();
   try {
     await request.jwtVerify();
   } catch (error) {
@@ -52,4 +54,5 @@ export async function authenticate(
 
   const payload = request.user as { sub: string; sid?: string };
   await assertActiveAgentSession(payload.sub, payload.sid);
+  noteRequestAuthMs(request, performance.now() - authStarted);
 }

@@ -19,6 +19,7 @@ import {
   parseSharedContactDisplay,
 } from "@/lib/whatsappContactInfo";
 import { WAVEFORM_BAR_COUNT, formatVoiceTime } from "@/hooks/useVoiceRecorder";
+import { visualDeliveryStatus } from "@/lib/messageDeliveryStatus";
 
 interface MessageBubbleProps {
   message: Message;
@@ -235,7 +236,7 @@ export function MessageBubble({
               </span>
               {isAgent && message.status && (
                 <MessageStatus
-                  status={message.status}
+                  status={visualDeliveryStatus(message) ?? message.status}
                   errorMessage={message.errorMessage}
                 />
               )}

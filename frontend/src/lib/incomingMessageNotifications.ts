@@ -40,6 +40,7 @@ export function getEffectiveUnreadCount(): number {
   if (
     typeof document !== "undefined" &&
     document.visibilityState === "visible" &&
+    state.isInboxViewActive &&
     state.activeConversationId
   ) {
     const active = state.conversations.find(
@@ -69,7 +70,7 @@ export function shouldPlayIncomingMessageSound(
 ): boolean {
   if (message.senderType !== "contact") return false;
 
-  const { activeConversationId, filterInboxId, messages, conversations } =
+  const { activeConversationId, filterInboxId, isInboxViewActive, messages, conversations } =
     useConversationStore.getState();
 
   const messageInboxId =
@@ -82,6 +83,7 @@ export function shouldPlayIncomingMessageSound(
   }
 
   const isViewingConversation =
+    isInboxViewActive &&
     activeConversationId === conversationId &&
     document.visibilityState === "visible";
 

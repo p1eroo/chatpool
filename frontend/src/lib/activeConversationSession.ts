@@ -1,34 +1,49 @@
-const RELOAD_RESTORE_PREFIX = "chatpool:active-conversation-reload:";
+const STORAGE_PREFIX = "chatpool:active-conversation:";
+const LEGACY_RELOAD_PREFIX = "chatpool:active-conversation-reload:";
 
-function reloadStorageKey(agentId: string): string {
-  return `${RELOAD_RESTORE_PREFIX}${agentId}`;
+function storageKey(agentId: string): string {
+  return `${STORAGE_PREFIX}${agentId}`;
 }
 
-/** Guarda el chat activo justo antes de recargar la pestaña (F5). */
-export function saveReloadActiveConversation(agentId: string, conversationId: string): void {
-  if (!agentId || !conversationId) return;
-  sessionStorage.setItem(reloadStorageKey(agentId), conversationId);
+function legacyReloadKey(agentId: string): string {
+  return `${LEGACY_RELOAD_PREFIX}${agentId}`;
 }
 
-/** Lee y borra el chat guardado para restaurar tras F5. */
-export function consumeReloadActiveConversation(agentId: string): string | null {
-  if (!agentId) return null;
-  const key = reloadStorageKey(agentId);
-  const conversationId = sessionStorage.getItem(key);
-  sessionStorage.removeItem(key);
-  return conversationId;
+function readSessionItem(key: string): string | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
-export function clearReloadActiveConversation(agentId: string): void {
+function writeSessionItem(key: string, value: string | null): void {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    if (value) {
+      sessionStorage.setItem(key, value);
+      return;
+    }
+    sessionStorage.removeItem(key);
+  } catch {
+    // private mode / quota
+  }
+}
+
+/** Persiste el chat seleccionado para restaurarlo tras F5 o al volver al inbox. */
+export function saveActiveConversation(agentId: string, conversationId: string | null): void {
   if (!agentId) return;
-  sessionStorage.removeItem(reloadStorageKey(agentId));
+  writeSessionItem(storageKey(agentId), conversationId);
+  writeSessionItem(legacyReloadKey(agentId), null);
 }
 
-/** True cuando la página cargó por recarga (F5), no por navegación normal. */
-export function isPageReloadNavigation(): boolean {
-  if (typeof performance === "undefined") return false;
-  const entry = performance.getEntriesByType("navigation")[0] as
-    | PerformanceNavigationTiming
-    | undefined;
-  return entry?.type === "reload";
+/** Lee el chat persistido. No lo borra: el inbox puede montarse más de una vez. */
+export function loadActiveConversation(agentId: string): string | null {
+  if (!agentId) return null;
+  return readSessionItem(storageKey(agentId)) ?? readSessionItem(legacyReloadKey(agentId));
+}
+
+export function clearActiveConversation(agentId: string): void {
+  saveActiveConversation(agentId, null);
 }
