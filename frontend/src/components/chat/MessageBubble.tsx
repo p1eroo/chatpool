@@ -13,6 +13,8 @@ import {
 } from "@/lib/messageSenderGroup";
 import { Check, CheckCheck, Clock, MapPin, Mic, MoreVertical, Pause, Play, UserRound } from "lucide-react";
 import { FileAttachmentCard } from "./FileAttachmentCard";
+import { PdfAttachmentCard } from "./PdfAttachmentCard";
+import { isPdfFile } from "@/lib/pdfUtils";
 import {
   displayInboundMessageContent,
   isSharedContactMessageContent,
@@ -72,6 +74,9 @@ export function MessageBubble({
     attachedToMessage?.senderType === "bot";
   const showSenderAvatar = isLastInGroup && !isPrivate;
   const senderLabel = messageSenderDisplayName(message, contactName);
+  const isPdfAttachment =
+    message.contentType === "file" &&
+    isPdfFile(message.fileName || message.content || "");
 
   if (isPrivate) {
     return (
@@ -200,12 +205,15 @@ export function MessageBubble({
               "text-sm leading-relaxed min-w-0",
               message.contentType === "sticker"
                 ? "p-0 bg-transparent"
-                : message.contentType === "file"
-                  ? "p-1"
-                  : message.contentType === "image" || message.contentType === "location"
-                    ? "p-1.5"
-                    : "px-3.5 py-2.5",
+                : isPdfAttachment
+                  ? "p-0 overflow-hidden bg-transparent"
+                  : message.contentType === "file"
+                    ? "p-1"
+                    : message.contentType === "image" || message.contentType === "location"
+                      ? "p-1.5"
+                      : "px-3.5 py-2.5",
               message.contentType !== "sticker" &&
+                !isPdfAttachment &&
                 (isBot
                   ? "bg-[var(--color-bubble-bot)] text-white rounded-2xl rounded-br-md"
                   : isAgent
@@ -473,13 +481,24 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
 
     return (
       <div className="space-y-2">
-        <FileAttachmentCard
-          fileName={fileName}
-          fileSize={message.fileSize}
-          fileUrl={message.fileUrl}
-          attachmentUrl={message.attachmentUrl}
-          variant={isAgent ? "outgoing" : "incoming"}
-        />
+        {isPdfFile(fileName) ? (
+          <PdfAttachmentCard
+            messageId={message.id}
+            fileName={fileName}
+            fileSize={message.fileSize}
+            fileUrl={message.fileUrl}
+            attachmentUrl={message.attachmentUrl}
+            variant={isAgent ? "outgoing" : "incoming"}
+          />
+        ) : (
+          <FileAttachmentCard
+            fileName={fileName}
+            fileSize={message.fileSize}
+            fileUrl={message.fileUrl}
+            attachmentUrl={message.attachmentUrl}
+            variant={isAgent ? "outgoing" : "incoming"}
+          />
+        )}
         {caption && (
           <TextMessageContent
             message={{ ...message, content: caption }}

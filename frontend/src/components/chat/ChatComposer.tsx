@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
 import { useAgentTypingEmitter } from "@/hooks/useAgentTypingEmitter";
 import { useUIStore } from "@/store/uiStore";
-import { getClipboardAttachmentFile, mergePendingAttachments } from "@/lib/attachmentUtils";
+import { getClipboardAttachmentFile, isImageAttachmentFile, mergePendingAttachments } from "@/lib/attachmentUtils";
 import { ComposerPendingAttachments, type ComposerPendingAttachment } from "@/components/chat/ComposerPendingAttachments";
+import { ComposerImageEditor } from "@/components/chat/ComposerImageEditor";
 import { LinkPreviewCard } from "@/components/chat/LinkPreviewCard";
 import { useLinkPreview } from "@/hooks/useLinkPreview";
 import { cn } from "@/lib/utils";
@@ -97,6 +98,8 @@ export function ChatComposer() {
   const [sendingTemplate, setSendingTemplate] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [imageEditorId, setImageEditorId] = useState<string | null>(null);
+  const [imageEditorDiscardOnClose, setImageEditorDiscardOnClose] = useState(false);
   const [slashCursor, setSlashCursor] = useState(0);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
@@ -144,6 +147,8 @@ export function ChatComposer() {
     setSlashMenuDismissed(false);
     revokePendingAttachments(pendingAttachmentsRef.current);
     setPendingAttachments([]);
+    setImageEditorId(null);
+    setImageEditorDiscardOnClose(false);
   }, [activeConversationId, setReplyToMessage, setNoteAboutMessage]);
 
   useEffect(() => {
@@ -171,7 +176,7 @@ export function ChatComposer() {
   }
 
   const stageFiles = useCallback(
-    (files: File[]) => {
+    (files: File[], options?: { autoOpenImageEditor?: boolean }) => {
       if (!activeConversationId || files.length === 0) return false;
       if (noteAboutMessage) return false;
 
@@ -187,10 +192,28 @@ export function ChatComposer() {
         showToast(`Solo se adjuntaron ${result.files.length} imágenes (máximo por envío)`);
       }
 
+      const shouldOpenEditor =
+        options?.autoOpenImageEditor !== false &&
+        files.length === 1 &&
+        isImageAttachmentFile(files[0]);
+
+      let editorId: string | null = null;
+
       setPendingAttachments((prev) => {
         revokePendingAttachments(prev);
-        return result.files.map(createPendingAttachment);
+        const next = result.files.map(createPendingAttachment);
+        if (shouldOpenEditor) {
+          const fileIndex = result.files.indexOf(files[0]);
+          editorId = fileIndex >= 0 ? next[fileIndex]?.id ?? null : null;
+        }
+        return next;
       });
+
+      if (editorId) {
+        setImageEditorId(editorId);
+        setImageEditorDiscardOnClose(true);
+      }
+
       setActivePopover(null);
       textareaRef.current?.focus();
       return true;
@@ -565,7 +588,28 @@ export function ChatComposer() {
       if (removed?.url) URL.revokeObjectURL(removed.url);
       return prev.filter((item) => item.id !== id);
     });
+    setImageEditorId((current) => (current === id ? null : current));
   };
+
+  const updatePendingAttachment = useCallback((id: string, file: File, url: string) => {
+    setPendingAttachments((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        if (item.url) URL.revokeObjectURL(item.url);
+        return { ...item, file, url };
+      })
+    );
+  }, []);
+
+  const openImageEditor = useCallback((id: string) => {
+    setImageEditorId(id);
+    setImageEditorDiscardOnClose(false);
+  }, []);
+
+  const closeImageEditor = useCallback(() => {
+    setImageEditorId(null);
+    setImageEditorDiscardOnClose(false);
+  }, []);
 
   const openAddImages = () => {
     fileInputRef.current?.click();
@@ -759,6 +803,18 @@ export function ChatComposer() {
           attachments={pendingAttachments}
           onRemove={removePendingAttachment}
           onAddImages={openAddImages}
+          onOpenEditor={openImageEditor}
+        />
+      )}
+
+      {imageEditorId && (
+        <ComposerImageEditor
+          attachments={pendingAttachments.filter((item) => isImageAttachmentFile(item.file))}
+          initialId={imageEditorId}
+          onClose={closeImageEditor}
+          onSave={updatePendingAttachment}
+          discardOnClose={imageEditorDiscardOnClose}
+          onDiscard={removePendingAttachment}
         />
       )}
 

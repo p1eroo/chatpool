@@ -7,6 +7,7 @@ import { MessageList } from "./MessageList";
 import { ChatComposer } from "./ChatComposer";
 import { WhatsAppReplyWindowBanner } from "./WhatsAppReplyWindowBanner";
 import { ImageLightbox } from "./ImageLightbox";
+import { PdfViewer } from "./PdfViewer";
 import { ForwardMessagesModal } from "./ForwardMessagesModal";
 import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
 import { contactHasPhone } from "@/lib/whatsappContactInfo";
@@ -169,6 +170,7 @@ export function ChatArea() {
           </div>
         ))}
       <ImageLightbox />
+      <PdfViewer />
       <ForwardMessagesModal
         open={forwardModalOpen}
         sourceConversationId={forwardSourceConversationId}

@@ -12,19 +12,17 @@ import { useUpdateContact } from "@/hooks/useContacts";
 import { useAgentPermissions } from "@/hooks/useAgentPermissions";
 import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import {
-  downloadMessageFile,
   getConversationFiles,
   getConversationImages,
 } from "@/lib/conversationAttachments";
 import { getFileTypeBadgeStyle, splitFileName } from "@/lib/fileUtils";
+import { isPdfFile } from "@/lib/pdfUtils";
 import { APP_PHONE_PREFIX } from "@/lib/locale";
 import { cn, formatFileSize } from "@/lib/utils";
 import type { Contact, Message } from "@/types";
 import {
   PanelRightClose,
   Phone,
-  Download,
-  ExternalLink,
   X,
   Check,
   ChevronDown,
@@ -854,13 +852,27 @@ function FilesSection({ conversationId }: { conversationId: string }) {
 }
 
 function FileRow({ message }: { message: Message }) {
-  const showToast = useUIStore((s) => s.showToast);
+  const openPdfViewer = useUIStore((s) => s.openPdfViewer);
   const fileName = message.fileName || message.content || "Archivo";
   const { extension } = splitFileName(fileName);
   const badge = getFileTypeBadgeStyle(extension, false);
+  const isPdf = message.contentType === "file" && isPdfFile(fileName);
+  const canOpenPdf = isPdf && Boolean(message.fileUrl || message.attachmentUrl);
+  const canOpenFile = canOpenPdf || Boolean(message.fileUrl);
 
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] px-3 py-2.5">
+  const handleOpen = () => {
+    if (canOpenPdf) {
+      openPdfViewer(message.id);
+      return;
+    }
+
+    if (message.fileUrl) {
+      window.open(message.fileUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const content = (
+    <>
       <div
         className={cn(
           "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold uppercase",
@@ -882,37 +894,26 @@ function FileRow({ message }: { message: Message }) {
               : "Archivo"}
         </p>
       </div>
+    </>
+  );
 
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={() => {
-            void downloadMessageFile(message).catch((error) => {
-              showToast(
-                error instanceof Error && error.message
-                  ? error.message
-                  : "No se pudo descargar el archivo"
-              );
-            });
-          }}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-          title="Descargar"
-        >
-          <Download className="w-4 h-4" />
-        </button>
-        {message.fileUrl && (
-          <a
-            href={message.fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-            title="Abrir"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
-        )}
+  if (!canOpenFile) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] px-3 py-2.5">
+        {content}
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleOpen}
+      className="flex w-full cursor-pointer select-none items-center gap-3 rounded-xl border border-[var(--color-border-primary)] bg-[var(--color-bg-tertiary)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--color-bg-hover)]"
+      title={canOpenPdf ? "Ver documento" : "Abrir archivo"}
+    >
+      {content}
+    </button>
   );
 }
 

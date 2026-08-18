@@ -5,17 +5,30 @@ function isVisibleAttachment(message: Message): boolean {
   return !message.isPrivate && Boolean(message.fileUrl || message.attachmentUrl);
 }
 
+function sortAttachmentsNewestFirst(messages: Message[]): Message[] {
+  return [...messages].sort((a, b) => {
+    if (a.sortOrder != null && b.sortOrder != null && a.sortOrder !== b.sortOrder) {
+      return b.sortOrder - a.sortOrder;
+    }
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+}
+
 export function getConversationImages(messages: Message[]): Message[] {
-  return messages.filter(
-    (message) => message.contentType === "image" && isVisibleAttachment(message)
+  return sortAttachmentsNewestFirst(
+    messages.filter(
+      (message) => message.contentType === "image" && isVisibleAttachment(message)
+    )
   );
 }
 
 export function getConversationFiles(messages: Message[]): Message[] {
-  return messages.filter(
-    (message) =>
-      (message.contentType === "file" || message.contentType === "audio") &&
-      isVisibleAttachment(message)
+  return sortAttachmentsNewestFirst(
+    messages.filter(
+      (message) =>
+        (message.contentType === "file" || message.contentType === "audio") &&
+        isVisibleAttachment(message)
+    )
   );
 }
 

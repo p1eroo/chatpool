@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { FileAttachmentCard } from "@/components/chat/FileAttachmentCard";
-import { ComposerAttachmentPreview } from "@/components/chat/ComposerAttachmentPreview";
 import { MAX_PENDING_IMAGES } from "@/lib/attachmentUtils";
 import { cn } from "@/lib/utils";
 
@@ -15,15 +13,15 @@ interface ComposerPendingAttachmentsProps {
   attachments: ComposerPendingAttachment[];
   onRemove: (id: string) => void;
   onAddImages: () => void;
+  onOpenEditor: (id: string) => void;
 }
 
 export function ComposerPendingAttachments({
   attachments,
   onRemove,
   onAddImages,
+  onOpenEditor,
 }: ComposerPendingAttachmentsProps) {
-  const [previewId, setPreviewId] = useState<string | null>(null);
-
   if (attachments.length === 0) return null;
 
   const allImages = attachments.every((item) => item.file.type.startsWith("image/"));
@@ -51,9 +49,9 @@ export function ComposerPendingAttachments({
             <div key={item.id} className="relative shrink-0">
               <button
                 type="button"
-                onClick={() => setPreviewId(item.id)}
+                onClick={() => onOpenEditor(item.id)}
                 className="block rounded-xl overflow-hidden border border-[var(--color-border-primary)] hover:ring-2 hover:ring-[var(--color-brand)]/40 transition-shadow"
-                title="Ver vista previa"
+                title="Editar imagen"
               >
                 <img
                   src={item.url}
@@ -95,14 +93,6 @@ export function ComposerPendingAttachments({
           )}
         </div>
       </div>
-
-      {previewId && (
-        <ComposerAttachmentPreview
-          attachments={attachments}
-          initialId={previewId}
-          onClose={() => setPreviewId(null)}
-        />
-      )}
     </>
   );
 }

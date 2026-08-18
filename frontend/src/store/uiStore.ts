@@ -10,6 +10,7 @@ interface UIState {
   noteAboutMessage: Message | null;
   toast: string | null;
   lightboxMessageId: string | null;
+  pdfViewerMessageId: string | null;
   attachFileRequest: File | null;
   jumpToMessageId: string | null;
   forwardSourceConversationId: string | null;
@@ -26,6 +27,8 @@ interface UIState {
   setNoteAboutMessage: (message: Message | null) => void;
   openLightbox: (messageId: string) => void;
   closeLightbox: () => void;
+  openPdfViewer: (messageId: string) => void;
+  closePdfViewer: () => void;
   requestAttachFile: (file: File) => void;
   clearAttachFileRequest: () => void;
   showToast: (message: string) => void;
@@ -47,6 +50,7 @@ export const useUIStore = create<UIState>((set) => ({
   noteAboutMessage: null,
   toast: null,
   lightboxMessageId: null,
+  pdfViewerMessageId: null,
   attachFileRequest: null,
   jumpToMessageId: null,
   forwardSourceConversationId: null,
@@ -82,6 +86,8 @@ export const useUIStore = create<UIState>((set) => ({
     ),
   openLightbox: (messageId) => set({ lightboxMessageId: messageId }),
   closeLightbox: () => set({ lightboxMessageId: null }),
+  openPdfViewer: (messageId) => set({ pdfViewerMessageId: messageId }),
+  closePdfViewer: () => set({ pdfViewerMessageId: null }),
   requestAttachFile: (file) => set({ attachFileRequest: file }),
   clearAttachFileRequest: () => set({ attachFileRequest: null }),
   showToast: (message) => {

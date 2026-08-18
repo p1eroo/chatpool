@@ -72,21 +72,57 @@ export async function downloadFile(params: {
   triggerBlobDownload(await response.blob(), params.fileName);
 }
 
-export async function fetchMessageAttachmentBlob(attachmentUrl: string): Promise<string> {
-  const token = getAccessToken();
-  const url = new URL(`${env.apiUrl}${attachmentUrl}`);
-  url.searchParams.set("inline", "1");
-
-  return withApiProgress(async () => {
-    const response = await fetch(url.toString(), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-
-    if (!response.ok) {
-      throw new Error("No se pudo cargar el archivo");
+async function readAttachmentResponse(response: Response): Promise<Blob> {
+  if (!response.ok) {
+    let message = "No se pudo cargar el archivo";
+    try {
+      const body = (await response.json()) as { message?: string };
+      if (body.message?.trim()) message = body.message.trim();
+    } catch {
+      // ignore invalid JSON
     }
+    throw new Error(message);
+  }
 
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
-  });
+  return response.blob();
+}
+
+export async function fetchAttachmentBlob(params: {
+  attachmentUrl?: string | null;
+  fileUrl?: string | null;
+}): Promise<Blob> {
+  if (params.attachmentUrl) {
+    const token = getAccessToken();
+    const url = new URL(`${env.apiUrl}${params.attachmentUrl}`);
+    url.searchParams.set("inline", "1");
+
+    return withApiProgress(async () => {
+      const response = await fetch(url.toString(), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return readAttachmentResponse(response);
+    });
+  }
+
+  if (params.fileUrl) {
+    return withApiProgress(async () => {
+      const response = await fetch(params.fileUrl!);
+      return readAttachmentResponse(response);
+    });
+  }
+
+  throw new Error("No hay archivo disponible");
+}
+
+export async function resolveAttachmentObjectUrl(params: {
+  attachmentUrl?: string | null;
+  fileUrl?: string | null;
+}): Promise<string> {
+  const blob = await fetchAttachmentBlob(params);
+  return URL.createObjectURL(blob);
+}
+
+export async function fetchMessageAttachmentBlob(attachmentUrl: string): Promise<string> {
+  const blob = await fetchAttachmentBlob({ attachmentUrl });
+  return URL.createObjectURL(blob);
 }
