@@ -13,8 +13,20 @@ import { sortMessagesChronologically } from "@/lib/messageOrder";
 import { isForwardableMessage } from "@/lib/forwardMessages";
 import { isLastMessageInSenderGroup } from "@/lib/messageSenderGroup";
 import { isMissingWhatsAppPhoneNote } from "@/lib/whatsappContactInfo";
+import { findMatchingMessageId } from "@/lib/conversationSearch";
 import type { Message } from "@/types";
 import { ChatHeader } from "./ChatHeader";
+
+function scrollContainerToElement(container: HTMLElement, target: HTMLElement) {
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const delta =
+    targetRect.top - containerRect.top - container.clientHeight / 2 + targetRect.height / 2;
+  container.scrollTo({
+    top: Math.max(0, container.scrollTop + delta),
+    behavior: "smooth",
+  });
+}
 
 export function MessageList() {
   const conversations = useConversationStore((s) => s.conversations);
@@ -39,6 +51,12 @@ export function MessageList() {
   const isLoadingMessages = Boolean(
     activeConversationId && messagesLoading[activeConversationId]
   );
+  const pendingMessageLocate = useUIStore((s) => s.pendingMessageLocate);
+  const locatingInActiveChat = Boolean(
+    pendingMessageLocate &&
+      activeConversationId &&
+      pendingMessageLocate.conversationId === activeConversationId
+  );
 
   const {
     scrollRef,
@@ -47,11 +65,13 @@ export function MessageList() {
     isNearBottom,
     scrollToBottom,
     releaseStick,
+    holdAutoScroll,
   } = useChatScrollAnchor({
     conversationId: activeConversation?.id ?? null,
     messageCount: messages.length,
     isLoadingMessages,
     isTyping: Boolean(agentTypers.length) || (activeConversation?.isTyping ?? false),
+    suppressAutoScroll: locatingInActiveChat,
   });
 
   const prevNewMessageMetaRef = useRef<{ conversationId: string | null; length: number }>({
@@ -65,6 +85,7 @@ export function MessageList() {
     y: number;
   } | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const appliedLocateTokenRef = useRef<number | null>(null);
   const jumpToMessageId = useUIStore((s) => s.jumpToMessageId);
   const clearJumpToMessage = useUIStore((s) => s.clearJumpToMessage);
   const showToast = useUIStore((s) => s.showToast);
@@ -103,6 +124,7 @@ export function MessageList() {
 
   useEffect(() => {
     if (!jumpToMessageId || !scrollRef.current) return;
+    if (isLoadingMessages) return;
 
     const target = scrollRef.current.querySelector(
       `[data-message-id="${jumpToMessageId}"]`
@@ -124,7 +146,73 @@ export function MessageList() {
     }, 1400);
 
     return () => window.clearTimeout(timer);
-  }, [jumpToMessageId, clearJumpToMessage, showToast, messages, scrollRef, releaseStick]);
+  }, [
+    jumpToMessageId,
+    isLoadingMessages,
+    clearJumpToMessage,
+    showToast,
+    messages,
+    scrollRef,
+    releaseStick,
+  ]);
+
+  useEffect(() => {
+    if (!pendingMessageLocate || !activeConversationId) return;
+    if (pendingMessageLocate.conversationId !== activeConversationId) return;
+    if (appliedLocateTokenRef.current === pendingMessageLocate.token) return;
+
+    const messageId =
+      pendingMessageLocate.messageId ||
+      findMatchingMessageId(messages, pendingMessageLocate.query);
+
+    if (!messageId) {
+      if (isLoadingMessages || messages.length === 0) return;
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    let highlightTimer: number | undefined;
+    let retryTimer: number | undefined;
+
+    const tryScroll = () => {
+      if (cancelled) return;
+      const container = scrollRef.current;
+      const target = container?.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
+      if (!(target instanceof HTMLElement) || !container) {
+        attempts += 1;
+        if (attempts < 40) {
+          retryTimer = window.setTimeout(tryScroll, 50);
+        }
+        return;
+      }
+
+      holdAutoScroll(4000);
+      releaseStick();
+      scrollContainerToElement(container, target);
+      setHighlightedMessageId(messageId);
+      appliedLocateTokenRef.current = pendingMessageLocate.token;
+      highlightTimer = window.setTimeout(() => {
+        setHighlightedMessageId((current) => (current === messageId ? null : current));
+      }, 2600);
+    };
+
+    retryTimer = window.setTimeout(tryScroll, 0);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+      if (highlightTimer) window.clearTimeout(highlightTimer);
+    };
+  }, [
+    pendingMessageLocate,
+    activeConversationId,
+    isLoadingMessages,
+    messages,
+    releaseStick,
+    holdAutoScroll,
+    scrollRef,
+  ]);
 
   useEffect(() => {
     setContextMenu(null);

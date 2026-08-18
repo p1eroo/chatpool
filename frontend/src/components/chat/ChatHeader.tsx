@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { StatusDot } from "@/components/ui/StatusDot";
 import {
@@ -11,6 +11,9 @@ import {
   CheckCircle,
   Ban,
   ChevronDown,
+  Search,
+  ChevronUp,
+  X,
 } from "lucide-react";
 import type { Conversation } from "@/types";
 import { useAgentPermissions } from "@/hooks/useAgentPermissions";
@@ -20,6 +23,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useAgentTypingStore } from "@/store/agentTypingStore";
 import { cn } from "@/lib/utils";
 import { EMPTY_AGENT_TYPERS, formatAgentsTypingLabel } from "@/lib/agentTyping";
+import { findMatchingMessageIds } from "@/lib/conversationSearch";
 
 const channelIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   whatsapp: MessageCircle,
@@ -49,13 +53,27 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
   const showToast = useUIStore((s) => s.showToast);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const botPauseLabel = useBotPauseCountdown(conversation?.botPausedUntil);
   const agentTypers = useAgentTypingStore(
     (s) =>
       (conversation?.id && s.byConversationId[conversation.id]) || EMPTY_AGENT_TYPERS
   );
   const agentTypingLabel = formatAgentsTypingLabel(agentTypers);
+  const locateMessageInConversation = useUIStore((s) => s.locateMessageInConversation);
+  const clearMessageLocate = useUIStore((s) => s.clearMessageLocate);
+  const conversationMessages = useConversationStore((s) =>
+    conversation?.id ? s.messages[conversation.id] : undefined
+  );
+
+  const matchIds = useMemo(
+    () => findMatchingMessageIds(conversationMessages, searchQuery),
+    [conversationMessages, searchQuery]
+  );
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -67,6 +85,53 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setMatchIndex(Number.MAX_SAFE_INTEGER);
+  }, [conversation?.id]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setSearchOpen(false);
+      setSearchQuery("");
+      setMatchIndex(Number.MAX_SAFE_INTEGER);
+      clearMessageLocate();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [searchOpen, clearMessageLocate]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    searchInputRef.current?.focus();
+  }, [searchOpen]);
+
+  const matchKey = matchIds.join(",");
+
+  useEffect(() => {
+    if (!searchOpen || !conversation) return;
+    if (matchIds.length === 0) return;
+    const nextIndex = Math.min(matchIndex, matchIds.length - 1);
+    if (nextIndex !== matchIndex) setMatchIndex(nextIndex);
+    locateMessageInConversation({
+      conversationId: conversation.id,
+      query: searchQuery,
+      messageId: matchIds[nextIndex],
+    });
+  }, [
+    searchOpen,
+    conversation,
+    matchKey,
+    matchIds,
+    matchIndex,
+    searchQuery,
+    locateMessageInConversation,
+  ]);
 
   if (!conversation) return null;
 
@@ -81,8 +146,30 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
     showToast(ok ? `${contact.name} ha sido bloqueado` : "No se pudo bloquear el contacto");
   };
 
+  const activeMatchIndex =
+    matchIds.length === 0 ? 0 : Math.min(matchIndex, matchIds.length - 1);
+
+  function openSearch() {
+    setMenuOpen(false);
+    setSearchOpen(true);
+  }
+
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setMatchIndex(Number.MAX_SAFE_INTEGER);
+    clearMessageLocate();
+  }
+
+  function goToMatch(nextIndex: number) {
+    if (matchIds.length === 0) return;
+    const wrapped = (nextIndex + matchIds.length) % matchIds.length;
+    setMatchIndex(wrapped);
+  }
+
   return (
-    <div className="h-14 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border-primary)] flex items-center justify-between px-4 shrink-0">
+    <div className="shrink-0 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border-primary)]">
+    <div className="h-14 flex items-center justify-between px-4">
       <div className="flex items-center gap-3">
         <div className="relative">
           <Avatar name={contact.name} size="md" />
@@ -168,7 +255,15 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
           </button>
 
           {menuOpen && (
-            <div className="absolute top-full right-0 mt-1 w-48 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
+            <div className="absolute top-full right-0 mt-1 w-56 bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
+              <button
+                type="button"
+                onClick={openSearch}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] transition-colors"
+              >
+                <Search className="w-4 h-4 shrink-0 text-[var(--color-text-secondary)]" />
+                <span>Buscar en la conversación</span>
+              </button>
               <button
                 type="button"
                 onClick={handleBlock}
@@ -182,6 +277,65 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
           )}
         </div>
       </div>
+    </div>
+    {searchOpen ? (
+      <div className="flex items-center gap-2 px-4 pb-2.5">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-muted)]" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setMatchIndex(Number.MAX_SAFE_INTEGER);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (e.shiftKey) goToMatch(activeMatchIndex - 1);
+                else goToMatch(activeMatchIndex + 1);
+              }
+            }}
+            placeholder="Buscar en esta conversación..."
+            className="w-full rounded-lg border border-transparent bg-[var(--color-bg-tertiary)] py-1.5 pl-8 pr-3 text-sm text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)]"
+          />
+        </div>
+        <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-text-muted)]">
+          {searchQuery.trim()
+            ? matchIds.length === 0
+              ? "Sin resultados"
+              : `${activeMatchIndex + 1} de ${matchIds.length}`
+            : ""}
+        </span>
+        <button
+          type="button"
+          onClick={() => goToMatch(activeMatchIndex - 1)}
+          disabled={matchIds.length === 0}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+          title="Anterior"
+        >
+          <ChevronUp className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => goToMatch(activeMatchIndex + 1)}
+          disabled={matchIds.length === 0}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+          title="Siguiente"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={closeSearch}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+          title="Cerrar búsqueda"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    ) : null}
     </div>
   );
 }

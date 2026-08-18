@@ -1,5 +1,6 @@
 import { apiRequest, apiUpload } from "@/api/client";
 import { parseConversation, parseMessage } from "@/lib/parseApiDates";
+import type { ConversationSearchHit } from "@/lib/conversationSearch";
 import type { AssigneeFilter } from "@/store/conversationStore";
 import type { Contact, Conversation, LinkPreview, Message } from "@/types";
 
@@ -21,6 +22,24 @@ export const conversationApiService = {
       `/conversations${query ? `?${query}` : ""}`
     );
     return rows.map((row) => parseConversation(row as never));
+  },
+
+  async search(params: {
+    q: string;
+    inboxId?: string | null;
+  }): Promise<ConversationSearchHit[]> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("q", params.q);
+    if (params.inboxId) searchParams.set("inboxId", params.inboxId);
+
+    const rows = await apiRequest<
+      Array<{ conversation: Conversation; matchedMessageId: string | null }>
+    >(`/conversations/search?${searchParams.toString()}`, { trackProgress: false });
+
+    return rows.map((row) => ({
+      conversation: parseConversation(row.conversation as never),
+      matchedMessageId: row.matchedMessageId,
+    }));
   },
 
   async getMessages(conversationId: string): Promise<Message[]> {

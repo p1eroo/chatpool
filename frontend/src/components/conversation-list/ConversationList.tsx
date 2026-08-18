@@ -10,12 +10,22 @@ import {
   Search,
   MessageCircle,
   Settings,
+  Loader2,
 } from "lucide-react";
 import { InboxNotificationSettingsPopover } from "./InboxNotificationSettingsPopover";
 import type { AssigneeFilter } from "@/store/conversationStore";
 import type { Conversation } from "@/types";
 import { cn } from "@/lib/utils";
-import { formatLocalWhatsAppPhoneDisplay } from "@/lib/whatsappPhone";
+import { env } from "@/config/env";
+import { conversationApiService } from "@/services/conversationApiService";
+import { sortConversations } from "@/lib/conversationSort";
+import { useUIStore } from "@/store/uiStore";
+import {
+  INBOX_SEARCH_MIN_QUERY,
+  findMatchingMessageId,
+  matchesConversationSearch,
+  type ConversationSearchHit,
+} from "@/lib/conversationSearch";
 
 const statusTabs = [
   { id: "open", label: "Abierto" },
@@ -46,25 +56,12 @@ function matchesStatus(conversation: Conversation, status: StatusFilter) {
   return conversation.status === status;
 }
 
-/** Búsqueda general por bandeja: ignora tabs de estado/asignación. */
-function matchesConversationSearch(conversation: Conversation, rawQuery: string) {
-  const query = rawQuery.trim().toLowerCase();
-  if (!query) return true;
-
-  const phone = conversation.contact.phone ?? "";
-  const haystack = [
-    conversation.contact.name,
-    phone,
-    formatLocalWhatsAppPhoneDisplay(phone),
-    conversation.contact.email,
-    conversation.contact.waId,
-    conversation.lastMessage?.content,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return haystack.includes(query);
+function ensureConversationInStore(conversation: Conversation) {
+  const store = useConversationStore.getState();
+  if (store.conversations.some((item) => item.id === conversation.id)) return;
+  useConversationStore.setState({
+    conversations: sortConversations([...store.conversations, conversation]),
+  });
 }
 
 export function ConversationList() {
@@ -87,8 +84,15 @@ export function ConversationList() {
   const setFilterAssignee = useConversationStore((s) => s.setFilterAssignee);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
   const setFilterStatus = useConversationStore((s) => s.setFilterStatus);
+  const messagesByConversation = useConversationStore((s) => s.messages);
 
+  const locateMessageInConversation = useUIStore((s) => s.locateMessageInConversation);
+  const clearMessageLocate = useUIStore((s) => s.clearMessageLocate);
   const [search, setSearch] = useState("");
+  const [remoteResults, setRemoteResults] = useState<ConversationSearchHit[] | null>(null);
+  const [searchingRemote, setSearchingRemote] = useState(false);
+  const searchRequestId = useRef(0);
+  const lastAutoLocateKey = useRef<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     conversationId: string;
@@ -110,8 +114,50 @@ export function ConversationList() {
   }, [filterInboxId, inboxes, setFilterInboxId]);
 
   useEffect(() => {
+    searchRequestId.current += 1;
+    lastAutoLocateKey.current = null;
     setSearch("");
+    setRemoteResults(null);
+    setSearchingRemote(false);
   }, [filterInboxId]);
+
+  useEffect(() => {
+    if (env.useMock) {
+      setRemoteResults(null);
+      setSearchingRemote(false);
+      return;
+    }
+
+    const query = search.trim();
+    if (query.length < INBOX_SEARCH_MIN_QUERY) {
+      setRemoteResults(null);
+      setSearchingRemote(false);
+      return;
+    }
+
+    const requestId = ++searchRequestId.current;
+    setRemoteResults(null);
+    setSearchingRemote(true);
+
+    const timer = window.setTimeout(() => {
+      void conversationApiService
+        .search({ q: query, inboxId: filterInboxId })
+        .then((rows) => {
+          if (searchRequestId.current !== requestId) return;
+          setRemoteResults(rows);
+        })
+        .catch(() => {
+          if (searchRequestId.current !== requestId) return;
+          setRemoteResults([]);
+        })
+        .finally(() => {
+          if (searchRequestId.current !== requestId) return;
+          setSearchingRemote(false);
+        });
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [search, filterInboxId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -179,14 +225,107 @@ export function ConversationList() {
   const searchQuery = search.trim();
   const isSearching = searchQuery.length > 0;
 
-  // Con texto: busca en toda la bandeja (abiertas/cerradas, mías/sin asignar/todas).
+  useEffect(() => {
+    if (isSearching) return;
+    lastAutoLocateKey.current = null;
+    clearMessageLocate();
+  }, [isSearching, clearMessageLocate]);
+
+  const localMatches = useMemo(() => {
+    if (!isSearching) return [];
+    return inboxFiltered.filter((conversation) =>
+      matchesConversationSearch(
+        conversation,
+        searchQuery,
+        messagesByConversation[conversation.id]
+      )
+    );
+  }, [isSearching, inboxFiltered, searchQuery, messagesByConversation]);
+
+  // Con texto: busca en toda la bandeja (abiertas/cerradas, mías/sin asignar/todas),
+  // incluyendo el historial de mensajes vía API.
   const displayed = useMemo(() => {
     if (!isSearching) return filtered;
-    return inboxFiltered.filter((c) => matchesConversationSearch(c, searchQuery));
-  }, [isSearching, filtered, inboxFiltered, searchQuery]);
+    if (env.useMock || !remoteResults) return localMatches;
+
+    const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+    const fromRemote = remoteResults.map(
+      (hit) => byId.get(hit.conversation.id) ?? hit.conversation
+    );
+    const remoteIds = new Set(fromRemote.map((conversation) => conversation.id));
+    const extraLocal = localMatches.filter((conversation) => !remoteIds.has(conversation.id));
+    return [...fromRemote, ...extraLocal];
+  }, [isSearching, filtered, localMatches, remoteResults, conversations]);
+
+  const matchedMessageByConversation = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const hit of remoteResults ?? []) {
+      if (hit.matchedMessageId) map.set(hit.conversation.id, hit.matchedMessageId);
+    }
+    if (!searchQuery) return map;
+    for (const conversation of displayed) {
+      if (map.has(conversation.id)) continue;
+      const localId = findMatchingMessageId(
+        messagesByConversation[conversation.id],
+        searchQuery
+      );
+      if (localId) map.set(conversation.id, localId);
+    }
+    return map;
+  }, [remoteResults, displayed, messagesByConversation, searchQuery]);
+
+  useEffect(() => {
+    if (!isSearching || searchingRemote) return;
+    if (searchQuery.length < INBOX_SEARCH_MIN_QUERY) return;
+    if (!activeConversationId) return;
+
+    const remoteId =
+      remoteResults?.find((hit) => hit.conversation.id === activeConversationId)
+        ?.matchedMessageId ?? null;
+    const messageId =
+      remoteId ||
+      findMatchingMessageId(messagesByConversation[activeConversationId], searchQuery);
+    if (!messageId) return;
+
+    const key = `${searchQuery}:${activeConversationId}:${messageId}`;
+    if (lastAutoLocateKey.current === key) return;
+    lastAutoLocateKey.current = key;
+
+    locateMessageInConversation({
+      conversationId: activeConversationId,
+      query: searchQuery,
+      messageId,
+    });
+  }, [
+    isSearching,
+    searchingRemote,
+    searchQuery,
+    activeConversationId,
+    remoteResults,
+    messagesByConversation,
+    locateMessageInConversation,
+  ]);
+
+  function locateInConversation(conversation: Conversation) {
+    const messageId = matchedMessageByConversation.get(conversation.id) ?? null;
+    if (!messageId && !searchQuery) return;
+    locateMessageInConversation({
+      conversationId: conversation.id,
+      query: searchQuery,
+      messageId,
+    });
+  }
+
+  function openSearchResult(conversation: Conversation) {
+    ensureConversationInStore(conversation);
+    locateInConversation(conversation);
+    openConversation(conversation.id);
+  }
 
   const contextConversation = contextMenu
-    ? conversations.find((c) => c.id === contextMenu.conversationId)
+    ? conversations.find((c) => c.id === contextMenu.conversationId) ??
+      displayed.find((c) => c.id === contextMenu.conversationId) ??
+      null
     : null;
 
   return (
@@ -260,7 +399,10 @@ export function ConversationList() {
         </div>
 
         {isSearching ? (
-          <p className="mb-2 text-[11px] text-[var(--color-text-muted)]">
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+            {searchingRemote ? (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+            ) : null}
             Buscando en toda la bandeja ({displayed.length})
           </p>
         ) : null}
@@ -331,7 +473,9 @@ export function ConversationList() {
                   Sin resultados
                 </p>
                 <p className="text-[var(--color-text-muted)] text-xs mt-1">
-                  No hay conversaciones que coincidan en esta bandeja
+                  {searchingRemote
+                    ? "Buscando en contactos y mensajes..."
+                    : "No hay conversaciones que coincidan en contactos o mensajes"}
                 </p>
               </>
             ) : (
@@ -351,14 +495,22 @@ export function ConversationList() {
               key={conv.id}
               conversation={conv}
               isActive={conv.id === activeConversationId}
-              onClick={() => openConversation(conv.id)}
-              onContextMenu={(e) =>
+              onClick={() => {
+                if (isSearching) {
+                  openSearchResult(conv);
+                  return;
+                }
+                ensureConversationInStore(conv);
+                openConversation(conv.id);
+              }}
+              onContextMenu={(e) => {
+                ensureConversationInStore(conv);
                 setContextMenu({
                   conversationId: conv.id,
                   x: e.clientX,
                   y: e.clientY,
-                })
-              }
+                });
+              }}
             />
           ))
         )}

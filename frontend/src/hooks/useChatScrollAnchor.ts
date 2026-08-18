@@ -10,10 +10,17 @@ function scrollContainerToBottom(el: HTMLElement) {
   el.scrollTop = el.scrollHeight;
 }
 
-function scrollContainerToBottomAfterLayout(el: HTMLElement) {
+function scrollContainerToBottomAfterLayout(
+  el: HTMLElement,
+  isBlocked?: () => boolean
+) {
   requestAnimationFrame(() => {
+    if (isBlocked?.()) return;
     scrollContainerToBottom(el);
-    requestAnimationFrame(() => scrollContainerToBottom(el));
+    requestAnimationFrame(() => {
+      if (isBlocked?.()) return;
+      scrollContainerToBottom(el);
+    });
   });
 }
 
@@ -22,6 +29,8 @@ interface UseChatScrollAnchorOptions {
   messageCount: number;
   isLoadingMessages: boolean;
   isTyping?: boolean;
+  /** Evita bajar al final si hay que ubicar un mensaje (búsqueda / cita). */
+  suppressAutoScroll?: boolean;
 }
 
 export function useChatScrollAnchor({
@@ -29,6 +38,7 @@ export function useChatScrollAnchor({
   messageCount,
   isLoadingMessages,
   isTyping = false,
+  suppressAutoScroll = false,
 }: UseChatScrollAnchorOptions) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -40,6 +50,14 @@ export function useChatScrollAnchor({
   });
 
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const suppressAutoScrollRef = useRef(suppressAutoScroll);
+  suppressAutoScrollRef.current = suppressAutoScroll;
+  const holdUntilRef = useRef(0);
+  const wasLoadingRef = useRef(isLoadingMessages);
+
+  const isAutoScrollBlocked = useCallback(() => {
+    return suppressAutoScrollRef.current || Date.now() < holdUntilRef.current;
+  }, []);
 
   const syncStickFromScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -51,7 +69,14 @@ export function useChatScrollAnchor({
     return near;
   }, []);
 
+  const holdAutoScroll = useCallback((ms = 3000) => {
+    holdUntilRef.current = Date.now() + ms;
+    shouldStickRef.current = false;
+    setIsNearBottom(false);
+  }, []);
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (isAutoScrollBlocked()) return;
     const el = scrollRef.current;
     if (!el) return;
 
@@ -59,18 +84,19 @@ export function useChatScrollAnchor({
     setIsNearBottom(true);
 
     if (behavior === "auto") {
-      scrollContainerToBottomAfterLayout(el);
+      scrollContainerToBottomAfterLayout(el, isAutoScrollBlocked);
       return;
     }
 
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+  }, [isAutoScrollBlocked]);
 
   const stickToBottomIfNeeded = useCallback(() => {
+    if (isAutoScrollBlocked()) return;
     const el = scrollRef.current;
     if (!el || !shouldStickRef.current) return;
     scrollContainerToBottom(el);
-  }, []);
+  }, [isAutoScrollBlocked]);
 
   const releaseStick = useCallback(() => {
     shouldStickRef.current = false;
@@ -102,6 +128,19 @@ export function useChatScrollAnchor({
   }, [conversationId, stickToBottomIfNeeded]);
 
   useEffect(() => {
+    if (suppressAutoScroll) {
+      shouldStickRef.current = false;
+      setIsNearBottom(false);
+    }
+  }, [suppressAutoScroll]);
+
+  useEffect(() => {
+    if (suppressAutoScrollRef.current) {
+      shouldStickRef.current = false;
+      setIsNearBottom(false);
+      prevMessageMetaRef.current = { conversationId, length: messageCount };
+      return;
+    }
     shouldStickRef.current = true;
     setIsNearBottom(true);
     prevMessageMetaRef.current = { conversationId, length: messageCount };
@@ -117,6 +156,10 @@ export function useChatScrollAnchor({
     }
 
     if (messageCount > prev.length) {
+      if (suppressAutoScroll) {
+        prevMessageMetaRef.current = { conversationId, length: messageCount };
+        return;
+      }
       if (prev.length === 0) {
         scrollToBottom("auto");
       } else if (shouldStickRef.current) {
@@ -125,13 +168,15 @@ export function useChatScrollAnchor({
     }
 
     prevMessageMetaRef.current = { conversationId, length: messageCount };
-  }, [conversationId, messageCount, scrollToBottom]);
+  }, [conversationId, messageCount, scrollToBottom, suppressAutoScroll]);
 
   useEffect(() => {
-    if (!isLoadingMessages && messageCount > 0) {
-      scrollToBottom("auto");
-    }
-  }, [isLoadingMessages, messageCount, scrollToBottom]);
+    const finishedLoading = wasLoadingRef.current && !isLoadingMessages;
+    wasLoadingRef.current = isLoadingMessages;
+    if (!finishedLoading || messageCount === 0) return;
+    if (isAutoScrollBlocked()) return;
+    scrollToBottom("auto");
+  }, [isLoadingMessages, messageCount, scrollToBottom, isAutoScrollBlocked]);
 
   useEffect(() => {
     if (isTyping && shouldStickRef.current) {
@@ -147,5 +192,6 @@ export function useChatScrollAnchor({
     shouldStickRef,
     scrollToBottom,
     releaseStick,
+    holdAutoScroll,
   };
 }

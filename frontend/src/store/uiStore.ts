@@ -13,6 +13,12 @@ interface UIState {
   pdfViewerMessageId: string | null;
   attachFileRequest: File | null;
   jumpToMessageId: string | null;
+  pendingMessageLocate: {
+    conversationId: string;
+    query: string;
+    messageId?: string | null;
+    token: number;
+  } | null;
   forwardSourceConversationId: string | null;
   forwardSelectedMessageIds: string[];
   forwardSelectionMode: boolean;
@@ -35,6 +41,12 @@ interface UIState {
   clearToast: () => void;
   jumpToMessage: (messageId: string) => void;
   clearJumpToMessage: () => void;
+  locateMessageInConversation: (payload: {
+    conversationId: string;
+    query: string;
+    messageId?: string | null;
+  }) => void;
+  clearMessageLocate: () => void;
   beginForwardSelection: (conversationId: string, initialMessageId?: string) => void;
   toggleForwardMessageSelection: (messageId: string) => void;
   openForwardModal: () => void;
@@ -53,6 +65,7 @@ export const useUIStore = create<UIState>((set) => ({
   pdfViewerMessageId: null,
   attachFileRequest: null,
   jumpToMessageId: null,
+  pendingMessageLocate: null,
   forwardSourceConversationId: null,
   forwardSelectedMessageIds: [],
   forwardSelectionMode: false,
@@ -97,6 +110,16 @@ export const useUIStore = create<UIState>((set) => ({
   clearToast: () => set({ toast: null }),
   jumpToMessage: (messageId) => set({ jumpToMessageId: messageId }),
   clearJumpToMessage: () => set({ jumpToMessageId: null }),
+  locateMessageInConversation: (payload) =>
+    set({
+      pendingMessageLocate: {
+        conversationId: payload.conversationId,
+        query: payload.query,
+        messageId: payload.messageId,
+        token: Date.now(),
+      },
+    }),
+  clearMessageLocate: () => set({ pendingMessageLocate: null }),
   beginForwardSelection: (conversationId, initialMessageId) =>
     set({
       forwardSourceConversationId: conversationId,

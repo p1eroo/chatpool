@@ -81,10 +81,12 @@ export function MessageBubble({
   if (isPrivate) {
     return (
       <div
+        data-message-id={message.id}
         className={cn(
           "group flex px-4 animate-fade-in",
           noteAlignEnd ? "justify-end" : "justify-start",
-          isAttachedNote ? "mb-0.5" : isLastInGroup ? "mb-3" : "mb-0.5"
+          isAttachedNote ? "mb-0.5" : isLastInGroup ? "mb-3" : "mb-0.5",
+          isHighlighted && "animate-message-highlight"
         )}
       >
         <div

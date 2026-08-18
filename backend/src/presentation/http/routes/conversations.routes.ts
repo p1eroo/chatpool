@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { searchConversations } from "../../../application/conversations/conversation-search.service.js";
 import {
   deleteConversation,
   deleteMessage,
@@ -87,6 +88,11 @@ const updateConversationSchema = z.object({
 
 const attachmentContentTypeSchema = z.enum(["image", "file", "audio", "sticker"]);
 
+const searchConversationsSchema = z.object({
+  q: z.string().min(1).max(200),
+  inboxId: z.string().min(1).optional(),
+});
+
 const forwardMessagesSchema = z.object({
   messageIds: z.array(z.string().min(1)).min(1),
   targetConversationIds: z.array(z.string().min(1)).min(1),
@@ -120,6 +126,19 @@ export async function conversationsRoutes(app: FastifyInstance) {
         assignee: query.assignee,
         agentId: user.sub,
         labelId: query.labelId,
+      })
+    );
+  });
+
+  app.get("/conversations/search", async (request, reply) => {
+    const query = searchConversationsSchema.parse(request.query);
+    const user = request.user as { sub: string };
+
+    return reply.send(
+      await searchConversations({
+        agentId: user.sub,
+        inboxId: query.inboxId,
+        q: query.q,
       })
     );
   });
