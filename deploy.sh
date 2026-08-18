@@ -62,7 +62,10 @@ cd "$SCRIPT_DIR/frontend"
 
 BUILD_ID="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export VITE_APP_BUILD_ID="$BUILD_ID"
+export VITE_API_URL="${VITE_API_URL:-https://api-crm.taximonterrico.com}"
+export VITE_USE_MOCK="${VITE_USE_MOCK:-false}"
 info "Build ID frontend: ${BUILD_ID}"
+info "VITE_API_URL: ${VITE_API_URL}"
 
 info "Instalando dependencias..."
 npm install 2>&1 | tail -1
