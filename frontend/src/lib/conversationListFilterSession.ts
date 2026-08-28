@@ -1,8 +1,11 @@
 const STORAGE_PREFIX = "chatpool:conversation-list-filters:";
 
+export type ReadFilter = "all" | "unread" | "read";
+
 export type SavedConversationListFilters = {
   filterStatus: string;
   filterAssignee: "mine" | "unassigned" | "all";
+  filterRead: ReadFilter;
 };
 
 function storageKey(agentId: string): string {
@@ -15,6 +18,7 @@ export function resolveConversationListFilters(
   const defaults: SavedConversationListFilters = {
     filterStatus: "open",
     filterAssignee: "mine",
+    filterRead: "all",
   };
 
   if (!agentId || typeof window === "undefined") return defaults;
@@ -37,6 +41,12 @@ export function resolveConversationListFilters(
         parsed.filterAssignee === "all"
           ? parsed.filterAssignee
           : defaults.filterAssignee,
+      filterRead:
+        parsed.filterRead === "all" ||
+        parsed.filterRead === "unread" ||
+        parsed.filterRead === "read"
+          ? parsed.filterRead
+          : defaults.filterRead,
     };
   } catch {
     return defaults;

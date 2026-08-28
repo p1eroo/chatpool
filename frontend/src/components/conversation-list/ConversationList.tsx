@@ -10,11 +10,11 @@ import { filterAccessibleInboxes } from "@/lib/agentInboxAccess";
 import {
   Search,
   MessageCircle,
-  Settings,
+  Filter,
   Loader2,
+  Check,
 } from "lucide-react";
-import { InboxNotificationSettingsPopover } from "./InboxNotificationSettingsPopover";
-import type { AssigneeFilter } from "@/store/conversationStore";
+import type { AssigneeFilter, ReadFilter } from "@/store/conversationStore";
 import type { Conversation } from "@/types";
 import { cn } from "@/lib/utils";
 import { env } from "@/config/env";
@@ -41,6 +41,12 @@ const assigneeTabs = [
   { id: "all", label: "Todas" },
 ] as const;
 
+const readFilterOptions: Array<{ id: ReadFilter; label: string }> = [
+  { id: "all", label: "Todos" },
+  { id: "unread", label: "No leídos" },
+  { id: "read", label: "Leídos" },
+];
+
 function matchesAssignee(
   conversation: Conversation,
   assignee: AssigneeFilter,
@@ -55,6 +61,12 @@ function matchesAssignee(
 
 function matchesStatus(conversation: Conversation, status: StatusFilter) {
   return conversation.status === status;
+}
+
+function matchesRead(conversation: Conversation, read: ReadFilter) {
+  if (read === "unread") return conversation.unreadCount > 0;
+  if (read === "read") return conversation.unreadCount <= 0;
+  return true;
 }
 
 function ensureConversationInStore(conversation: Conversation) {
@@ -79,12 +91,14 @@ export function ConversationList() {
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
   const filterLabelId = useConversationStore((s) => s.filterLabelId);
   const filterMiniInboxId = useConversationStore((s) => s.filterMiniInboxId);
+  const filterRead = useConversationStore((s) => s.filterRead);
   const filterStatusRaw = useConversationStore((s) => s.filterStatus);
   const filterStatus: StatusFilter =
     filterStatusRaw === "resolved" ? "resolved" : "open";
   const openConversation = useConversationStore((s) => s.openConversation);
   const setFilterAssignee = useConversationStore((s) => s.setFilterAssignee);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
+  const setFilterRead = useConversationStore((s) => s.setFilterRead);
   const setFilterStatus = useConversationStore((s) => s.setFilterStatus);
   const messagesByConversation = useConversationStore((s) => s.messages);
 
@@ -95,7 +109,7 @@ export function ConversationList() {
   const [searchingRemote, setSearchingRemote] = useState(false);
   const searchRequestId = useRef(0);
   const lastAutoLocateKey = useRef<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [readFilterOpen, setReadFilterOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     conversationId: string;
     x: number;
@@ -172,13 +186,13 @@ export function ConversationList() {
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (headerRowRef.current && !headerRowRef.current.contains(e.target as Node)) {
-        setSettingsOpen(false);
+        setReadFilterOpen(false);
       }
     }
 
     function handleEscape(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        setSettingsOpen(false);
+        setReadFilterOpen(false);
       }
     }
 
@@ -217,21 +231,28 @@ export function ConversationList() {
   }, [inboxFiltered, filterStatus, filterLabelId, filterMiniInboxId]);
 
   const assigneeCounts = useMemo(() => {
+    const forCounts = scoped.filter((c) => matchesRead(c, filterRead));
     return {
-      mine: scoped.filter((c) =>
+      mine: forCounts.filter((c) =>
         matchesAssignee(c, "mine", currentAgent?.id)
       ).length,
-      unassigned: scoped.filter((c) =>
+      unassigned: forCounts.filter((c) =>
         matchesAssignee(c, "unassigned", currentAgent?.id)
       ).length,
-      all: scoped.length,
+      all: forCounts.length,
     };
-  }, [scoped, currentAgent?.id]);
+  }, [scoped, filterRead, currentAgent?.id]);
 
   const filtered = useMemo(
-    () => scoped.filter((c) => matchesAssignee(c, filterAssignee, currentAgent?.id)),
-    [scoped, filterAssignee, currentAgent?.id]
+    () =>
+      scoped
+        .filter((c) => matchesAssignee(c, filterAssignee, currentAgent?.id))
+        .filter((c) => matchesRead(c, filterRead)),
+    [scoped, filterAssignee, filterRead, currentAgent?.id]
   );
+
+  const activeReadFilterLabel =
+    readFilterOptions.find((option) => option.id === filterRead)?.label ?? "Todos";
 
   const searchQuery = search.trim();
   const isSearching = searchQuery.length > 0;
@@ -392,20 +413,55 @@ export function ConversationList() {
           <div className="relative shrink-0">
             <button
               type="button"
-              onClick={() => setSettingsOpen((prev) => !prev)}
+              onClick={() => setReadFilterOpen((prev) => !prev)}
+              disabled={isSearching}
               className={cn(
-                "flex items-center shrink-0 transition-opacity hover:opacity-80",
-                settingsOpen
-                  ? "text-[var(--color-text-primary)]"
-                  : "text-[var(--color-text-secondary)]"
+                "flex items-center gap-1 shrink-0 rounded-full px-2 py-1 text-[11px] font-medium transition-colors",
+                isSearching && "opacity-50",
+                readFilterOpen || filterRead !== "all"
+                  ? "bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
               )}
-              title="Notificaciones"
-              aria-label="Configurar notificaciones"
-              aria-expanded={settingsOpen}
+              title="Filtrar por lectura"
+              aria-label="Filtrar por lectura"
+              aria-expanded={readFilterOpen}
+              aria-haspopup="menu"
             >
-              <Settings className="w-3.5 h-3.5" />
+              <Filter className="w-3.5 h-3.5" />
+              <span className="max-w-[4.5rem] truncate">{activeReadFilterLabel}</span>
             </button>
-            <InboxNotificationSettingsPopover open={settingsOpen} />
+            {readFilterOpen ? (
+              <div
+                className="absolute top-full right-0 mt-1 w-[160px] bg-[var(--color-bg-tertiary)] border border-[var(--color-border-primary)] rounded-xl shadow-xl z-50 p-1 animate-fade-in"
+                role="menu"
+                aria-label="Filtro de lectura"
+              >
+                {readFilterOptions.map((option) => {
+                  const active = filterRead === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={active}
+                      onClick={() => {
+                        setFilterRead(option.id);
+                        setReadFilterOpen(false);
+                      }}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+                        active
+                          ? "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
+                          : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                      )}
+                    >
+                      {option.label}
+                      {active ? <Check className="w-3.5 h-3.5 shrink-0" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -511,7 +567,11 @@ export function ConversationList() {
                   Sin conversaciones
                 </p>
                 <p className="text-[var(--color-text-muted)] text-xs mt-1">
-                  No hay conversaciones en esta vista
+                  {filterRead === "unread"
+                    ? "No hay conversaciones no leídas en esta vista"
+                    : filterRead === "read"
+                      ? "No hay conversaciones leídas en esta vista"
+                      : "No hay conversaciones en esta vista"}
                 </p>
               </>
             )}

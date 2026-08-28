@@ -19,7 +19,9 @@ import { resolveInboxFilter, saveInboxFilter } from "@/lib/inboxFilterSession";
 import {
   resolveConversationListFilters,
   saveConversationListFilters,
+  type ReadFilter,
 } from "@/lib/conversationListFilterSession";
+export type { ReadFilter };
 import { inboxes as seedInboxes } from "@/data/mock";
 import { isWhatsAppReplyWindowClosed } from "@/lib/whatsappReplyWindow";
 import { REQUEST_CONTACT_INFO_BODY, contactHasPhone } from "@/lib/whatsappContactInfo";
@@ -73,6 +75,7 @@ interface ConversationState {
   messagesLoading: Record<string, boolean>;
   filterStatus: string;
   filterAssignee: AssigneeFilter;
+  filterRead: ReadFilter;
   filterInboxId: string | null;
   /** Bandeja a la que pertenece `conversations` (null = aún cargando / no sincronizar badge en vivo). */
   conversationsInboxId: string | null;
@@ -104,6 +107,7 @@ interface ConversationState {
   clearActiveConversationSelection: () => void;
   setFilterStatus: (status: string) => void;
   setFilterAssignee: (assignee: AssigneeFilter) => void;
+  setFilterRead: (read: ReadFilter) => void;
   setFilterInboxId: (inboxId: string | null) => void;
   setFilterLabelId: (labelId: string | null) => void;
   setFilterMiniInboxId: (miniInboxId: string | null) => void;
@@ -1571,6 +1575,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       saveConversationListFilters(agentId, {
         filterStatus: status,
         filterAssignee: get().filterAssignee,
+        filterRead: get().filterRead,
       });
     }
     set({ filterStatus: status });
@@ -1581,9 +1586,21 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       saveConversationListFilters(agentId, {
         filterStatus: get().filterStatus,
         filterAssignee: assignee,
+        filterRead: get().filterRead,
       });
     }
     set({ filterAssignee: assignee });
+  },
+  setFilterRead: (read) => {
+    const agentId = getCurrentAgentId();
+    if (agentId) {
+      saveConversationListFilters(agentId, {
+        filterStatus: get().filterStatus,
+        filterAssignee: get().filterAssignee,
+        filterRead: read,
+      });
+    }
+    set({ filterRead: read });
   },
   setFilterInboxId: (inboxId) => {
     const agentId = getCurrentAgentId();
@@ -1600,6 +1617,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       activeConversationId: null,
       filterStatus: "open",
       filterAssignee: "all",
+      filterRead: "all",
     });
 
     if (!env.useMock) {
@@ -2204,6 +2222,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       filterInboxId,
       filterLabelId,
       filterMiniInboxId,
+      filterRead,
       filterStatus,
     } = get();
     let filtered = conversations;
@@ -2215,6 +2234,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       filtered = filtered.filter((c) => agentId && c.assignee?.id === agentId);
     } else if (filterAssignee === "unassigned") {
       filtered = filtered.filter((c) => !c.assignee);
+    }
+    if (filterRead === "unread") {
+      filtered = filtered.filter((c) => c.unreadCount > 0);
+    } else if (filterRead === "read") {
+      filtered = filtered.filter((c) => c.unreadCount <= 0);
     }
     if (filterInboxId) {
       filtered = filtered.filter((c) => c.inboxId === filterInboxId);

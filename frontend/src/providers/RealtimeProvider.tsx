@@ -3,10 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getAccessToken } from "@/api/client";
 import { env } from "@/config/env";
 import { requestAppUpdateCheck } from "@/config/appVersion";
-import {
-  notifyIncomingMessage,
-  shouldPlayIncomingMessageSound,
-} from "@/lib/incomingMessageNotifications";
+import { notifyIncomingMessage } from "@/lib/incomingMessageNotifications";
 import { buildRealtimeUrl, type RealtimeEvent } from "@/lib/realtime";
 import { setRealtimeSocket } from "@/lib/realtimeClient";
 import { parseConversation, parseMessage } from "@/lib/parseApiDates";
@@ -58,18 +55,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         const message = parseMessage(event.payload.message as never);
         const conversation = parseConversation(event.payload.conversation as never);
 
-        // Evaluar antes de aplicar: el persistido reemplaza al provisional en el store.
-        const playSound = shouldPlayIncomingMessageSound(
-          message,
-          conversation.id,
-          conversation.inboxId
-        );
         useConversationStore.getState().applyRealtimeMessage(message, conversation);
         if (message.senderType === "agent" && message.senderId) {
           useAgentTypingStore.getState().clearAgentTyping(conversation.id, message.senderId);
         }
         notifyIncomingMessage(message, conversation.id, {
-          playSound,
           inboxId: conversation.inboxId,
         });
         return;

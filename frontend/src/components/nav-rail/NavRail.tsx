@@ -19,7 +19,6 @@ import {
   Tag,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
-import { Badge } from "@/components/ui/Badge";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
@@ -78,7 +77,6 @@ export function NavRail() {
   const inboxSettings = useInboxSettingsStore((s) => s.settings);
   const conversations = useConversationStore((s) => s.conversations);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
-  const conversationsInboxId = useConversationStore((s) => s.conversationsInboxId);
   const filterLabelId = useConversationStore((s) => s.filterLabelId);
   const filterMiniInboxId = useConversationStore((s) => s.filterMiniInboxId);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
@@ -134,28 +132,7 @@ export function NavRail() {
     }));
   }, [conversations, filterInboxId, miniInboxes]);
 
-  /** Badge en vivo: chats con no leídos (no suma de mensajes). */
-  const liveUnreadByInboxId = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const conversation of conversations) {
-      if (conversation.unreadCount <= 0) continue;
-      map.set(conversation.inboxId, (map.get(conversation.inboxId) ?? 0) + 1);
-    }
-    return map;
-  }, [conversations]);
-
-  const getInboxUnread = (inboxId: string, fallback: number) => {
-    // Solo conteo en vivo cuando la lista cargada es de esa bandeja (evita borrar badge al cambiar).
-    if (conversationsInboxId === inboxId) {
-      return liveUnreadByInboxId.get(inboxId) ?? 0;
-    }
-    return fallback;
-  };
-
   const activeInbox = inboxes.find((inbox) => inbox.id === filterInboxId);
-  const activeUnread = activeInbox
-    ? getInboxUnread(activeInbox.id, activeInbox.unreadCount)
-    : 0;
   const onSettingsRoute = location.pathname.startsWith("/settings");
   const inboxNavActive =
     location.pathname.startsWith("/inbox") || inboxMenuOpen;
@@ -318,10 +295,6 @@ export function NavRail() {
               {!expanded && (
                 <ChevronDown className="size-2.5 absolute -bottom-0.5 -right-0.5 opacity-80" />
               )}
-              <Badge
-                count={activeUnread}
-                className="absolute -top-1.5 -right-1.5"
-              />
             </span>
             {expanded && (
               <>
@@ -351,14 +324,13 @@ export function NavRail() {
                 ) : (
                   inboxes.map((inbox) => {
                     const active = inbox.id === filterInboxId;
-                    const unread = getInboxUnread(inbox.id, inbox.unreadCount);
                     return (
                       <button
                         key={inbox.id}
                         type="button"
                         onClick={() => selectInbox(inbox.id)}
                         className={cn(
-                          "w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
+                          "w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
                           active
                             ? "bg-[var(--sidebar-item-active-bg)] text-[var(--sidebar-item-active)]"
                             : "text-[var(--sidebar-item)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--color-text-primary)]"
@@ -368,11 +340,6 @@ export function NavRail() {
                           {active && <Check className="w-3 h-3 shrink-0" />}
                           <span className="truncate">{inbox.name}</span>
                         </span>
-                        {unread > 0 && (
-                          <span className="bg-[var(--color-brand)] text-white text-[10px] rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center font-semibold shrink-0">
-                            {unread > 99 ? "99+" : unread}
-                          </span>
-                        )}
                       </button>
                     );
                   })
