@@ -45,11 +45,54 @@ function defaultFileName(type: string, mimeType: string, messageId: string): str
   return `${type}-${messageId.slice(0, 8)}.${ext}`;
 }
 
+function textContent(content: string): ParsedIncomingMedia {
+  return {
+    contentType: "text",
+    content,
+    fileName: "",
+    mimeType: "text/plain",
+    mediaId: "",
+  };
+}
+
+/** Texto visible de un quick-reply de plantilla (`type: button`) o reply interactivo. */
+export function parseInboundButtonOrInteractiveContent(payload: {
+  type?: string;
+  button?: { payload?: string; text?: string };
+  interactive?: {
+    type?: string;
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string; description?: string };
+  };
+}): string | null {
+  const type = (payload.type ?? "").trim().toLowerCase();
+
+  if (type === "button") {
+    const text = payload.button?.text?.trim() || payload.button?.payload?.trim();
+    return text || null;
+  }
+
+  if (type === "interactive") {
+    const reply =
+      payload.interactive?.button_reply ?? payload.interactive?.list_reply;
+    const text = reply?.title?.trim() || reply?.id?.trim();
+    return text || null;
+  }
+
+  return null;
+}
+
 export function parseIncomingMetaMedia(
   type: string | undefined,
   messageId: string,
   payload: {
     text?: { body?: string };
+    button?: { payload?: string; text?: string };
+    interactive?: {
+      type?: string;
+      button_reply?: { id?: string; title?: string };
+      list_reply?: { id?: string; title?: string; description?: string };
+    };
     document?: MetaMediaPayload;
     image?: MetaMediaPayload;
     audio?: MetaMediaPayload;
@@ -67,15 +110,14 @@ export function parseIncomingMetaMedia(
   switch (type) {
     case "text":
       if (payload.text?.body) {
-        return {
-          contentType: "text",
-          content: payload.text.body,
-          fileName: "",
-          mimeType: "text/plain",
-          mediaId: "",
-        };
+        return textContent(payload.text.body);
       }
       return null;
+    case "button":
+    case "interactive": {
+      const content = parseInboundButtonOrInteractiveContent({ type, ...payload });
+      return content ? textContent(content) : null;
+    }
     case "location": {
       const location = parseMessageLocation(payload.location);
       if (!location) return null;

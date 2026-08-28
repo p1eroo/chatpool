@@ -32,6 +32,14 @@ interface InboundWebhookMessage {
   type?: string;
   timestamp?: string;
   text?: { body?: string };
+  /** Quick-reply de plantilla Meta (`type: "button"`). */
+  button?: { payload?: string; text?: string };
+  /** Reply de mensaje interactivo (`button_reply` / `list_reply`). */
+  interactive?: {
+    type?: string;
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string; description?: string };
+  };
   document?: { id?: string; mime_type?: string; filename?: string; caption?: string };
   image?: { id?: string; mime_type?: string; caption?: string };
   audio?: { id?: string; mime_type?: string };

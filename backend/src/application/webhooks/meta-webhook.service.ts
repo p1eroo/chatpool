@@ -90,6 +90,14 @@ interface MetaWebhookPayload {
           timestamp?: string;
           type?: string;
           text?: { body?: string };
+          /** Quick-reply de plantilla (`type: "button"`). */
+          button?: { payload?: string; text?: string };
+          /** Reply interactivo (`button_reply` / `list_reply`). */
+          interactive?: {
+            type?: string;
+            button_reply?: { id?: string; title?: string };
+            list_reply?: { id?: string; title?: string; description?: string };
+          };
           context?: { from?: string; id?: string };
           document?: MetaMediaPayload;
           image?: MetaMediaPayload;
