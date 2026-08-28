@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { mapConversation, mapMessage, messageInclude } from "../mappers.js";
 import { AppError, NotFoundError } from "../../domain/errors.js";
 import type {
+  Conversation,
   SendMessageBody,
   SendTemplateBody,
   UpdateConversationBody,
@@ -109,6 +110,8 @@ export async function listConversations(filters: {
   agentId?: string;
   labelId?: string;
   phone?: string;
+  /** null = solo bandeja principal; string = solo esa bandejita; undefined = sin filtro. */
+  miniInboxId?: string | null;
 }) {
   const where: Record<string, unknown> = {};
 
@@ -135,6 +138,10 @@ export async function listConversations(filters: {
 
   if (filters.labelId) {
     where.labels = { some: { labelId: filters.labelId } };
+  }
+
+  if (filters.miniInboxId !== undefined) {
+    where.miniInboxId = filters.miniInboxId;
   }
 
   if (filters.phone?.trim()) {
@@ -1024,6 +1031,104 @@ export async function toggleConversationLabel(
   });
 
   if (!updated) throw new NotFoundError("Conversación no encontrada");
+
+  await emitConversationUpdated(conversationId);
+
+  return mapConversation(updated);
+}
+
+/** Mueve una conversación a una bandejita (null = bandeja principal). Máximo una a la vez. */
+export async function moveConversationToMiniInbox(
+  conversationId: string,
+  miniInboxId: string | null
+) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { id: true, inboxId: true },
+  });
+  if (!conversation) throw new NotFoundError("Conversación no encontrada");
+
+  if (miniInboxId) {
+    const miniInbox = await prisma.miniInbox.findFirst({
+      where: { id: miniInboxId, inboxId: conversation.inboxId },
+      select: { id: true },
+    });
+    if (!miniInbox) {
+      throw new AppError(
+        "La bandejita no pertenece a la bandeja de esta conversación",
+        422,
+        "MINI_INBOX_NOT_IN_INBOX"
+      );
+    }
+  }
+
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { miniInboxId },
+    include: conversationInclude,
+  });
+
+  await emitConversationUpdated(conversationId);
+
+  return mapConversation(updated);
+}
+
+/** Normaliza texto para comparar frases: minúsculas, sin acentos, espacios colapsados. */
+export function normalizeMiniInboxText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Solo autoclasificar chats cortos (leads nuevos); historial largo = conductores/clientes ya activos. */
+const MINI_INBOX_AUTO_MAX_MESSAGES = 10;
+
+/**
+ * Auto-clasificación de bandejitas: si el contenido de un mensaje entrante incluye una
+ * frase de coincidencia, mueve la conversación a esa bandejita (la primera por sortOrder).
+ * No hace nada si ya tiene bandejita, supera el tope de mensajes, o no hay coincidencia.
+ */
+export async function classifyConversationIntoMiniInbox(
+  conversationId: string,
+  content: string
+): Promise<Conversation | null> {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { id: true, inboxId: true, miniInboxId: true },
+  });
+  if (!conversation) return null;
+  if (conversation.miniInboxId) return null;
+
+  const messageCount = await prisma.message.count({
+    where: { conversationId },
+  });
+  if (messageCount > MINI_INBOX_AUTO_MAX_MESSAGES) return null;
+
+  const normalizedContent = normalizeMiniInboxText(content);
+  if (!normalizedContent) return null;
+
+  const miniInboxes = await prisma.miniInbox.findMany({
+    where: { inboxId: conversation.inboxId, matchPhrases: { isEmpty: false } },
+    select: { id: true, matchPhrases: true, sortOrder: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  });
+
+  const matched = miniInboxes.find((mini) =>
+    (mini.matchPhrases ?? []).some((phrase) => {
+      const normalizedPhrase = normalizeMiniInboxText(phrase);
+      return normalizedPhrase.length > 0 && normalizedContent.includes(normalizedPhrase);
+    })
+  );
+  if (!matched) return null;
+
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { miniInboxId: matched.id },
+    include: conversationInclude,
+  });
 
   await emitConversationUpdated(conversationId);
 

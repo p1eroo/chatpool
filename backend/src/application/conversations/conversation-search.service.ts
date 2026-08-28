@@ -22,6 +22,8 @@ export async function searchConversations(params: {
   agentId: string;
   inboxId?: string;
   q: string;
+  /** null = solo bandeja principal; string = solo esa bandejita; undefined = toda la bandeja. */
+  miniInboxId?: string | null;
 }) {
   const query = params.q.trim();
   if (query.length < SEARCH_MIN_QUERY) return [];
@@ -35,6 +37,10 @@ export async function searchConversations(params: {
     const accessibleInboxIds = await listInboxIdsForAgent(params.agentId);
     if (accessibleInboxIds.length === 0) return [];
     where.inboxId = { in: accessibleInboxIds };
+  }
+
+  if (params.miniInboxId !== undefined) {
+    where.miniInboxId = params.miniInboxId;
   }
 
   const digits = digitsOnly(query);

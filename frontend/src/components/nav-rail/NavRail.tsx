@@ -30,6 +30,7 @@ import { useThemeStore } from "@/store/themeStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useLabelStore } from "@/store/labelStore";
+import { useMiniInboxStore } from "@/store/miniInboxStore";
 import { useUIStore } from "@/store/uiStore";
 import { filterAccessibleInboxes } from "@/lib/agentInboxAccess";
 import {
@@ -79,8 +80,10 @@ export function NavRail() {
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
   const conversationsInboxId = useConversationStore((s) => s.conversationsInboxId);
   const filterLabelId = useConversationStore((s) => s.filterLabelId);
+  const filterMiniInboxId = useConversationStore((s) => s.filterMiniInboxId);
   const setFilterInboxId = useConversationStore((s) => s.setFilterInboxId);
   const setFilterLabelId = useConversationStore((s) => s.setFilterLabelId);
+  const setFilterMiniInboxId = useConversationStore((s) => s.setFilterMiniInboxId);
   const allLabels = useLabelStore((s) => s.labels);
 
   const inboxes = useMemo(
@@ -109,6 +112,27 @@ export function NavRail() {
       count: inInbox.filter((c) => c.labels.some((l) => l.id === label.id)).length,
     }));
   }, [conversations, filterInboxId, inboxLabels]);
+
+  /** Bandejitas de la bandeja activa. */
+  const allMiniInboxes = useMiniInboxStore((s) => s.miniInboxes);
+  const miniInboxes = useMemo(
+    () =>
+      filterInboxId
+        ? allMiniInboxes
+            .filter((mini) => mini.inboxId === filterInboxId)
+            .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+        : [],
+    [filterInboxId, allMiniInboxes]
+  );
+
+  const miniInboxCounts = useMemo(() => {
+    if (!filterInboxId) return [] as Array<{ id: string; count: number }>;
+    const inInbox = conversations.filter((c) => c.inboxId === filterInboxId);
+    return miniInboxes.map((mini) => ({
+      id: mini.id,
+      count: inInbox.filter((c) => c.miniInboxId === mini.id).length,
+    }));
+  }, [conversations, filterInboxId, miniInboxes]);
 
   /** Badge en vivo: chats con no leídos (no suma de mensajes). */
   const liveUnreadByInboxId = useMemo(() => {
@@ -164,7 +188,18 @@ export function NavRail() {
   };
 
   const selectLabel = (labelId: string) => {
+    setFilterMiniInboxId(null);
     setFilterLabelId(filterLabelId === labelId ? null : labelId);
+    setSettingsMenuOpen(false);
+    setInboxMenuOpen(true);
+    if (!location.pathname.startsWith("/inbox")) {
+      navigate("/inbox");
+    }
+  };
+
+  const selectMiniInbox = (miniInboxId: string) => {
+    setFilterLabelId(null);
+    setFilterMiniInboxId(filterMiniInboxId === miniInboxId ? null : miniInboxId);
     setSettingsMenuOpen(false);
     setInboxMenuOpen(true);
     if (!location.pathname.startsWith("/inbox")) {
@@ -383,6 +418,58 @@ export function NavRail() {
                                 className="w-2 h-2 shrink-0"
                               />
                               <span className="truncate">{label.name}</span>
+                            </span>
+                            <span
+                              className={cn(
+                                "tabular-nums text-[10px] shrink-0",
+                                active
+                                  ? "text-[var(--sidebar-item-active)]/70"
+                                  : "text-[var(--color-text-muted)]"
+                              )}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+
+                    <p className="mt-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] flex items-center gap-1.5">
+                      <Inbox className="w-3 h-3 shrink-0" />
+                      Bandejitas
+                    </p>
+                    {miniInboxes.length === 0 ? (
+                      <p className="px-2.5 py-1.5 text-[12px] text-[var(--color-text-secondary)]">
+                        Sin bandejitas en esta bandeja
+                      </p>
+                    ) : (
+                      miniInboxes.map((mini) => {
+                        const active = filterMiniInboxId === mini.id;
+                        const count =
+                          miniInboxCounts.find((item) => item.id === mini.id)?.count ?? 0;
+                        return (
+                          <button
+                            key={mini.id}
+                            type="button"
+                            onClick={() => selectMiniInbox(mini.id)}
+                            title={
+                              active
+                                ? "Quitar filtro de bandejita"
+                                : `Filtrar por ${mini.name}`
+                            }
+                            className={cn(
+                              "w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
+                              active
+                                ? "bg-[var(--sidebar-item-active-bg)] text-[var(--sidebar-item-active)]"
+                                : "text-[var(--sidebar-item)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--color-text-primary)]"
+                            )}
+                          >
+                            <span className="truncate flex items-center gap-1.5 min-w-0">
+                              <LabelColorDot
+                                color={mini.color}
+                                className="w-2 h-2 shrink-0"
+                              />
+                              <span className="truncate">{mini.name}</span>
                             </span>
                             <span
                               className={cn(

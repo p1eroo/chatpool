@@ -5,6 +5,7 @@ import { authService } from "@/services/authService";
 import { conversationApiService } from "@/services/conversationApiService";
 import { inboxApiService } from "@/services/inboxApiService";
 import { labelApiService } from "@/services/labelApiService";
+import { miniInboxApiService } from "@/services/miniInboxApiService";
 import { roleApiService } from "@/services/roleApiService";
 import { getCurrentAgentId } from "@/lib/authSession";
 import { getAccessibleInboxIds } from "@/lib/agentInboxAccess";
@@ -15,6 +16,7 @@ import { useConversationStore } from "@/store/conversationStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useInboxStore } from "@/store/inboxStore";
 import { useLabelStore } from "@/store/labelStore";
+import { useMiniInboxStore } from "@/store/miniInboxStore";
 import { useRoleStore } from "@/store/roleStore";
 import type { Role } from "@/types";
 
@@ -56,11 +58,12 @@ export async function bootstrapAppData(): Promise<void> {
 
   useConversationStore.getState().setAppDataBootstrapped(false);
 
-  const [agents, inboxes, settings, labels, roles, me] = await Promise.all([
+  const [agents, inboxes, settings, labels, miniInboxes, roles, me] = await Promise.all([
     agentApiService.list(),
     inboxApiService.listInboxes(),
     inboxApiService.listSettings(),
     labelApiService.listAll(),
+    miniInboxApiService.listAll(),
     fetchRolesForBootstrap(),
     authService.getMe(),
   ]);
@@ -70,6 +73,7 @@ export async function bootstrapAppData(): Promise<void> {
   useInboxStore.getState().setInboxes(inboxes);
   useInboxSettingsStore.getState().setSettings(settings);
   useLabelStore.getState().setLabels(labels);
+  useMiniInboxStore.getState().setMiniInboxes(miniInboxes);
 
   if (me) {
     mergeAgentProfile(me);

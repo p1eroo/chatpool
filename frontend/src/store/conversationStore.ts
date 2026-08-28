@@ -77,6 +77,8 @@ interface ConversationState {
   /** Bandeja a la que pertenece `conversations` (null = aún cargando / no sincronizar badge en vivo). */
   conversationsInboxId: string | null;
   filterLabelId: string | null;
+  /** Bandejita mock seleccionada; null = bandeja principal (solo chats sin miniInboxId). */
+  filterMiniInboxId: string | null;
 
   setConversations: (conversations: Conversation[]) => void;
   setInboxViewActive: (active: boolean) => void;
@@ -104,6 +106,11 @@ interface ConversationState {
   setFilterAssignee: (assignee: AssigneeFilter) => void;
   setFilterInboxId: (inboxId: string | null) => void;
   setFilterLabelId: (labelId: string | null) => void;
+  setFilterMiniInboxId: (miniInboxId: string | null) => void;
+  /** Mueve una conversación a una bandejita (null = bandeja principal). */
+  moveConversationToMiniInbox: (id: string, miniInboxId: string | null) => Promise<boolean>;
+  /** Al eliminar una bandejita: las conversaciones vuelven a la principal y se limpia el filtro. */
+  removeMiniInboxFromConversations: (miniInboxId: string) => void;
   sendMessage: (
     conversationId: string,
     content: string,
@@ -851,6 +858,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   filterInboxId: getInitialInboxFilter(),
   conversationsInboxId: null,
   filterLabelId: null,
+  filterMiniInboxId: null,
 
   setConversations: (conversations) => {
     const state = get();
@@ -1588,6 +1596,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       filterInboxId: inboxId,
       conversationsInboxId: null,
       filterLabelId: null,
+      filterMiniInboxId: null,
       activeConversationId: null,
       filterStatus: "open",
       filterAssignee: "all",
@@ -1608,6 +1617,56 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
   },
   setFilterLabelId: (labelId) => set({ filterLabelId: labelId }),
+
+  setFilterMiniInboxId: (miniInboxId) => set({ filterMiniInboxId: miniInboxId }),
+
+  moveConversationToMiniInbox: async (id, miniInboxId) => {
+    if (env.useMock) {
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === id ? { ...c, miniInboxId } : c
+        ),
+      }));
+      return true;
+    }
+
+    const previous = get().conversations.find((c) => c.id === id);
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === id ? { ...c, miniInboxId } : c
+      ),
+    }));
+
+    try {
+      const updated = await conversationApiService.setMiniInbox(id, miniInboxId);
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === id ? { ...c, ...updated } : c
+        ),
+      }));
+      return true;
+    } catch {
+      if (previous) {
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === id ? previous : c
+          ),
+        }));
+      }
+      useUIStore.getState().showToast("No se pudo mover a la bandejita");
+      return false;
+    }
+  },
+
+  removeMiniInboxFromConversations: (miniInboxId) => {
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.miniInboxId === miniInboxId ? { ...c, miniInboxId: null } : c
+      ),
+      filterMiniInboxId:
+        state.filterMiniInboxId === miniInboxId ? null : state.filterMiniInboxId,
+    }));
+  },
 
   createConversation: (contact, inboxId, channelType, initialMessage) => {
     const id = `conv-${Date.now()}`;
@@ -2139,8 +2198,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   getFilteredConversations: () => {
-    const { conversations, filterAssignee, filterInboxId, filterLabelId, filterStatus } =
-      get();
+    const {
+      conversations,
+      filterAssignee,
+      filterInboxId,
+      filterLabelId,
+      filterMiniInboxId,
+      filterStatus,
+    } = get();
     let filtered = conversations;
     if (filterStatus === "open" || filterStatus === "resolved") {
       filtered = filtered.filter((c) => c.status === filterStatus);
@@ -2156,6 +2221,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
     if (filterLabelId) {
       filtered = filtered.filter((c) => c.labels.some((label) => label.id === filterLabelId));
+    }
+    if (filterMiniInboxId === null) {
+      filtered = filtered.filter((c) => !c.miniInboxId);
+    } else if (filterMiniInboxId) {
+      filtered = filtered.filter((c) => c.miniInboxId === filterMiniInboxId);
     }
     return filtered;
   },

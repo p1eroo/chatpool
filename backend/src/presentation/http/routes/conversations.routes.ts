@@ -7,6 +7,7 @@ import {
   getConversationMessages,
   listConversations,
   markConversationRead,
+  moveConversationToMiniInbox,
   sendAgentMessage,
   sendAgentMessageWithFile,
   sendRequestContactInfo,
@@ -91,6 +92,9 @@ const attachmentContentTypeSchema = z.enum(["image", "file", "audio", "sticker"]
 const searchConversationsSchema = z.object({
   q: z.string().min(1).max(200),
   inboxId: z.string().min(1).optional(),
+  /** "" o ausente = toda la bandeja; null = solo bandeja principal; string = solo esa bandejita. */
+  miniInboxId: z
+    .preprocess((value) => (value === "" ? null : value), z.string().nullable().optional()),
 });
 
 const forwardMessagesSchema = z.object({
@@ -139,6 +143,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
         agentId: user.sub,
         inboxId: query.inboxId,
         q: query.q,
+        miniInboxId: query.miniInboxId,
       })
     );
   });
@@ -408,6 +413,20 @@ export async function conversationsRoutes(app: FastifyInstance) {
       const { id, labelId } = request.params as { id: string; labelId: string };
       const user = request.user as { sub: string };
       return reply.send(await toggleConversationLabel(id, labelId, user.sub));
+    }
+  );
+
+  app.post(
+    "/conversations/:id/mini-inbox",
+    { preHandler: requirePermission("assignConversations") },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = z
+        .object({
+          miniInboxId: z.string().nullable(),
+        })
+        .parse(request.body ?? {});
+      return reply.send(await moveConversationToMiniInbox(id, body.miniInboxId));
     }
   );
 

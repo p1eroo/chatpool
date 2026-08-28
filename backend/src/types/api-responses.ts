@@ -96,6 +96,18 @@ export interface Label {
   inboxId: string;
 }
 
+/** Sub-bandeja virtual dentro de un inbox (bandejita). */
+export interface MiniInbox {
+  id: string;
+  inboxId: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  matchPhrases: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Conversation {
   id: string;
   inboxId: string;
@@ -113,6 +125,8 @@ export interface Conversation {
   botPausedUntil: string | null;
   isTyping: boolean;
   channelType: ChannelType;
+  /** Id de la bandejita (mini inbox) a la que pertenece; null = bandeja principal. */
+  miniInboxId: string | null;
 }
 
 export interface Inbox {

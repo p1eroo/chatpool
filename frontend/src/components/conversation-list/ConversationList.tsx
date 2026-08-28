@@ -5,6 +5,7 @@ import { ConversationContextMenu } from "./ConversationContextMenu";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useInboxStore } from "@/store/inboxStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
+import { useMiniInboxStore } from "@/store/miniInboxStore";
 import { filterAccessibleInboxes } from "@/lib/agentInboxAccess";
 import {
   Search,
@@ -77,6 +78,7 @@ export function ConversationList() {
   const filterAssignee = useConversationStore((s) => s.filterAssignee);
   const filterInboxId = useConversationStore((s) => s.filterInboxId);
   const filterLabelId = useConversationStore((s) => s.filterLabelId);
+  const filterMiniInboxId = useConversationStore((s) => s.filterMiniInboxId);
   const filterStatusRaw = useConversationStore((s) => s.filterStatus);
   const filterStatus: StatusFilter =
     filterStatusRaw === "resolved" ? "resolved" : "open";
@@ -102,6 +104,10 @@ export function ConversationList() {
   const headerRowRef = useRef<HTMLDivElement>(null);
 
   const activeInbox = inboxes.find((i) => i.id === filterInboxId);
+  const allMiniInboxes = useMiniInboxStore((s) => s.miniInboxes);
+  const activeMiniInbox = filterMiniInboxId
+    ? allMiniInboxes.find((m) => m.id === filterMiniInboxId)
+    : undefined;
 
   useEffect(() => {
     if (inboxes.length === 0) {
@@ -119,7 +125,7 @@ export function ConversationList() {
     setSearch("");
     setRemoteResults(null);
     setSearchingRemote(false);
-  }, [filterInboxId]);
+  }, [filterInboxId, filterMiniInboxId]);
 
   useEffect(() => {
     if (env.useMock) {
@@ -141,7 +147,11 @@ export function ConversationList() {
 
     const timer = window.setTimeout(() => {
       void conversationApiService
-        .search({ q: query, inboxId: filterInboxId })
+        .search({
+          q: query,
+          inboxId: filterInboxId,
+          miniInboxId: filterMiniInboxId,
+        })
         .then((rows) => {
           if (searchRequestId.current !== requestId) return;
           setRemoteResults(rows);
@@ -157,7 +167,7 @@ export function ConversationList() {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [search, filterInboxId]);
+  }, [search, filterInboxId, filterMiniInboxId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -185,42 +195,43 @@ export function ConversationList() {
     return conversations.filter((c) => c.inboxId === filterInboxId);
   }, [conversations, filterInboxId]);
 
-  const statusFiltered = useMemo(
-    () => inboxFiltered.filter((c) => matchesStatus(c, filterStatus)),
-    [inboxFiltered, filterStatus]
-  );
+  // Búsqueda: scope = bandeja + bandejita (ignora estado/asignación/etiqueta).
+  const miniFiltered = useMemo(() => {
+    if (filterMiniInboxId === null) return inboxFiltered.filter((c) => !c.miniInboxId);
+    if (filterMiniInboxId) return inboxFiltered.filter((c) => c.miniInboxId === filterMiniInboxId);
+    return inboxFiltered;
+  }, [inboxFiltered, filterMiniInboxId]);
 
-  const assigneeCounts = useMemo(() => {
-    return {
-      mine: statusFiltered.filter((c) =>
-        matchesAssignee(c, "mine", currentAgent?.id)
-      ).length,
-      unassigned: statusFiltered.filter((c) =>
-        matchesAssignee(c, "unassigned", currentAgent?.id)
-      ).length,
-      all: statusFiltered.length,
-    };
-  }, [statusFiltered, currentAgent?.id]);
-
-  const filtered = useMemo(() => {
-    let result = conversations;
-    result = result.filter((c) => matchesStatus(c, filterStatus));
-    result = result.filter((c) =>
-      matchesAssignee(c, filterAssignee, currentAgent?.id)
-    );
-    if (filterInboxId) result = result.filter((c) => c.inboxId === filterInboxId);
+  // Alcance de la lista: bandeja + estado + etiqueta + bandejita (sin asignación).
+  const scoped = useMemo(() => {
+    let result = inboxFiltered.filter((c) => matchesStatus(c, filterStatus));
     if (filterLabelId) {
       result = result.filter((c) => c.labels.some((label) => label.id === filterLabelId));
     }
+    if (filterMiniInboxId === null) {
+      result = result.filter((c) => !c.miniInboxId);
+    } else if (filterMiniInboxId) {
+      result = result.filter((c) => c.miniInboxId === filterMiniInboxId);
+    }
     return result;
-  }, [
-    conversations,
-    filterStatus,
-    filterAssignee,
-    filterInboxId,
-    filterLabelId,
-    currentAgent?.id,
-  ]);
+  }, [inboxFiltered, filterStatus, filterLabelId, filterMiniInboxId]);
+
+  const assigneeCounts = useMemo(() => {
+    return {
+      mine: scoped.filter((c) =>
+        matchesAssignee(c, "mine", currentAgent?.id)
+      ).length,
+      unassigned: scoped.filter((c) =>
+        matchesAssignee(c, "unassigned", currentAgent?.id)
+      ).length,
+      all: scoped.length,
+    };
+  }, [scoped, currentAgent?.id]);
+
+  const filtered = useMemo(
+    () => scoped.filter((c) => matchesAssignee(c, filterAssignee, currentAgent?.id)),
+    [scoped, filterAssignee, currentAgent?.id]
+  );
 
   const searchQuery = search.trim();
   const isSearching = searchQuery.length > 0;
@@ -233,29 +244,33 @@ export function ConversationList() {
 
   const localMatches = useMemo(() => {
     if (!isSearching) return [];
-    return inboxFiltered.filter((conversation) =>
+    return miniFiltered.filter((conversation) =>
       matchesConversationSearch(
         conversation,
         searchQuery,
         messagesByConversation[conversation.id]
       )
     );
-  }, [isSearching, inboxFiltered, searchQuery, messagesByConversation]);
+  }, [isSearching, miniFiltered, searchQuery, messagesByConversation]);
 
-  // Con texto: busca en toda la bandeja (abiertas/cerradas, mías/sin asignar/todas),
+  // Con texto: busca en la bandeja (abiertas/cerradas, mías/sin asignar/todas),
   // incluyendo el historial de mensajes vía API.
   const displayed = useMemo(() => {
     if (!isSearching) return filtered;
     if (env.useMock || !remoteResults) return localMatches;
 
     const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
-    const fromRemote = remoteResults.map(
-      (hit) => byId.get(hit.conversation.id) ?? hit.conversation
-    );
+    const fromRemote = remoteResults
+      .map((hit) => byId.get(hit.conversation.id) ?? hit.conversation)
+      .filter((conversation) =>
+        filterMiniInboxId === null
+          ? !conversation.miniInboxId
+          : conversation.miniInboxId === filterMiniInboxId
+      );
     const remoteIds = new Set(fromRemote.map((conversation) => conversation.id));
     const extraLocal = localMatches.filter((conversation) => !remoteIds.has(conversation.id));
     return [...fromRemote, ...extraLocal];
-  }, [isSearching, filtered, localMatches, remoteResults, conversations]);
+  }, [isSearching, filtered, localMatches, remoteResults, conversations, filterMiniInboxId]);
 
   const matchedMessageByConversation = useMemo(() => {
     const map = new Map<string, string>();
@@ -333,9 +348,16 @@ export function ConversationList() {
       <div className="px-4 pt-4 pb-0">
         <div className="mb-3 flex items-center justify-between gap-2" ref={headerRowRef}>
           <div className="min-w-0 flex-1 flex items-center gap-2">
-            <h2 className="min-w-0 truncate text-[var(--color-text-primary)] font-semibold text-[15px]">
-              {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
-            </h2>
+            <div className="min-w-0 flex-1">
+              <h2 className="min-w-0 truncate text-[var(--color-text-primary)] font-semibold text-[15px]">
+                {activeInbox?.name ?? (inboxes.length === 0 ? "Sin bandejas" : "Bandeja")}
+              </h2>
+              {activeMiniInbox && (
+                <p className="truncate text-[11px] text-[var(--color-text-muted)] leading-tight">
+                  {activeMiniInbox.name}
+                </p>
+              )}
+            </div>
 
             <div
               className="flex shrink-0 rounded-full bg-[var(--color-bg-tertiary)] p-0.5"
@@ -391,7 +413,11 @@ export function ConversationList() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
             type="text"
-            placeholder="Buscar en toda la bandeja..."
+            placeholder={
+              activeMiniInbox
+                ? `Buscar en ${activeMiniInbox.name}...`
+                : "Buscar en toda la bandeja..."
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-sm rounded-lg pl-9 pr-3 py-2 outline-none border border-transparent focus:border-[var(--color-brand)] transition-colors placeholder:text-[var(--color-text-muted)]"
@@ -403,7 +429,8 @@ export function ConversationList() {
             {searchingRemote ? (
               <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
             ) : null}
-            Buscando en toda la bandeja ({displayed.length})
+            Buscando en {activeMiniInbox ? activeMiniInbox.name : "toda la bandeja"} (
+            {displayed.length})
           </p>
         ) : null}
 

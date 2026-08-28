@@ -135,6 +135,7 @@ model Inbox {
   contacts         Contact[]
   conversations    Conversation[]
   labels           Label[]
+  miniInboxes      MiniInbox[]
   cannedResponses  CannedResponse[]
   outgoingWebhooks OutgoingWebhook[]
   createdAt        DateTime          @default(now()) @map("created_at")
@@ -228,7 +229,9 @@ model Conversation {
   isTyping    Boolean             @default(false) @map("is_typing")
   labels      ConversationLabel[]
   messages    Message[]
-  createdAt   DateTime            @default(now()) @map("created_at")
+  miniInboxId String?               @map("mini_inbox_id")
+  miniInbox   MiniInbox?            @relation(fields: [miniInboxId], references: [id], onDelete: SetNull)
+  createdAt   DateTime              @default(now()) @map("created_at")
   updatedAt   DateTime            @updatedAt @map("updated_at")
   lastMessageAt DateTime?         @map("last_message_at")
   /// Hasta cuándo el bot (Application API) está pausado; null = bot activo.
@@ -296,6 +299,25 @@ model ConversationLabel {
 
   @@id([conversationId, labelId])
   @@map("conversation_labels")
+}
+
+/// Sub-colas virtuales DENTRO de una bandeja. Una conversación pertenece a como máximo UNA.
+model MiniInbox {
+  id            String         @id @default(cuid())
+  inboxId       String         @map("inbox_id")
+  inbox         Inbox          @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  name          String
+  color         String
+  sortOrder     Int            @default(0) @map("sort_order")
+  /// Frases que disparan autoasignación (p. ej. "quiero pertenecer a la flota").
+  matchPhrases  String[]       @default([]) @map("match_phrases")
+  conversations Conversation[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@unique([inboxId, name])
+  @@index([inboxId])
+  @@map("mini_inboxes")
 }
 
 model CannedResponse {

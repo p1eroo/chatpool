@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2 } from "lucide-react";
 import { CopyableValueRow } from "@/components/settings/CopyableValueRow";
 import { CreateLabelModal } from "@/components/settings/CreateLabelModal";
 import { MetaInboxIntegrationPanel } from "@/components/settings/MetaInboxIntegrationPanel";
+import { MiniInboxModal, type MiniInboxInput } from "@/components/settings/MiniInboxModal";
 import { SettingsModal, SettingsToggle } from "@/components/settings/SettingsModal";
+import { LabelColorDot } from "@/components/settings/LabelColorDot";
 import { LabelChip } from "@/components/ui/LabelChip";
 import { useIntegrationStore } from "@/store/integrationStore";
 import { useLabelStore } from "@/store/labelStore";
+import { useMiniInboxStore } from "@/store/miniInboxStore";
 import { useConversationStore } from "@/store/conversationStore";
 import { useInboxLabelAccentMap } from "@/hooks/useInboxLabelAccentMap";
 import { useRoleStore } from "@/store/roleStore";
@@ -17,7 +20,7 @@ import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useUIStore } from "@/store/uiStore";
 import { inboxApiService } from "@/services/inboxApiService";
 import { env } from "@/config/env";
-import type { Label } from "@/types";
+import type { Label, MiniInbox } from "@/types";
 import {
   InboxStatusBadge,
   SettingsField,
@@ -47,6 +50,10 @@ export function InboxDetailPage() {
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [labelPendingEdit, setLabelPendingEdit] = useState<Label | null>(null);
   const [labelPendingDelete, setLabelPendingDelete] = useState<Label | null>(null);
+  const [miniModalOpen, setMiniModalOpen] = useState(false);
+  const [miniPendingEdit, setMiniPendingEdit] = useState<MiniInbox | null>(null);
+  const [miniPendingDelete, setMiniPendingDelete] = useState<MiniInbox | null>(null);
+  const [deletingMiniId, setDeletingMiniId] = useState<string | null>(null);
   const [botPauseMinutes, setBotPauseMinutes] = useState("");
   const [savingBot, setSavingBot] = useState(false);
   const [autoAssignEnabled, setAutoAssignEnabled] = useState(false);
@@ -63,11 +70,23 @@ export function InboxDetailPage() {
   const labels = useLabelStore((s) => s.labels);
   const inboxLabels = labels.filter((label) => label.inboxId === inboxId);
   const labelAccentById = useInboxLabelAccentMap(inboxId);
+  // No filtrar dentro del selector de Zustand: devolvería un array nuevo cada vez
+  // y dispara "Maximum update depth exceeded" / getSnapshot.
+  const allMiniInboxes = useMiniInboxStore((s) => s.miniInboxes);
+  const miniInboxes = allMiniInboxes
+    .filter((mini) => mini.inboxId === inboxId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  const createMiniInbox = useMiniInboxStore((s) => s.createMiniInbox);
+  const updateMiniInbox = useMiniInboxStore((s) => s.updateMiniInbox);
+  const deleteMiniInbox = useMiniInboxStore((s) => s.deleteMiniInbox);
   const removeLabelFromAllConversations = useConversationStore(
     (s) => s.removeLabelFromAllConversations
   );
   const syncLabelInConversations = useConversationStore(
     (s) => s.syncLabelInConversations
+  );
+  const removeMiniInboxFromConversations = useConversationStore(
+    (s) => s.removeMiniInboxFromConversations
   );
   const [deletingLabelId, setDeletingLabelId] = useState<string | null>(null);
   const getAccountByProvider = useIntegrationStore((s) => s.getAccountByProvider);
@@ -245,6 +264,56 @@ export function InboxDetailPage() {
     }
   };
 
+  const handleCreateMini = async (input: MiniInboxInput) => {
+    const ok = await createMiniInbox(inboxId, input);
+    if (ok) {
+      showToast("Bandejita creada");
+    }
+    return ok;
+  };
+
+  const handleUpdateMini = async (miniInboxId: string, input: MiniInboxInput) => {
+    const ok = await updateMiniInbox(inboxId, miniInboxId, input);
+    if (ok) {
+      showToast("Bandejita actualizada");
+    }
+    return ok;
+  };
+
+  const openCreateMiniModal = () => {
+    setMiniPendingEdit(null);
+    setMiniModalOpen(true);
+  };
+
+  const openEditMiniModal = (mini: MiniInbox) => {
+    setMiniPendingEdit(mini);
+    setMiniModalOpen(true);
+  };
+
+  const closeMiniModal = () => {
+    setMiniModalOpen(false);
+    setMiniPendingEdit(null);
+  };
+
+  const handleConfirmDeleteMini = async () => {
+    const mini = miniPendingDelete;
+    if (!mini) return;
+
+    setDeletingMiniId(mini.id);
+    try {
+      const ok = await deleteMiniInbox(inboxId, mini.id);
+      if (!ok) {
+        showToast("No se pudo eliminar la bandejita");
+        return;
+      }
+      removeMiniInboxFromConversations(mini.id);
+      setMiniPendingDelete(null);
+      showToast("Bandejita eliminada");
+    } finally {
+      setDeletingMiniId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -316,6 +385,68 @@ export function InboxDetailPage() {
             </span>
           </div>
         </label>
+      </SettingsSection>
+
+      <SettingsSection
+        title={`Bandejitas (${miniInboxes.length})`}
+        description="Sub-colas virtuales solo en esta bandeja"
+        action={
+          <button
+            type="button"
+            onClick={openCreateMiniModal}
+            className="h-8 px-3 text-xs font-medium bg-[var(--color-brand)] text-white rounded-lg hover:bg-[var(--color-brand-light)] transition-colors flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Nueva
+          </button>
+        }
+      >
+        {miniInboxes.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Esta bandeja aún no tiene bandejitas.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {miniInboxes.map((mini) => (
+              <div
+                key={mini.id}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[var(--color-bg-tertiary)]"
+              >
+                <div className="min-w-0 flex items-center gap-2.5">
+                  <LabelColorDot color={mini.color} className="w-2.5 h-2.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm text-[var(--color-text-primary)] truncate">
+                      {mini.name}
+                    </p>
+                    {mini.matchPhrases.length > 0 && (
+                      <p className="text-[11px] text-[var(--color-text-muted)] truncate">
+                        {mini.matchPhrases.join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => openEditMiniModal(mini)}
+                    title="Editar bandejita"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMiniPendingDelete(mini)}
+                    title="Eliminar bandejita"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)] transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </SettingsSection>
 
       <SettingsSection
@@ -501,6 +632,14 @@ export function InboxDetailPage() {
         }
       />
 
+      <MiniInboxModal
+        open={miniModalOpen}
+        onClose={closeMiniModal}
+        onCreate={handleCreateMini}
+        onUpdate={handleUpdateMini}
+        initialMiniInbox={miniPendingEdit}
+      />
+
       <SettingsModal
         open={labelPendingDelete !== null}
         onClose={() => {
@@ -532,6 +671,41 @@ export function InboxDetailPage() {
         <p className="text-sm text-[var(--color-text-secondary)]">
           {labelPendingDelete
             ? `¿Eliminar la etiqueta “${labelPendingDelete.name}”? Se quitará de todas las conversaciones de esta bandeja.`
+            : null}
+        </p>
+      </SettingsModal>
+
+      <SettingsModal
+        open={miniPendingDelete !== null}
+        onClose={() => {
+          if (deletingMiniId) return;
+          setMiniPendingDelete(null);
+        }}
+        title="Eliminar bandejita"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setMiniPendingDelete(null)}
+              disabled={deletingMiniId !== null}
+              className="h-9 px-4 text-sm font-medium rounded-lg border border-[var(--color-border-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirmDeleteMini()}
+              disabled={deletingMiniId !== null}
+              className="h-9 px-4 text-sm font-medium rounded-lg border border-[var(--color-danger)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-colors disabled:opacity-60"
+            >
+              {deletingMiniId ? "Eliminando…" : "Eliminar"}
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          {miniPendingDelete
+            ? `¿Eliminar la bandejita “${miniPendingDelete.name}”? Las conversaciones que contiene volverán a la bandeja principal.`
             : null}
         </p>
       </SettingsModal>

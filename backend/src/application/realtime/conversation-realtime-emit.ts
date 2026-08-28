@@ -13,6 +13,7 @@ export const conversationMessageEmitSelect = {
   updatedAt: true,
   lastMessageAt: true,
   botPausedUntil: true,
+  miniInboxId: true,
   contact: {
     select: {
       id: true,
@@ -55,6 +56,7 @@ export type ConversationMessageEmitRow = {
   updatedAt: Date;
   lastMessageAt: Date | null;
   botPausedUntil: Date | null;
+  miniInboxId: string | null;
   contact: Parameters<typeof mapContact>[0];
   assignee: Parameters<typeof mapAgentProfile>[0] | null;
   inbox: { channelType: string };
@@ -88,6 +90,7 @@ export function mapConversationMessageEmit(
     botPausedUntil: row.botPausedUntil?.toISOString() ?? null,
     isTyping: row.isTyping,
     channelType: row.inbox.channelType as Conversation["channelType"],
+    miniInboxId: row.miniInboxId ?? null,
   };
 }
 

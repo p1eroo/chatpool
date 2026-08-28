@@ -8,6 +8,7 @@ import type {
   Label,
   Message,
   MessageReply,
+  MiniInbox,
 } from "../types/api-responses.js";
 import type { Prisma } from "@prisma/client";
 import { resolvePublicFileUrl } from "./media/media-storage.service.js";
@@ -195,6 +196,7 @@ export function mapConversation(
     updatedAt: Date;
     lastMessageAt: Date | null;
     botPausedUntil?: Date | null;
+    miniInboxId: string | null;
     contact: Parameters<typeof mapContact>[0];
     assignee: Parameters<typeof mapAgentProfile>[0] | null;
     inbox: { channelType: string };
@@ -222,6 +224,7 @@ export function mapConversation(
     botPausedUntil: row.botPausedUntil?.toISOString() ?? null,
     isTyping: row.isTyping,
     channelType: row.inbox.channelType as ChannelType,
+    miniInboxId: row.miniInboxId ?? null,
   };
 }
 
@@ -232,6 +235,28 @@ export function mapLabel(label: {
   inboxId: string;
 }): Label {
   return { id: label.id, name: label.name, color: label.color, inboxId: label.inboxId };
+}
+
+export function mapMiniInbox(miniInbox: {
+  id: string;
+  inboxId: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  matchPhrases: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}): MiniInbox {
+  return {
+    id: miniInbox.id,
+    inboxId: miniInbox.inboxId,
+    name: miniInbox.name,
+    color: miniInbox.color,
+    sortOrder: miniInbox.sortOrder,
+    matchPhrases: miniInbox.matchPhrases,
+    createdAt: miniInbox.createdAt.toISOString(),
+    updatedAt: miniInbox.updatedAt.toISOString(),
+  };
 }
 
 export function mapInbox(

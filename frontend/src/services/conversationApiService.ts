@@ -27,10 +27,14 @@ export const conversationApiService = {
   async search(params: {
     q: string;
     inboxId?: string | null;
+    miniInboxId?: string | null;
   }): Promise<ConversationSearchHit[]> {
     const searchParams = new URLSearchParams();
     searchParams.set("q", params.q);
     if (params.inboxId) searchParams.set("inboxId", params.inboxId);
+    if (params.miniInboxId !== undefined) {
+      searchParams.set("miniInboxId", params.miniInboxId ?? "");
+    }
 
     const rows = await apiRequest<
       Array<{ conversation: Conversation; matchedMessageId: string | null }>
@@ -153,6 +157,18 @@ export const conversationApiService = {
       `/conversations/${conversationId}/labels/${labelId}/toggle`,
       { method: "POST" }
     );
+    return parseConversation(row as never);
+  },
+
+  /** Mueve la conversación a una bandejita (null = bandeja principal). */
+  async setMiniInbox(
+    conversationId: string,
+    miniInboxId: string | null
+  ): Promise<Conversation> {
+    const row = await apiRequest<Conversation>(`/conversations/${conversationId}/mini-inbox`, {
+      method: "POST",
+      body: { miniInboxId },
+    });
     return parseConversation(row as never);
   },
 

@@ -8,6 +8,7 @@ import type {
   InboxSettings,
   IntegrationAccount,
   IntegrationProvider,
+  MiniInbox,
 } from "@/types";
 
 export const agents: Agent[] = [
@@ -61,6 +62,32 @@ export const labels: Label[] = [
 
 export function getLabelsForInbox(inboxId: string): Label[] {
   return labels.filter((label) => label.inboxId === inboxId);
+}
+
+/** Flag fácil para probar el empty state de BANDEJITAS (poner en false). */
+export const MOCK_MINI_INBOXES_ENABLED = true;
+
+export const miniInboxes: MiniInbox[] = [
+  {
+    id: "mini-1",
+    inboxId: "inbox-1",
+    name: "Leads flota",
+    color: "green",
+    sortOrder: 0,
+    matchPhrases: ["quiero pertenecer a la flota", "quiero ser parte"],
+  },
+  {
+    id: "mini-2",
+    inboxId: "inbox-2",
+    name: "Postventa",
+    color: "blue",
+    sortOrder: 1,
+    matchPhrases: ["postventa", "seguimiento"],
+  },
+];
+
+export function getMiniInboxes(): MiniInbox[] {
+  return MOCK_MINI_INBOXES_ENABLED ? miniInboxes : [];
 }
 
 export const inboxes: Inbox[] = [
@@ -235,6 +262,7 @@ export const conversations: Conversation[] = [
     botPausedUntil: null,
     isTyping: false,
     channelType: "whatsapp",
+    miniInboxId: "mini-1",
   },
   {
     id: "conv-2",
@@ -252,6 +280,7 @@ export const conversations: Conversation[] = [
     botPausedUntil: null,
     isTyping: false,
     channelType: "email",
+    miniInboxId: "mini-2",
   },
   {
     id: "conv-3",
@@ -354,6 +383,7 @@ export const conversations: Conversation[] = [
     botPausedUntil: null,
     isTyping: false,
     channelType: "whatsapp",
+    miniInboxId: "mini-1",
   },
 ];
 

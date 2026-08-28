@@ -19,6 +19,13 @@ import {
   listLabelsForInbox,
   updateLabelForInbox,
 } from "../../../application/labels/labels.service.js";
+import {
+  createMiniInboxForInbox,
+  deleteMiniInboxForInbox,
+  listAllMiniInboxes,
+  listMiniInboxesForInbox,
+  updateMiniInboxForInbox,
+} from "../../../application/mini-inboxes/mini-inboxes.service.js";
 import { listWhatsAppTemplatesForInbox } from "../../../application/whatsapp/whatsapp-templates.service.js";
 import { authenticate } from "../plugins/error-handler.plugin.js";
 import { requirePermission } from "../plugins/require-permission.plugin.js";
@@ -49,6 +56,18 @@ const createLabelSchema = z.object({
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
 });
 
+const createMiniInboxSchema = z.object({
+  name: z.string().min(1),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  matchPhrases: z.array(z.string()).optional(),
+});
+
+const updateMiniInboxSchema = z.object({
+  name: z.string().min(1).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  matchPhrases: z.array(z.string()).optional(),
+});
+
 const updateInboxSettingsSchema = z.object({
   botPauseMinutes: z
     .number()
@@ -73,6 +92,10 @@ export async function inboxesRoutes(app: FastifyInstance) {
 
   app.get("/labels", async (_request, reply) => {
     return reply.send(await listAllLabels());
+  });
+
+  app.get("/mini-inboxes", async (_request, reply) => {
+    return reply.send(await listAllMiniInboxes());
   });
 
   app.get("/inboxes/:id", async (request, reply) => {
@@ -108,6 +131,59 @@ export async function inboxesRoutes(app: FastifyInstance) {
     const { inboxId } = request.params as { inboxId: string };
     return reply.send(await listLabelsForInbox(inboxId));
   });
+
+  app.get("/inboxes/:inboxId/mini-inboxes", async (request, reply) => {
+    const { inboxId } = request.params as { inboxId: string };
+    return reply.send(await listMiniInboxesForInbox(inboxId));
+  });
+
+  // CRUD de bandejitas reutiliza el permiso de etiquetas (manageLabels).
+  app.post(
+    "/inboxes/:inboxId/mini-inboxes",
+    { preHandler: requirePermission("manageLabels") },
+    async (request, reply) => {
+      const { inboxId } = request.params as { inboxId: string };
+      const body = createMiniInboxSchema.parse(request.body);
+      return reply.status(201).send(
+        await createMiniInboxForInbox(inboxId, {
+          name: body.name,
+          color: body.color,
+          matchPhrases: body.matchPhrases,
+        })
+      );
+    }
+  );
+
+  app.patch(
+    "/inboxes/:inboxId/mini-inboxes/:miniInboxId",
+    { preHandler: requirePermission("manageLabels") },
+    async (request, reply) => {
+      const { inboxId, miniInboxId } = request.params as {
+        inboxId: string;
+        miniInboxId: string;
+      };
+      const body = updateMiniInboxSchema.parse(request.body);
+      return reply.send(
+        await updateMiniInboxForInbox(inboxId, miniInboxId, {
+          name: body.name,
+          color: body.color,
+          matchPhrases: body.matchPhrases,
+        })
+      );
+    }
+  );
+
+  app.delete(
+    "/inboxes/:inboxId/mini-inboxes/:miniInboxId",
+    { preHandler: requirePermission("manageLabels") },
+    async (request, reply) => {
+      const { inboxId, miniInboxId } = request.params as {
+        inboxId: string;
+        miniInboxId: string;
+      };
+      return reply.send(await deleteMiniInboxForInbox(inboxId, miniInboxId));
+    }
+  );
 
   app.get(
     "/inboxes/:inboxId/whatsapp-templates",

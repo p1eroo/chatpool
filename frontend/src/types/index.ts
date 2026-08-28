@@ -176,6 +176,19 @@ export interface Label {
   inboxId: string;
 }
 
+/** Bandejita: sub-bandeja virtual dentro de un inbox (una conversación pertenece a máximo una). */
+export interface MiniInbox {
+  id: string;
+  inboxId: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  /** Frases que dispararían autoasignación (solo metadatos por ahora). */
+  matchPhrases: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface CannedResponse {
   id: string;
   inboxId: string;
@@ -205,6 +218,8 @@ export interface Conversation {
   botPausedUntil: Date | null;
   isTyping: boolean;
   channelType: ChannelType;
+  /** Bandejita mock a la que pertenece (solo en memoria; null = bandeja principal). */
+  miniInboxId?: string | null;
 }
 
 export interface NavItem {

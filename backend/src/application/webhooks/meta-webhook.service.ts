@@ -30,7 +30,10 @@ import {
   patchInboundContactConversationBase,
   setInboundContactContext,
 } from "../contacts/inbound-contact-context-cache.js";
-import { findOrReopenConversationForContact } from "../conversations/conversations.service.js";
+import {
+  classifyConversationIntoMiniInbox,
+  findOrReopenConversationForContact,
+} from "../conversations/conversations.service.js";
 import {
   recordContactSharedPhoneActivity,
 } from "../conversations/conversation-activity.service.js";
@@ -613,6 +616,10 @@ async function processInboundMetaMessage(params: {
   }
 
   noteContactMessageAt(conversationId, messageAt);
+
+  // Auto-clasificación de bandejitas: solo mensajes entrantes de contacto.
+  // No hace nada si ya tiene bandejita o no coincide ninguna frase.
+  await classifyConversationIntoMiniInbox(conversationId, content);
 
   if (shouldHydrateMedia && mediaExternalId && accessToken) {
     scheduleIncomingMediaHydration({
