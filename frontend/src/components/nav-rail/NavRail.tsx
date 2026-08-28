@@ -381,6 +381,58 @@ export function NavRail() {
                 {filterInboxId && (
                   <>
                     <p className="mt-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] flex items-center gap-1.5">
+                      <Inbox className="w-3 h-3 shrink-0" />
+                      Bandejitas
+                    </p>
+                    {miniInboxes.length === 0 ? (
+                      <p className="px-2.5 py-1.5 text-[12px] text-[var(--color-text-secondary)]">
+                        Sin bandejitas en esta bandeja
+                      </p>
+                    ) : (
+                      miniInboxes.map((mini) => {
+                        const active = filterMiniInboxId === mini.id;
+                        const count =
+                          miniInboxCounts.find((item) => item.id === mini.id)?.count ?? 0;
+                        return (
+                          <button
+                            key={mini.id}
+                            type="button"
+                            onClick={() => selectMiniInbox(mini.id)}
+                            title={
+                              active
+                                ? "Quitar filtro de bandejita"
+                                : `Filtrar por ${mini.name}`
+                            }
+                            className={cn(
+                              "w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
+                              active
+                                ? "bg-[var(--sidebar-item-active-bg)] text-[var(--sidebar-item-active)]"
+                                : "text-[var(--sidebar-item)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--color-text-primary)]"
+                            )}
+                          >
+                            <span className="truncate flex items-center gap-1.5 min-w-0">
+                              <LabelColorDot
+                                color={mini.color}
+                                className="w-2 h-2 shrink-0"
+                              />
+                              <span className="truncate">{mini.name}</span>
+                            </span>
+                            <span
+                              className={cn(
+                                "tabular-nums text-[10px] shrink-0",
+                                active
+                                  ? "text-[var(--sidebar-item-active)]/70"
+                                  : "text-[var(--color-text-muted)]"
+                              )}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+
+                    <p className="mt-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] flex items-center gap-1.5">
                       <Tag className="w-3 h-3 shrink-0" />
                       Etiquetas
                     </p>
@@ -418,58 +470,6 @@ export function NavRail() {
                                 className="w-2 h-2 shrink-0"
                               />
                               <span className="truncate">{label.name}</span>
-                            </span>
-                            <span
-                              className={cn(
-                                "tabular-nums text-[10px] shrink-0",
-                                active
-                                  ? "text-[var(--sidebar-item-active)]/70"
-                                  : "text-[var(--color-text-muted)]"
-                              )}
-                            >
-                              {count}
-                            </span>
-                          </button>
-                        );
-                      })
-                    )}
-
-                    <p className="mt-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] flex items-center gap-1.5">
-                      <Inbox className="w-3 h-3 shrink-0" />
-                      Bandejitas
-                    </p>
-                    {miniInboxes.length === 0 ? (
-                      <p className="px-2.5 py-1.5 text-[12px] text-[var(--color-text-secondary)]">
-                        Sin bandejitas en esta bandeja
-                      </p>
-                    ) : (
-                      miniInboxes.map((mini) => {
-                        const active = filterMiniInboxId === mini.id;
-                        const count =
-                          miniInboxCounts.find((item) => item.id === mini.id)?.count ?? 0;
-                        return (
-                          <button
-                            key={mini.id}
-                            type="button"
-                            onClick={() => selectMiniInbox(mini.id)}
-                            title={
-                              active
-                                ? "Quitar filtro de bandejita"
-                                : `Filtrar por ${mini.name}`
-                            }
-                            className={cn(
-                              "w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors",
-                              active
-                                ? "bg-[var(--sidebar-item-active-bg)] text-[var(--sidebar-item-active)]"
-                                : "text-[var(--sidebar-item)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--color-text-primary)]"
-                            )}
-                          >
-                            <span className="truncate flex items-center gap-1.5 min-w-0">
-                              <LabelColorDot
-                                color={mini.color}
-                                className="w-2 h-2 shrink-0"
-                              />
-                              <span className="truncate">{mini.name}</span>
                             </span>
                             <span
                               className={cn(

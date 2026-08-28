@@ -1084,7 +1084,8 @@ export function normalizeMiniInboxText(value: string): string {
 }
 
 /** Solo autoclasificar chats cortos (leads nuevos); historial largo = conductores/clientes ya activos. */
-const MINI_INBOX_AUTO_MAX_MESSAGES = 10;
+// Desactivado por ahora: reactivar cuando quieran el tope de mensajes.
+// const MINI_INBOX_AUTO_MAX_MESSAGES = 10;
 
 /**
  * Auto-clasificación de bandejitas: si el contenido de un mensaje entrante incluye una
@@ -1102,10 +1103,10 @@ export async function classifyConversationIntoMiniInbox(
   if (!conversation) return null;
   if (conversation.miniInboxId) return null;
 
-  const messageCount = await prisma.message.count({
-    where: { conversationId },
-  });
-  if (messageCount > MINI_INBOX_AUTO_MAX_MESSAGES) return null;
+  // const messageCount = await prisma.message.count({
+  //   where: { conversationId },
+  // });
+  // if (messageCount > MINI_INBOX_AUTO_MAX_MESSAGES) return null;
 
   const normalizedContent = normalizeMiniInboxText(content);
   if (!normalizedContent) return null;
