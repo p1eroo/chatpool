@@ -1,3 +1,8 @@
+export interface WhatsAppTemplateButton {
+  type: string;
+  text: string;
+}
+
 export interface WhatsAppTemplate {
   id: string;
   name: string;
@@ -14,6 +19,7 @@ export interface WhatsAppTemplate {
   parameterFormat?: "named" | "positional";
   headerMediaRequired?: boolean;
   buttonUrlParamIndexes: number[];
+  buttons: WhatsAppTemplateButton[];
   supported: boolean;
   unsupportedReason?: string;
 }

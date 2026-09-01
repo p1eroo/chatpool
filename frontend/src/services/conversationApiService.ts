@@ -152,6 +152,27 @@ export const conversationApiService = {
     return parseConversation(row as never);
   },
 
+  async bulkResolve(conversationIds: string[]): Promise<{
+    results: Array<{
+      conversationId: string;
+      success: boolean;
+      error?: string;
+    }>;
+    summary: { total: number; resolved: number; skipped: number; failed: number };
+  }> {
+    return apiRequest<{
+      results: Array<{
+        conversationId: string;
+        success: boolean;
+        error?: string;
+      }>;
+      summary: { total: number; resolved: number; skipped: number; failed: number };
+    }>("/conversations/bulk-resolve", {
+      method: "POST",
+      body: { conversationIds },
+    });
+  },
+
   async toggleLabel(conversationId: string, labelId: string): Promise<Conversation> {
     const row = await apiRequest<Conversation>(
       `/conversations/${conversationId}/labels/${labelId}/toggle`,

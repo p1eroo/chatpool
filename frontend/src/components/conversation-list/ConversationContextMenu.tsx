@@ -9,6 +9,7 @@ import {
   ChevronRight,
   FolderInput,
   Inbox,
+  CheckSquare,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAgentPermissions } from "@/hooks/useAgentPermissions";
@@ -29,6 +30,7 @@ interface ConversationContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  onSelectConversation?: (conversationId: string) => void;
 }
 
 interface MenuItemProps {
@@ -73,6 +75,7 @@ export function ConversationContextMenu({
   x,
   y,
   onClose,
+  onSelectConversation,
 }: ConversationContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const labelItemRef = useRef<HTMLButtonElement>(null);
@@ -228,6 +231,13 @@ export function ConversationContextMenu({
       onMouseEnter={clearCloseSubmenuTimer}
       onMouseLeave={scheduleCloseSubmenu}
     >
+      <MenuItem
+        icon={CheckSquare}
+        label="Seleccionar chat"
+        onMouseEnter={() => setActiveSubmenu(null)}
+        onClick={() => runAction(() => onSelectConversation?.(conversation.id))}
+      />
+
       <MenuItem
         icon={Mail}
         label="Marcar como no leído"

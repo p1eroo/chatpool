@@ -22,6 +22,7 @@ import {
 } from "@/lib/whatsappContactInfo";
 import { WAVEFORM_BAR_COUNT, formatVoiceTime } from "@/hooks/useVoiceRecorder";
 import { visualDeliveryStatus } from "@/lib/messageDeliveryStatus";
+import { WhatsAppTemplateButtonPreview } from "@/components/chat/WhatsAppTemplateButtonPreview";
 
 interface MessageBubbleProps {
   message: Message;
@@ -582,11 +583,16 @@ function MessageContent({ message, isAgent }: { message: Message; isAgent: boole
   }
 
   return (
-    <TextMessageContent
-      message={message}
-      isAgent={isAgent}
-      linkClassName={linkClassName}
-    />
+    <>
+      <TextMessageContent
+        message={message}
+        isAgent={isAgent}
+        linkClassName={linkClassName}
+      />
+      {message.templateButtons?.length ? (
+        <WhatsAppTemplateButtonPreview buttons={message.templateButtons} />
+      ) : null}
+    </>
   );
 }
 

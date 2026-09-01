@@ -158,6 +158,7 @@ export interface Message {
   errorMessage?: string;
   linkPreview?: LinkPreview;
   linkPreviewSuppressed?: boolean;
+  templateButtons?: Array<{ type: string; text: string }>;
 }
 
 export interface SavedSticker {

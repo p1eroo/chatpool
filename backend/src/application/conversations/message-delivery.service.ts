@@ -22,6 +22,7 @@ interface TemplateDeliveryPayload {
   name: string;
   language: string;
   components?: WhatsAppTemplateSendComponent[];
+  buttons?: Array<{ type: string; text: string }>;
 }
 
 function parseTemplateDeliveryPayload(
@@ -264,11 +265,13 @@ export function buildTemplateDeliveryPayload(params: {
   name: string;
   language: string;
   components?: WhatsAppTemplateSendComponent[];
+  buttons?: Array<{ type: string; text: string }>;
 }): TemplateDeliveryPayload {
   return {
     kind: "template",
     name: params.name,
     language: params.language,
     components: params.components,
+    buttons: params.buttons?.length ? params.buttons : undefined,
   };
 }

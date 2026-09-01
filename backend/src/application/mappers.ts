@@ -13,6 +13,7 @@ import type {
 import type { Prisma } from "@prisma/client";
 import { resolvePublicFileUrl } from "./media/media-storage.service.js";
 import { parseLinkPreviewDeliveryPayload, isLinkPreviewSuppressed } from "../shared/link-preview.js";
+import { parseTemplateButtonsFromDeliveryPayload } from "../shared/template-delivery.js";
 import { parseMessageLocation } from "../shared/message-location.js";
 
 export const messageInclude = {
@@ -179,6 +180,9 @@ export function mapMessage(message: {
       message.deliveryPayload as Prisma.JsonValue | null | undefined
     ) ?? undefined,
     linkPreviewSuppressed: isLinkPreviewSuppressed(
+      message.deliveryPayload as Prisma.JsonValue | null | undefined
+    ),
+    templateButtons: parseTemplateButtonsFromDeliveryPayload(
       message.deliveryPayload as Prisma.JsonValue | null | undefined
     ),
   };

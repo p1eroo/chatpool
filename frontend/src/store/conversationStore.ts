@@ -141,6 +141,8 @@ interface ConversationState {
   ) => string;
   resolveConversation: (id: string) => Promise<boolean>;
   reopenConversation: (id: string) => Promise<boolean>;
+  /** Resuelve varias conversaciones a la vez (optimista + endpoint masivo). */
+  resolveConversations: (ids: string[]) => Promise<boolean>;
   setConversationStatus: (id: string, status: ConversationStatus) => Promise<boolean>;
   reassignConversation: (id: string, agentId: string | undefined) => Promise<boolean>;
   markAsUnread: (id: string) => void;
@@ -1910,6 +1912,92 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   resolveConversation: (id) => get().setConversationStatus(id, "resolved"),
 
   reopenConversation: (id) => get().setConversationStatus(id, "open"),
+
+  resolveConversations: async (ids) => {
+    const uniqueIds = [...new Set(ids)];
+    const previous = new Map(
+      uniqueIds
+        .map((id) => get().conversations.find((c) => c.id === id))
+        .filter((c): c is Conversation => Boolean(c))
+        .map((c) => [c.id, c])
+    );
+    const validIds = [...previous.keys()];
+    if (validIds.length === 0) return false;
+
+    const actorName = getCurrentActorName();
+
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        validIds.includes(c.id)
+          ? { ...c, status: "resolved", assignee: undefined, labels: [] }
+          : c
+      ),
+      activeConversationId:
+        validIds.includes(state.activeConversationId ?? "")
+          ? null
+          : state.activeConversationId,
+    }));
+
+    if (env.useMock) {
+      for (const id of validIds) {
+        appendSystemActivityMessage(
+          set,
+          get,
+          id,
+          `La conversación fue marcada como resuelta por ${actorName}`
+        );
+      }
+      return true;
+    }
+
+    try {
+      const result = await conversationApiService.bulkResolve(validIds);
+      const { summary } = result;
+      const resolvedIds = new Set(
+        result.results.filter((item) => item.success).map((item) => item.conversationId)
+      );
+      const failedIds = new Set(
+        result.results.filter((item) => !item.success).map((item) => item.conversationId)
+      );
+
+      set((state) => ({
+        conversations: state.conversations.map((c) => {
+          if (resolvedIds.has(c.id)) {
+            return { ...c, status: "resolved", assignee: undefined, labels: [] };
+          }
+          if (failedIds.has(c.id)) {
+            const prev = previous.get(c.id);
+            return prev ?? c;
+          }
+          return c;
+        }),
+      }));
+
+      if (summary.failed > 0) {
+        useUIStore.getState().showToast(
+          `${summary.resolved} resueltas, ${summary.failed} no se pudieron resolver`
+        );
+      } else if (summary.skipped > 0 && summary.resolved === 0) {
+        useUIStore.getState().showToast(`Ninguna conversación abierta seleccionada`);
+      } else {
+        const label = summary.resolved === 1 ? "1 conversación" : `${summary.resolved} conversaciones`;
+        useUIStore.getState().showToast(`${label} resuelta(s)`);
+      }
+
+      return summary.failed === 0;
+    } catch (error) {
+      set((state) => ({
+        conversations: state.conversations.map((c) => {
+          const prev = previous.get(c.id);
+          return prev ? prev : c;
+        }),
+      }));
+      useUIStore.getState().showToast(
+        isApiError(error) ? error.message : "No se pudieron resolver las conversaciones"
+      );
+      return false;
+    }
+  },
 
   setConversationStatus: async (id, status) => {
     const previous = get().conversations.find((c) => c.id === id);

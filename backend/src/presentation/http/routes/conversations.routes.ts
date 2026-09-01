@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { searchConversations } from "../../../application/conversations/conversation-search.service.js";
 import {
+  bulkResolveConversations,
   deleteConversation,
   deleteMessage,
   getConversationMessages,
@@ -79,6 +80,10 @@ const startOutboundSchema = z.object({
   inboxId: z.string().min(1),
   phone: z.string().min(1),
   name: z.string().optional(),
+});
+
+const bulkResolveSchema = z.object({
+  conversationIds: z.array(z.string().min(1)).min(1),
 });
 
 const updateConversationSchema = z.object({
@@ -160,6 +165,21 @@ export async function conversationsRoutes(app: FastifyInstance) {
           inboxId: body.inboxId,
           phone: body.phone,
           name: body.name,
+        })
+      );
+    }
+  );
+
+  app.post(
+    "/conversations/bulk-resolve",
+    { preHandler: requirePermission("resolveConversations") },
+    async (request, reply) => {
+      const user = request.user as { sub: string };
+      const body = bulkResolveSchema.parse(request.body);
+      return reply.send(
+        await bulkResolveConversations({
+          conversationIds: body.conversationIds,
+          agentId: user.sub,
         })
       );
     }

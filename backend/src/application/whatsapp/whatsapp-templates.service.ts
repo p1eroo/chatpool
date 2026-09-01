@@ -12,6 +12,11 @@ import {
 
 export type { TemplateParameterFormat };
 
+export type WhatsAppTemplateButtonDto = {
+  type: string;
+  text: string;
+};
+
 export type WhatsAppTemplateDto = {
   id: string;
   name: string;
@@ -31,6 +36,8 @@ export type WhatsAppTemplateDto = {
   /** true si el header es IMAGE/VIDEO/DOCUMENT y hay que mandar URL al enviar */
   headerMediaRequired: boolean;
   buttonUrlParamIndexes: number[];
+  /** Botones de la plantilla (QUICK_REPLY, URL, PHONE_NUMBER) para vista previa. */
+  buttons: WhatsAppTemplateButtonDto[];
   supported: boolean;
   unsupportedReason?: string;
 };
@@ -99,8 +106,14 @@ export function mapMetaTemplate(raw: MetaMessageTemplate): WhatsAppTemplateDto {
     headerFormat === "IMAGE" || headerFormat === "VIDEO" || headerFormat === "DOCUMENT";
 
   const buttonUrlParamIndexes: number[] = [];
+  const templateButtons: WhatsAppTemplateButtonDto[] = [];
   (buttons?.buttons ?? []).forEach((button, index) => {
-    if ((button.type ?? "").toUpperCase() !== "URL") return;
+    const type = (button.type ?? "").toUpperCase();
+    const text = button.text?.trim();
+    if (text) {
+      templateButtons.push({ type, text });
+    }
+    if (type !== "URL") return;
     if (countPlaceholders(button.url) > 0) {
       buttonUrlParamIndexes.push(index);
     }
@@ -136,6 +149,7 @@ export function mapMetaTemplate(raw: MetaMessageTemplate): WhatsAppTemplateDto {
     parameterFormat,
     headerMediaRequired,
     buttonUrlParamIndexes,
+    buttons: templateButtons,
     supported,
     unsupportedReason,
   };

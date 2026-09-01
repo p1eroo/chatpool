@@ -16,6 +16,7 @@ export const MOCK_WHATSAPP_TEMPLATES: WhatsAppTemplate[] = [
     bodyParamCount: 0,
     headerParamCount: 0,
     buttonUrlParamIndexes: [],
+    buttons: [],
     supported: true,
   },
   {
@@ -30,6 +31,7 @@ export const MOCK_WHATSAPP_TEMPLATES: WhatsAppTemplate[] = [
     bodyParamCount: 3,
     headerParamCount: 0,
     buttonUrlParamIndexes: [],
+    buttons: [],
     supported: true,
   },
 ];

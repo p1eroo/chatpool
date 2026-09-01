@@ -14,6 +14,8 @@ import {
   MessageCircleMore,
   Camera,
   Globe,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 
 const channelIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -43,11 +45,22 @@ const priorityColors = {
 interface ConversationCardProps {
   conversation: Conversation;
   isActive: boolean;
+  isSelectMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
   onClick: () => void;
   onContextMenu?: (event: React.MouseEvent) => void;
 }
 
-export function ConversationCard({ conversation, isActive, onClick, onContextMenu }: ConversationCardProps) {
+export function ConversationCard({
+  conversation,
+  isActive,
+  isSelectMode = false,
+  isSelected = false,
+  onToggleSelect,
+  onClick,
+  onContextMenu,
+}: ConversationCardProps) {
   const {
     contact,
     lastMessage,
@@ -73,21 +86,32 @@ export function ConversationCard({ conversation, isActive, onClick, onContextMen
 
   return (
     <button
-      onClick={onClick}
+      onClick={isSelectMode ? onToggleSelect : onClick}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu?.(e);
       }}
       className={cn(
         "w-full text-left px-4 py-3 border-b border-[var(--color-border-primary)] transition-all duration-150 group",
-        isActive
+        isSelectMode && isSelected
           ? "bg-[var(--color-brand-bg)] border-l-[3px] border-l-[var(--color-brand)]"
-          : unreadCount > 0
-            ? "border-l-[3px] border-l-[var(--color-warning)] bg-[var(--color-warning)]/10 hover:bg-[var(--color-warning)]/15"
-            : "border-l-[3px] border-l-transparent hover:bg-[var(--color-bg-hover)]"
+          : isActive
+            ? "bg-[var(--color-brand-bg)] border-l-[3px] border-l-[var(--color-brand)]"
+            : unreadCount > 0
+              ? "border-l-[3px] border-l-[var(--color-warning)] bg-[var(--color-warning)]/10 hover:bg-[var(--color-warning)]/15"
+              : "border-l-[3px] border-l-transparent hover:bg-[var(--color-bg-hover)]"
       )}
     >
       <div className="flex items-start gap-3">
+        {isSelectMode && (
+          <div className="flex shrink-0 items-center pt-1">
+            {isSelected ? (
+              <CheckSquare className="w-4 h-4 text-[var(--color-brand)]" />
+            ) : (
+              <Square className="w-4 h-4 text-[var(--color-text-muted)]" />
+            )}
+          </div>
+        )}
         <div
           className="relative shrink-0"
           title={isOpen ? "Conversación abierta" : "Conversación cerrada"}

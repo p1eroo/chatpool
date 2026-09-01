@@ -621,6 +621,7 @@ export async function sendWhatsAppTemplate(
     name: template.name,
     language: template.language,
     components: components.length ? components : undefined,
+    buttons: template.buttons.length ? template.buttons : undefined,
   });
 
   const autoAssign = willAutoAssign;
@@ -818,6 +819,93 @@ export async function updateConversation(
   }
 
   return mapConversation(updated);
+}
+
+export type BulkResolveResultItem = {
+  conversationId: string;
+  success: boolean;
+  error?: string;
+};
+
+export type BulkResolveSummary = {
+  total: number;
+  resolved: number;
+  skipped: number;
+  failed: number;
+};
+
+export async function bulkResolveConversations(params: {
+  conversationIds: string[];
+  agentId: string;
+}): Promise<{
+  results: BulkResolveResultItem[];
+  summary: BulkResolveSummary;
+}> {
+  const conversationIds = [...new Set(params.conversationIds.map((id) => id.trim()).filter(Boolean))];
+
+  if (conversationIds.length === 0) {
+    return {
+      results: [],
+      summary: { total: 0, resolved: 0, skipped: 0, failed: 0 },
+    };
+  }
+
+  const accessibleInboxIds = new Set(await listInboxIdsForAgent(params.agentId));
+  const rows = await prisma.conversation.findMany({
+    where: { id: { in: conversationIds } },
+    select: { id: true, status: true, inboxId: true },
+  });
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  const results: BulkResolveResultItem[] = conversationIds.map((conversationId) => {
+    const row = byId.get(conversationId);
+    if (!row) {
+      return { conversationId, success: false, error: "Conversación no encontrada" };
+    }
+    if (!accessibleInboxIds.has(row.inboxId)) {
+      return { conversationId, success: false, error: "No tienes acceso a esta bandeja" };
+    }
+    if (row.status === "resolved") {
+      return { conversationId, success: true };
+    }
+    return { conversationId, success: false };
+  });
+
+  const toResolve = conversationIds.filter((id) => {
+    const row = byId.get(id);
+    return row && accessibleInboxIds.has(row.inboxId) && row.status !== "resolved";
+  });
+
+  const settled = await Promise.allSettled(
+    toResolve.map((conversationId) =>
+      updateConversation(conversationId, { status: "resolved" }, params.agentId)
+    )
+  );
+
+  const failures = new Map<string, string>();
+  settled.forEach((outcome, index) => {
+    if (outcome.status === "rejected") {
+      const conversationId = toResolve[index];
+      const message = outcome.reason instanceof Error ? outcome.reason.message : "Error al resolver";
+      failures.set(conversationId, message);
+    }
+  });
+
+  for (const item of results) {
+    if (toResolve.includes(item.conversationId)) {
+      item.success = !failures.has(item.conversationId);
+      item.error = failures.get(item.conversationId);
+    }
+  }
+
+  const summary: BulkResolveSummary = {
+    total: conversationIds.length,
+    resolved: results.filter((item) => item.success && toResolve.includes(item.conversationId)).length,
+    skipped: results.filter((item) => item.success && !toResolve.includes(item.conversationId)).length,
+    failed: results.filter((item) => !item.success).length,
+  };
+
+  return { results, summary };
 }
 
 export async function findOrReopenConversationForContact(params: {

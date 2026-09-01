@@ -2,17 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore } from "@/store/conversationStore";
 import { ConversationCard } from "./ConversationCard";
 import { ConversationContextMenu } from "./ConversationContextMenu";
+import { ConversationSelectionBar } from "./ConversationSelectionBar";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
+import { useAgentPermissions } from "@/hooks/useAgentPermissions";
 import { useInboxStore } from "@/store/inboxStore";
 import { useInboxSettingsStore } from "@/store/inboxSettingsStore";
 import { useMiniInboxStore } from "@/store/miniInboxStore";
 import { filterAccessibleInboxes } from "@/lib/agentInboxAccess";
 import {
-  Search,
+  Check,
+  Loader2,
   MessageCircle,
   Filter,
-  Loader2,
-  Check,
+  Search,
 } from "lucide-react";
 import type { AssigneeFilter, ReadFilter } from "@/store/conversationStore";
 import type { Conversation } from "@/types";
@@ -116,6 +118,10 @@ export function ConversationList() {
     y: number;
   } | null>(null);
   const headerRowRef = useRef<HTMLDivElement>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const permissions = useAgentPermissions();
+  const resolveConversations = useConversationStore((s) => s.resolveConversations);
 
   const activeInbox = inboxes.find((i) => i.id === filterInboxId);
   const allMiniInboxes = useMiniInboxStore((s) => s.miniInboxes);
@@ -140,6 +146,11 @@ export function ConversationList() {
     setRemoteResults(null);
     setSearchingRemote(false);
   }, [filterInboxId, filterMiniInboxId]);
+
+  useEffect(() => {
+    clearSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterInboxId, filterMiniInboxId, filterStatus, filterAssignee, filterRead, filterLabelId, search]);
 
   useEffect(() => {
     if (env.useMock) {
@@ -193,6 +204,9 @@ export function ConversationList() {
     function handleEscape(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setReadFilterOpen(false);
+        if (selectionMode) {
+          clearSelection();
+        }
       }
     }
 
@@ -202,7 +216,7 @@ export function ConversationList() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, []);
+  }, [selectionMode]);
 
   const inboxFiltered = useMemo(() => {
     if (!filterInboxId) return conversations;
@@ -358,6 +372,50 @@ export function ConversationList() {
     openConversation(conversation.id);
   }
 
+  function enterSelectionMode(conversationId: string) {
+    setSelectionMode(true);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.add(conversationId);
+      return next;
+    });
+  }
+
+  function toggleSelect(conversationId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(conversationId)) {
+        next.delete(conversationId);
+      } else {
+        next.add(conversationId);
+      }
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(displayed.map((conversation) => conversation.id)));
+  }
+
+  function deselectAllVisible() {
+    setSelectedIds(new Set());
+  }
+
+  function clearSelection() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  async function handleBulkResolve() {
+    if (selectedIds.size === 0) return;
+    const ids = [...selectedIds];
+    await resolveConversations(ids);
+    clearSelection();
+  }
+
+  const allVisibleSelected =
+    displayed.length > 0 && displayed.every((conversation) => selectedIds.has(conversation.id));
+
   const contextConversation = contextMenu
     ? conversations.find((c) => c.id === contextMenu.conversationId) ??
       displayed.find((c) => c.id === contextMenu.conversationId) ??
@@ -365,7 +423,7 @@ export function ConversationList() {
     : null;
 
   return (
-    <div className="w-[320px] bg-[var(--color-bg-secondary)] border-r border-[var(--color-border-primary)] flex flex-col shrink-0 h-screen">
+    <div className="relative z-20 flex w-[320px] shrink-0 flex-col h-screen overflow-visible bg-[var(--color-bg-secondary)] border-r border-[var(--color-border-primary)]">
       <div className="px-4 pt-4 pb-0">
         <div className="mb-3 flex items-center justify-between gap-2" ref={headerRowRef}>
           <div className="min-w-0 flex-1 flex items-center gap-2">
@@ -537,7 +595,8 @@ export function ConversationList() {
         <div className="mt-3 border-b border-[var(--color-border-primary)]" />
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="relative flex-1 min-h-0 overflow-visible">
+        <div className="h-full overflow-y-auto">
         {displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-6">
             <MessageCircle className="w-12 h-12 text-[var(--color-text-muted)] mb-3 opacity-40" />
@@ -582,9 +641,16 @@ export function ConversationList() {
               key={conv.id}
               conversation={conv}
               isActive={conv.id === activeConversationId}
+              isSelectMode={selectionMode}
+              isSelected={selectedIds.has(conv.id)}
+              onToggleSelect={() => toggleSelect(conv.id)}
               onClick={() => {
                 if (isSearching) {
                   openSearchResult(conv);
+                  return;
+                }
+                if (selectionMode) {
+                  toggleSelect(conv.id);
                   return;
                 }
                 ensureConversationInStore(conv);
@@ -601,6 +667,22 @@ export function ConversationList() {
             />
           ))
         )}
+        </div>
+
+        {selectionMode ? (
+          <div className="pointer-events-none absolute right-0 top-3 z-30 w-max translate-x-full pl-3">
+            <ConversationSelectionBar
+              className="pointer-events-auto"
+              selectedCount={selectedIds.size}
+              allVisibleSelected={allVisibleSelected}
+              canResolve={permissions.resolveConversations}
+              onClear={clearSelection}
+              onSelectAll={selectAllVisible}
+              onDeselectAll={deselectAllVisible}
+              onResolve={() => void handleBulkResolve()}
+            />
+          </div>
+        ) : null}
       </div>
 
       {contextMenu && contextConversation && (
@@ -609,6 +691,7 @@ export function ConversationList() {
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
+          onSelectConversation={enterSelectionMode}
         />
       )}
     </div>

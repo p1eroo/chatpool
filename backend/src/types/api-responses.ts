@@ -87,6 +87,7 @@ export interface Message {
   clientMessageId?: string;
   linkPreview?: LinkPreview;
   linkPreviewSuppressed?: boolean;
+  templateButtons?: Array<{ type: string; text: string }>;
 }
 
 export interface Label {

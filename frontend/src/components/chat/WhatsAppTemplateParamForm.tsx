@@ -1,6 +1,7 @@
 import type { WhatsAppTemplate } from "@/types/whatsappTemplate";
 import { buildTemplatePreviewContent, templateNeedsParams } from "@/types/whatsappTemplate";
 import { WhatsAppFormattedText } from "@/lib/whatsappFormatting";
+import { WhatsAppTemplateButtonPreview } from "@/components/chat/WhatsAppTemplateButtonPreview";
 
 interface WhatsAppTemplateParamFormProps {
   template: WhatsAppTemplate;
@@ -68,7 +69,8 @@ export function WhatsAppTemplateParamForm({
             text={preview}
             className="text-sm text-[var(--color-text-primary)] leading-relaxed"
           />
-          {!preview.trim() && (
+          <WhatsAppTemplateButtonPreview buttons={template.buttons ?? []} />
+          {!preview.trim() && !(template.buttons?.length) && (
             <p className="text-xs text-[var(--color-text-muted)] italic">Sin contenido de texto</p>
           )}
         </div>
